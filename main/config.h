@@ -123,6 +123,16 @@
 #define SERVO_PWM_CHANNEL   LEDC_CHANNEL_3
 #define SERVO_PWM_TIMER     LEDC_TIMER_1
 
+// LCD Display Configuration (ST7789 135x240)
+// TTGO T-Display built-in LCD pins
+#define LCD_PIN_SCLK        GPIO_NUM_18
+#define LCD_PIN_MOSI        GPIO_NUM_19
+#define LCD_PIN_DC          GPIO_NUM_16
+#define LCD_PIN_CS          GPIO_NUM_5
+#define LCD_PIN_RST         GPIO_NUM_23
+#define LCD_PIN_BACKLIGHT   GPIO_NUM_4
+#define ENABLE_LCD_DISPLAY  1            // Enable LCD on TTGO
+
 // Camera pins not defined for TTGO (no camera)
 
 #endif // Target selection

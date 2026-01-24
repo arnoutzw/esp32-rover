@@ -14,6 +14,7 @@ idf_component_register(
         servo_control
         camera
         web_server
+        lcd_display
 )
 
 # Allow target selection via environment variable or CMake variable

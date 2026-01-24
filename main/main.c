@@ -18,6 +18,9 @@
 #include "camera.h"
 #endif
 #include "web_server.h"
+#if defined(ENABLE_LCD_DISPLAY) && ENABLE_LCD_DISPLAY
+#include "lcd_display.h"
+#endif
 
 static const char *TAG = "ROVER_MAIN";
 
@@ -33,6 +36,9 @@ static SemaphoreHandle_t command_mutex = NULL;
 // Task handles
 static TaskHandle_t motor_task_handle = NULL;
 static TaskHandle_t status_task_handle = NULL;
+#if defined(ENABLE_LCD_DISPLAY) && ENABLE_LCD_DISPLAY
+static TaskHandle_t lcd_task_handle = NULL;
+#endif
 
 // =============================================================================
 // WiFi Configuration
@@ -412,6 +418,77 @@ static esp_err_t init_web_server(void)
     return web_server_init(&config);
 }
 
+#if defined(ENABLE_LCD_DISPLAY) && ENABLE_LCD_DISPLAY
+// =============================================================================
+// LCD Display Task
+// =============================================================================
+
+static esp_err_t init_lcd_display(void)
+{
+    ESP_LOGI(TAG, "Initializing LCD display");
+
+    lcd_display_config_t config = {
+        .pin_sclk = LCD_PIN_SCLK,
+        .pin_mosi = LCD_PIN_MOSI,
+        .pin_dc = LCD_PIN_DC,
+        .pin_cs = LCD_PIN_CS,
+        .pin_rst = LCD_PIN_RST,
+        .pin_backlight = LCD_PIN_BACKLIGHT,
+    };
+
+    esp_err_t ret = lcd_display_init(&config);
+    if (ret != ESP_OK) {
+        return ret;
+    }
+
+    // Show splash screen
+    lcd_display_splash();
+    vTaskDelay(pdMS_TO_TICKS(1500));
+
+    return ESP_OK;
+}
+
+static void lcd_update_task(void *pvParameters)
+{
+    ESP_LOGI(TAG, "LCD update task started");
+
+    lcd_rover_status_t lcd_status = {
+        .wifi_ssid = WIFI_SSID,
+        .wifi_ip = "192.168.4.1",
+    };
+
+    while (1) {
+        // Get current command
+        rover_command_t cmd = {0};
+        if (command_mutex && xSemaphoreTake(command_mutex, pdMS_TO_TICKS(10)) == pdTRUE) {
+            cmd = current_command;
+            xSemaphoreGive(command_mutex);
+        }
+
+        // Update LCD status struct
+        lcd_status.speed_percent = (int)cmd.speed;
+        lcd_status.steering_degrees = (int)((cmd.steering / 100.0f) * STEERING_MAX_ANGLE);
+        lcd_status.estop = cmd.emergency_stop;
+
+        // Get motor velocity
+        if (motor_handle) {
+            bldc_motor_get_velocity(motor_handle, &lcd_status.velocity_rads);
+        }
+
+        // Check if client connected (command age < 1 second means active)
+        lcd_status.connected = (web_server_get_command_age_ms() < 1000);
+
+        // Battery voltage (placeholder)
+        lcd_status.battery_volts = 7.4f;
+
+        // Update display
+        lcd_display_update(&lcd_status);
+
+        vTaskDelay(pdMS_TO_TICKS(100));  // Update at 10Hz
+    }
+}
+#endif
+
 // =============================================================================
 // Main Entry Point
 // =============================================================================
@@ -472,6 +549,14 @@ void app_main(void)
     ESP_LOGI(TAG, "Camera disabled in config");
 #endif
 
+#if defined(ENABLE_LCD_DISPLAY) && ENABLE_LCD_DISPLAY
+    ret = init_lcd_display();
+    if (ret != ESP_OK) {
+        ESP_LOGE(TAG, "LCD display init failed: %s", esp_err_to_name(ret));
+        // Continue - LCD will be disabled
+    }
+#endif
+
     ret = init_web_server();
     if (ret != ESP_OK) {
         ESP_LOGE(TAG, "Web server init failed: %s", esp_err_to_name(ret));
@@ -499,6 +584,19 @@ void app_main(void)
         &status_task_handle,
         0   // Core 0
     );
+
+#if defined(ENABLE_LCD_DISPLAY) && ENABLE_LCD_DISPLAY
+    // Create LCD update task on Core 0
+    xTaskCreatePinnedToCore(
+        lcd_update_task,
+        "lcd",
+        4096,
+        NULL,
+        1,  // Low priority
+        &lcd_task_handle,
+        0   // Core 0
+    );
+#endif
 
     ESP_LOGI(TAG, "Rover initialized successfully!");
     ESP_LOGI(TAG, "Connect to WiFi '%s' and open http://192.168.4.1", WIFI_SSID);
