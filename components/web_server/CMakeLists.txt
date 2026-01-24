@@ -7,6 +7,7 @@ idf_component_register(
     REQUIRES
         esp_http_server
         camera
+        log_buffer
     PRIV_REQUIRES
         esp_timer
         espressif__cjson

@@ -4,7 +4,8 @@
 // =============================================================================
 #pragma once
 
-#define ROVER_TARGET_TTGO 1
+// NOTE: ROVER_TARGET is set by build.sh via compiler flags
+// Do not define ROVER_TARGET_TTGO or ROVER_TARGET_ESP32CAM here
 
 // WiFi Mode Configuration
 #define WIFI_MODE_AP_ONLY 0

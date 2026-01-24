@@ -1,19 +1,21 @@
-# TTGO T-Display Rover SDK Configuration
-# Use this configuration for TTGO T-Display module (no camera)
+# ESP32-CAM Rover SDK Configuration
+# Use this configuration for ESP32-CAM AI-Thinker module with camera
 
 # Target ESP32
 CONFIG_IDF_TARGET="esp32"
 
-# Flash size (4MB for TTGO T-Display)
+# Flash size (4MB for ESP32-CAM)
 CONFIG_ESPTOOLPY_FLASHSIZE_4MB=y
 CONFIG_PARTITION_TABLE_CUSTOM=y
 CONFIG_PARTITION_TABLE_CUSTOM_FILENAME="partitions.csv"
 
-# PSRAM support - disabled for TTGO T-Display (no PSRAM)
-# CONFIG_ESP32_SPIRAM_SUPPORT is not set
+# PSRAM support - required for ESP32-CAM camera buffer
+CONFIG_ESP32_SPIRAM_SUPPORT=y
+CONFIG_SPIRAM=y
+CONFIG_SPIRAM_USE_MALLOC=y
 
-# Camera support - disabled for TTGO T-Display
-# CONFIG_CAMERA_CORE0 is not set
+# Camera support
+CONFIG_CAMERA_CORE0=y
 
 # WiFi
 CONFIG_ESP_WIFI_SOFTAP_SUPPORT=y

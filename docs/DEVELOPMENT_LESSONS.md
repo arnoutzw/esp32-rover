@@ -6,13 +6,312 @@ This document captures key bugfixes, feature implementations, and lessons learne
 
 ## Table of Contents
 
+- [ESP32 Memory Architecture](#esp32-memory-architecture)
 - [Hardware Resource Conflicts](#hardware-resource-conflicts)
 - [Display Optimization](#display-optimization)
 - [Responsive Input Handling](#responsive-input-handling)
 - [System Diagnostics](#system-diagnostics)
 - [Configuration System](#configuration-system)
 - [WiFi Connectivity](#wifi-connectivity)
+- [Web Server Concurrency](#web-server-concurrency)
 - [Summary of Best Practices](#summary-of-best-practices)
+
+---
+
+## ESP32 Memory Architecture
+
+Understanding ESP32's memory architecture is critical for embedded development. Unlike desktop systems with gigabytes of unified RAM, the ESP32 has multiple memory types with different characteristics, speeds, and constraints.
+
+### Memory Types Overview
+
+```
+┌─────────────────────────────────────────────────────────────────────────┐
+│                        ESP32 Memory Map                                  │
+├─────────────────────────────────────────────────────────────────────────┤
+│                                                                          │
+│  ┌───────────────────────────────────────────────────────────────────┐  │
+│  │ IRAM (Instruction RAM) - ~128KB                                   │  │
+│  │ • Time-critical code (ISRs, WiFi, performance-sensitive)          │  │
+│  │ • Single-cycle access from CPU                                    │  │
+│  │ • VERY LIMITED - overflow is common problem                       │  │
+│  └───────────────────────────────────────────────────────────────────┘  │
+│                                                                          │
+│  ┌───────────────────────────────────────────────────────────────────┐  │
+│  │ DRAM (Data RAM) - ~328KB                                          │  │
+│  │ • Variables, heap allocations, stack                              │  │
+│  │ • Single-cycle access from CPU                                    │  │
+│  │ • Shared with IRAM in a flexible 520KB internal SRAM pool         │  │
+│  └───────────────────────────────────────────────────────────────────┘  │
+│                                                                          │
+│  ┌───────────────────────────────────────────────────────────────────┐  │
+│  │ Flash - 4MB+ (external SPI)                                       │  │
+│  │ • Application code, constants, assets                             │  │
+│  │ • Cache-backed (32KB cache)                                       │  │
+│  │ • ~10x slower than IRAM, but virtually unlimited                  │  │
+│  └───────────────────────────────────────────────────────────────────┘  │
+│                                                                          │
+│  ┌───────────────────────────────────────────────────────────────────┐  │
+│  │ PSRAM (SPI RAM) - 4-8MB (optional, external)                      │  │
+│  │ • Extended heap for large buffers                                 │  │
+│  │ • ~10x slower than internal RAM                                   │  │
+│  │ • Not available on all modules (TTGO T-Display has none)          │  │
+│  └───────────────────────────────────────────────────────────────────┘  │
+│                                                                          │
+└─────────────────────────────────────────────────────────────────────────┘
+```
+
+### IRAM (Instruction RAM) - The Critical Resource
+
+**What is IRAM?**
+IRAM is a ~128KB region of internal SRAM dedicated to instructions that require single-cycle execution. This includes:
+
+- **Interrupt Service Routines (ISRs)** - Functions marked with `IRAM_ATTR`
+- **Time-critical code** - WiFi PHY, Bluetooth, FreeRTOS core
+- **Code accessed during flash operations** - Can't execute from flash while writing to it
+
+**Why IRAM Overflows Happen**:
+```
+Component               Typical IRAM Usage
+─────────────────────  ────────────────────
+FreeRTOS kernel         ~30-40KB
+WiFi subsystem          ~40-50KB (with optimizations)
+Bluetooth (if enabled)  ~40KB
+Application ISRs        Variable
+ESP-IDF drivers         Variable
+─────────────────────  ────────────────────
+TOTAL available         ~128KB
+```
+
+When the linker can't fit everything into IRAM, you get:
+```
+Error: IRAM0 segment data does not fit.
+Overflow detected: 6484 bytes
+```
+
+**How to Diagnose IRAM Usage**:
+```bash
+# After building, check memory usage
+idf.py size
+
+# Detailed breakdown by component
+idf.py size-components
+
+# Map file shows exact symbol placement
+cat build/esp32-rover.map | grep -A5 "\.iram0"
+```
+
+### Issue: IRAM Overflow on TTGO T-Display Build
+
+**Symptom**: Build failed with:
+```
+IRAM0 segment data does not fit.
+Region `iram0_0_seg' overflowed by 6484 bytes
+```
+
+**Root Cause**: The TTGO T-Display configuration was using default SDK settings that placed too much code in IRAM, including:
+- WiFi IRAM optimizations (not needed at AP-mode speeds)
+- FreeRTOS functions in IRAM (only needed for ISR-heavy applications)
+- SPI ISR handlers in IRAM (not needed when not using SPI from ISRs)
+- Ring buffer functions in IRAM (rarely needed)
+
+**Investigation Process**:
+1. Stashed all changes to test if it was new code causing overflow
+2. Found overflow was **pre-existing** (6440 bytes without new code)
+3. Concluded: default ESP-IDF settings are IRAM-heavy
+
+**Solution**: Added IRAM optimization options to `sdkconfig.defaults.ttgo`:
+
+```ini
+# IRAM optimization - move non-ISR code to flash to free up IRAM
+
+# Move FreeRTOS functions to flash (safe if you don't call them from ISRs)
+CONFIG_FREERTOS_PLACE_FUNCTIONS_INTO_FLASH=y
+CONFIG_FREERTOS_PLACE_SNAPSHOT_FUNS_INTO_FLASH=y
+
+# Move ring buffer functions to flash
+CONFIG_RINGBUF_PLACE_FUNCTIONS_INTO_FLASH=y
+CONFIG_RINGBUF_PLACE_ISR_FUNCTIONS_INTO_FLASH=y
+
+# Reduce assertion overhead
+CONFIG_HAL_DEFAULT_ASSERTION_LEVEL=1
+
+# Optimize for size instead of speed
+CONFIG_COMPILER_OPTIMIZATION_SIZE=y
+
+# Use flash ROM driver patch (saves IRAM)
+CONFIG_SPI_FLASH_ROM_DRIVER_PATCH=y
+
+# Disable IRAM-hungry options
+CONFIG_ESP_EVENT_POST_FROM_ISR=n      # No event posting from ISRs
+CONFIG_LWIP_IRAM_OPTIMIZATION=n       # TCP/IP doesn't need IRAM speed
+CONFIG_ESP_WIFI_IRAM_OPT=n            # WiFi code can run from flash
+CONFIG_ESP_WIFI_RX_IRAM_OPT=n         # WiFi RX path from flash
+CONFIG_SPI_MASTER_ISR_IN_IRAM=n       # SPI master ISR not needed in IRAM
+CONFIG_SPI_SLAVE_ISR_IN_IRAM=n        # SPI slave ISR not needed in IRAM
+CONFIG_GPTIMER_ISR_HANDLER_IN_IRAM=n  # GP timer ISRs not needed
+
+# Move heap functions to flash
+CONFIG_HEAP_PLACE_FUNCTION_INTO_FLASH=y
+```
+
+**Result**: Build succeeded with 35% flash partition usage (vs. 100%+ IRAM overflow).
+
+**Lesson Learned**:
+- **Default ESP-IDF settings prioritize speed over IRAM conservation** - Fine for WROVER modules with more IRAM budget, problematic for constrained builds
+- **Most IRAM optimizations aren't needed** - Unless you're calling those functions from ISRs or need sub-microsecond timing
+- **Create board-specific sdkconfig.defaults** - Different modules have different constraints
+- **Test IRAM usage early** - Add features incrementally and watch memory usage
+
+### IRAM Optimization Decision Matrix
+
+| Config Option | Keep in IRAM When... | Move to Flash When... |
+|--------------|----------------------|------------------------|
+| `ESP_WIFI_IRAM_OPT` | High-throughput WiFi needed | AP mode or light STA use |
+| `ESP_WIFI_RX_IRAM_OPT` | Critical WiFi latency | Normal web server use |
+| `FREERTOS_PLACE_FUNCTIONS_INTO_FLASH` | Calling FreeRTOS from ISRs | Normal task usage |
+| `SPI_MASTER_ISR_IN_IRAM` | High-speed SPI from ISRs | Normal SPI peripherals |
+| `LWIP_IRAM_OPTIMIZATION` | Network latency critical | Normal HTTP/MQTT use |
+| `ESP_EVENT_POST_FROM_ISR` | Posting events from ISRs | Event posting from tasks only |
+
+### DRAM (Data RAM) - Heap and Stack
+
+**What is DRAM?**
+DRAM is the internal SRAM used for:
+- Heap allocations (`malloc()`, `calloc()`)
+- Task stacks
+- Global/static variables
+- DMA buffers (must be in DRAM, not PSRAM)
+
+**Typical DRAM Budget**:
+```
+Total internal SRAM:    ~520KB (shared between IRAM and DRAM)
+Less IRAM usage:        ~128KB typical
+Less static allocations: ~80KB (varies by app)
+Less task stacks:       ~50KB (varies by task count)
+─────────────────────────────────────────
+Free heap at runtime:   ~100-200KB typical
+```
+
+**Key APIs**:
+```c
+// Check current free heap
+size_t free = esp_get_free_heap_size();
+
+// Check lowest heap since boot (watermark for leak detection)
+size_t min_free = esp_get_minimum_free_heap_size();
+
+// Check internal DRAM specifically
+size_t internal = heap_caps_get_free_size(MALLOC_CAP_INTERNAL);
+
+// Allocate from internal DRAM specifically (not PSRAM)
+void *buf = heap_caps_malloc(size, MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
+```
+
+**When Internal DRAM is Required**:
+- DMA buffers (LCD, camera, SPI)
+- WiFi buffers
+- Anything accessed at high frequency
+- Interrupt-accessed data
+
+### PSRAM (SPI RAM) - Extended Memory
+
+**What is PSRAM?**
+PSRAM is external SPI-connected RAM available on some ESP32 modules:
+- ESP32-WROVER: 4MB PSRAM
+- ESP32-CAM: 4MB PSRAM
+- ESP32-S3-WROOM-2: 2-8MB PSRAM
+- **TTGO T-Display: NO PSRAM**
+
+**PSRAM Characteristics**:
+```
+Speed:          ~10x slower than internal SRAM
+Access:         Through SPI cache, not direct
+DMA:            NOT supported (most DMA peripherals)
+Use case:       Large buffers, image data, non-time-critical storage
+```
+
+**Using PSRAM**:
+```c
+// Enable in sdkconfig
+CONFIG_ESP32_SPIRAM_SUPPORT=y
+CONFIG_SPIRAM_MALLOC_ALWAYSINTERNAL=4096  // Use internal for <4KB
+
+// Allocate explicitly from PSRAM
+void *large_buf = heap_caps_malloc(size, MALLOC_CAP_SPIRAM);
+
+// Or let malloc() use PSRAM automatically (if configured)
+void *buf = malloc(large_size);  // May come from PSRAM
+```
+
+**PSRAM vs Internal RAM Trade-offs**:
+
+| Factor | Internal DRAM | PSRAM |
+|--------|--------------|-------|
+| Speed | Fast (single-cycle) | Slow (~10x slower) |
+| Size | ~200KB free typical | 4-8MB |
+| DMA | Supported | Not supported |
+| Cache | Not cached | Cached (can cause contention) |
+| Power | Lower | Higher (SPI activity) |
+
+### Flash Memory - Code and Constants
+
+**What Goes in Flash?**
+- Application code (when not in IRAM)
+- String constants, lookup tables
+- Assets (HTML, images)
+- OTA partitions
+- NVS storage
+
+**Flash Access Considerations**:
+```
+Speed:          Cached (~32KB cache), ~10x slower on cache miss
+Execution:      Code can execute from flash via cache
+Writing:        Blocks CPU during flash writes (use IRAM for ISRs)
+Endurance:      ~100,000 write cycles per sector
+```
+
+**Code Placement Attributes**:
+```c
+// Force function into IRAM (fast, limited space)
+void IRAM_ATTR critical_isr(void) { ... }
+
+// Force into flash (slower, unlimited space) - rarely needed
+void NOINLINE_ATTR large_function(void) { ... }
+
+// Force data into DRAM (not flash)
+static DRAM_ATTR uint8_t dma_buffer[1024];
+```
+
+### Memory Debugging Commands
+
+```bash
+# Build and check memory usage
+idf.py size
+# Output:
+# Total sizes:
+#  Used static DRAM:   78344 bytes ( 102392 remain)
+#  Used static IRAM:  122316 bytes (   8756 remain)  ← Watch this!
+#       Used Flash: 1021342 bytes
+
+# Detailed per-component breakdown
+idf.py size-components
+# Shows which component uses how much IRAM/DRAM/Flash
+
+# At runtime, check heap
+ESP_LOGI(TAG, "Free heap: %lu, Min: %lu",
+         esp_get_free_heap_size(),
+         esp_get_minimum_free_heap_size());
+```
+
+### Memory Best Practices Summary
+
+1. **Monitor IRAM during development** - Check `idf.py size` after adding features
+2. **Use IRAM sparingly** - Only for true ISRs and time-critical code
+3. **Create board-specific configs** - WROVER can afford more IRAM usage than basic ESP32
+4. **Place large buffers in PSRAM** - When available, use for camera frames, audio buffers
+5. **Track heap watermark** - `esp_get_minimum_free_heap_size()` catches leaks
+6. **Use DRAM for DMA** - External PSRAM doesn't work with most DMA peripherals
+7. **Profile before optimizing** - Don't assume; measure with `idf.py size-components`
 
 ---
 
@@ -643,9 +942,160 @@ esp_err_t web_server_init(...) {
 
 ---
 
+## Web Server Concurrency
+
+### Issue: MJPEG Stream Blocking Other HTTP Requests
+
+**Symptom**: When viewing the camera stream in the web GUI, all other requests (`/status`, `/control`) stopped working. The telemetry values and button indicators never updated while the stream was active. Disconnecting from the stream immediately restored functionality.
+
+**Root Cause**: ESP-IDF's httpd server uses a work queue model where handlers run on the httpd task. The MJPEG stream handler contained an infinite `while(true)` loop:
+
+```c
+// BLOCKING - prevents other requests from being processed
+static esp_err_t stream_handler(httpd_req_t *req)
+{
+    while (true) {
+        camera_fb_t *fb = camera_capture_frame();
+        // ... send frame ...
+        vTaskDelay(pdMS_TO_TICKS(66));  // ~15 FPS
+    }
+    return res;
+}
+```
+
+The `vTaskDelay()` yields the CPU but the handler never returns, so the httpd work queue remains blocked and no other URI handlers can execute.
+
+**Initial (Failed) Fix Attempt**: Increased `max_open_sockets`:
+```c
+http_config.max_open_sockets = 10;  // Default is 7
+```
+This allowed more connections but didn't solve the problem because httpd still only has one work queue.
+
+**Solution**: Use ESP-IDF's async request handling to run the stream in a separate FreeRTOS task:
+
+```c
+// Async task data
+typedef struct {
+    httpd_req_t *req;
+    int socket_fd;
+} stream_task_data_t;
+
+// Stream task runs independently of httpd work queue
+static void stream_task(void *pvParameters)
+{
+    stream_task_data_t *data = (stream_task_data_t *)pvParameters;
+    httpd_req_t *req = data->req;
+
+    while (true) {
+        camera_fb_t *fb = camera_capture_frame();
+        if (!fb) break;
+
+        esp_err_t res = httpd_resp_send_chunk(req, ...);
+        if (res != ESP_OK) {
+            camera_return_frame(fb);
+            break;  // Client disconnected
+        }
+        camera_return_frame(fb);
+        vTaskDelay(pdMS_TO_TICKS(66));
+    }
+
+    // CRITICAL: Complete the async request when done
+    httpd_req_async_handler_complete(req);
+    free(data);
+    vTaskDelete(NULL);
+}
+
+// Handler returns immediately after spawning task
+static esp_err_t stream_handler(httpd_req_t *req)
+{
+    // Start async handling - this allows httpd to process other requests
+    httpd_req_t *async_req = NULL;
+    esp_err_t res = httpd_req_async_handler_begin(req, &async_req);
+    if (res != ESP_OK) return res;
+
+    // Allocate task data
+    stream_task_data_t *task_data = malloc(sizeof(stream_task_data_t));
+    task_data->req = async_req;
+    task_data->socket_fd = httpd_req_to_sockfd(req);
+
+    // Create stream task - handler returns immediately
+    xTaskCreatePinnedToCore(
+        stream_task,
+        "mjpeg_stream",
+        4096,
+        task_data,
+        3,
+        &stream_task_handle,
+        0  // Core 0
+    );
+
+    return ESP_OK;  // Handler returns, httpd work queue unblocked!
+}
+```
+
+**Key API Functions**:
+- `httpd_req_async_handler_begin(req, &async_req)` - Creates a copy of the request for async use
+- `httpd_req_async_handler_complete(req)` - MUST be called when async operation finishes
+- `httpd_req_to_sockfd(req)` - Gets socket FD (useful for tracking which client)
+
+**Why This Works**:
+```
+BEFORE (blocking):                    AFTER (async):
+┌─────────────────┐                  ┌─────────────────┐
+│   httpd task    │                  │   httpd task    │
+├─────────────────┤                  ├─────────────────┤
+│ stream_handler  │ ◄─ BLOCKED      │ stream_handler  │ ◄─ returns immediately
+│   while(true)   │                  │  spawn task     │
+│     ...         │                  └────────┬────────┘
+│     ...         │                           │
+│   never returns │                  ┌────────▼────────┐
+└─────────────────┘                  │  stream_task    │ (separate FreeRTOS task)
+                                     │   while(true)   │
+/status blocked!                     │     ...         │
+/control blocked!                    └─────────────────┘
+
+                                     /status ✓ works!
+                                     /control ✓ works!
+```
+
+**Important Considerations**:
+1. **Memory cleanup** - Free task data and call `httpd_req_async_handler_complete()` when done
+2. **Single stream limit** - Only allow one stream at a time (check `stream_task_handle != NULL`)
+3. **Client disconnect detection** - Check `httpd_resp_send_chunk()` return value
+4. **Task priority** - Stream task should be lower priority than motor control
+
+**Lesson Learned**:
+- **Async handlers are essential for long-running HTTP operations** - Streams, file downloads, etc.
+- **Increasing `max_open_sockets` doesn't fix blocking handlers** - Still one work queue
+- **Always call `httpd_req_async_handler_complete()`** - Memory leak otherwise
+- **Use separate task for any handler that takes > 100ms** - Keep httpd responsive
+- **Check for client disconnection** - Exit the loop cleanly when client closes connection
+
+### When to Use Async Handlers
+
+| Scenario | Use Async? | Reason |
+|----------|------------|--------|
+| Serve static HTML | No | Returns in milliseconds |
+| Return JSON status | No | Returns in milliseconds |
+| MJPEG camera stream | **Yes** | Runs indefinitely |
+| Large file download | **Yes** | Takes seconds/minutes |
+| WebSocket handler | **Yes** | Long-lived connection |
+| POST with small body | No | Quick parsing and response |
+
+---
+
 ## Summary of Best Practices
 
-### 1. Hardware Resource Management
+### 1. Memory Management
+- [ ] Monitor IRAM usage with `idf.py size` after adding features
+- [ ] Create board-specific sdkconfig.defaults for constrained modules
+- [ ] Use PSRAM for large buffers when available (camera frames, audio)
+- [ ] Mark only true ISR code with `IRAM_ATTR` - keep IRAM lean
+- [ ] Disable IRAM optimizations not needed for your use case
+- [ ] Track heap watermark to detect memory leaks
+- [ ] Use `MALLOC_CAP_INTERNAL` for DMA buffers
+
+### 2. Hardware Resource Management
 - [ ] Create a central resource allocation document
 - [ ] Check for LEDC channel conflicts before adding PWM peripherals
 - [ ] Document GPIO assignments with boot restrictions noted
@@ -675,6 +1125,13 @@ esp_err_t web_server_init(...) {
 - [ ] Build serial monitor access into the workflow
 - [ ] Create diagnostic screens accessible without network
 
+### 6. Web Server Architecture
+- [ ] Use async handlers for long-running operations (streams, downloads)
+- [ ] Never block httpd work queue with infinite loops
+- [ ] Always call `httpd_req_async_handler_complete()` when async operation ends
+- [ ] Limit concurrent streams to prevent resource exhaustion
+- [ ] Check return values of `httpd_resp_send_chunk()` to detect disconnects
+
 ---
 
 ## Commits Reference
@@ -691,7 +1148,14 @@ esp_err_t web_server_init(...) {
 
 ## Further Reading
 
+### Memory Architecture
+- [ESP32 Memory Types](https://docs.espressif.com/projects/esp-idf/en/latest/esp32/api-reference/system/mem_alloc.html)
+- [IRAM and DRAM](https://docs.espressif.com/projects/esp-idf/en/latest/esp32/api-guides/memory-types.html)
+- [Support for External RAM (PSRAM)](https://docs.espressif.com/projects/esp-idf/en/latest/esp32/api-guides/external-ram.html)
+- [Heap Memory Allocation](https://docs.espressif.com/projects/esp-idf/en/latest/esp32/api-reference/system/heap_debug.html)
+- [Minimizing RAM Usage](https://docs.espressif.com/projects/esp-idf/en/latest/esp32/api-guides/performance/ram-usage.html)
+
+### Peripherals and System
 - [ESP-IDF LEDC Documentation](https://docs.espressif.com/projects/esp-idf/en/latest/esp32/api-reference/peripherals/ledc.html)
 - [ESP-IDF GPIO Interrupts](https://docs.espressif.com/projects/esp-idf/en/latest/esp32/api-reference/peripherals/gpio.html)
-- [Heap Memory Debugging](https://docs.espressif.com/projects/esp-idf/en/latest/esp32/api-reference/system/heap_debug.html)
 - [FreeRTOS Task Utilities](https://www.freertos.org/a00021.html)

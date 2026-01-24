@@ -1,6 +1,7 @@
 #include "web_server.h"
 #include "camera.h"
 #include "config.h"
+#include "log_buffer.h"
 #include <string.h>
 #include <stdlib.h>
 #include "esp_log.h"
@@ -26,6 +27,12 @@ static rover_status_t current_status = {0};
 static int64_t last_command_time = 0;
 static SemaphoreHandle_t state_mutex = NULL;
 
+// Async stream task handle
+static TaskHandle_t stream_task_handle = NULL;
+
+// Log stream task handle
+static TaskHandle_t log_stream_task_handle = NULL;
+
 // Forward declarations
 static esp_err_t root_handler(httpd_req_t *req);
 static esp_err_t stream_handler(httpd_req_t *req);
@@ -33,6 +40,11 @@ static esp_err_t control_handler(httpd_req_t *req);
 #if ENABLE_REST_API
 static esp_err_t status_handler(httpd_req_t *req);
 #endif
+static esp_err_t logs_handler(httpd_req_t *req);
+static esp_err_t logs_stream_handler(httpd_req_t *req);
+static esp_err_t logs_delete_handler(httpd_req_t *req);
+static esp_err_t led_get_handler(httpd_req_t *req);
+static esp_err_t led_post_handler(httpd_req_t *req);
 
 // URI handlers
 static const httpd_uri_t uri_root = {
@@ -65,6 +77,41 @@ static const httpd_uri_t uri_status = {
 };
 #endif
 
+static const httpd_uri_t uri_logs = {
+    .uri = "/logs",
+    .method = HTTP_GET,
+    .handler = logs_handler,
+    .user_ctx = NULL
+};
+
+static const httpd_uri_t uri_logs_stream = {
+    .uri = "/logs/stream",
+    .method = HTTP_GET,
+    .handler = logs_stream_handler,
+    .user_ctx = NULL
+};
+
+static const httpd_uri_t uri_logs_delete = {
+    .uri = "/logs",
+    .method = HTTP_DELETE,
+    .handler = logs_delete_handler,
+    .user_ctx = NULL
+};
+
+static const httpd_uri_t uri_led_get = {
+    .uri = "/led",
+    .method = HTTP_GET,
+    .handler = led_get_handler,
+    .user_ctx = NULL
+};
+
+static const httpd_uri_t uri_led_post = {
+    .uri = "/led",
+    .method = HTTP_POST,
+    .handler = led_post_handler,
+    .user_ctx = NULL
+};
+
 // Root handler - serve HTML UI
 static esp_err_t root_handler(httpd_req_t *req)
 {
@@ -74,30 +121,26 @@ static esp_err_t root_handler(httpd_req_t *req)
     return httpd_resp_send(req, html, strlen(html));
 }
 
-// Stream handler - MJPEG stream
-static esp_err_t stream_handler(httpd_req_t *req)
+// Async stream task data
+typedef struct {
+    httpd_req_t *req;
+    int socket_fd;
+} stream_task_data_t;
+
+// Stream task that runs independently
+static void stream_task(void *pvParameters)
 {
-    esp_err_t res = ESP_OK;
+    stream_task_data_t *data = (stream_task_data_t *)pvParameters;
+    httpd_req_t *req = data->req;
     char part_buf[128];
+    esp_err_t res = ESP_OK;
 
-    if (!camera_is_initialized()) {
-        httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "Camera not initialized");
-        return ESP_FAIL;
-    }
-
-    res = httpd_resp_set_type(req, STREAM_CONTENT_TYPE);
-    if (res != ESP_OK) {
-        return res;
-    }
-
-    httpd_resp_set_hdr(req, "Access-Control-Allow-Origin", "*");
-    httpd_resp_set_hdr(req, "X-Framerate", "15");
+    ESP_LOGI(TAG, "Stream task started on socket %d", data->socket_fd);
 
     while (true) {
         camera_fb_t *fb = camera_capture_frame();
         if (!fb) {
             ESP_LOGE(TAG, "Camera capture failed");
-            res = ESP_FAIL;
             break;
         }
 
@@ -106,18 +149,21 @@ static esp_err_t stream_handler(httpd_req_t *req)
         res = httpd_resp_send_chunk(req, part_buf, hlen);
         if (res != ESP_OK) {
             camera_return_frame(fb);
+            ESP_LOGI(TAG, "Stream client disconnected (header)");
             break;
         }
 
         res = httpd_resp_send_chunk(req, (const char *)fb->buf, fb->len);
         if (res != ESP_OK) {
             camera_return_frame(fb);
+            ESP_LOGI(TAG, "Stream client disconnected (data)");
             break;
         }
 
         res = httpd_resp_send_chunk(req, "\r\n", 2);
         if (res != ESP_OK) {
             camera_return_frame(fb);
+            ESP_LOGI(TAG, "Stream client disconnected (boundary)");
             break;
         }
 
@@ -127,7 +173,72 @@ static esp_err_t stream_handler(httpd_req_t *req)
         vTaskDelay(pdMS_TO_TICKS(66));  // ~15 FPS
     }
 
-    return res;
+    // Complete the async request
+    httpd_req_async_handler_complete(req);
+    free(data);
+    stream_task_handle = NULL;
+    ESP_LOGI(TAG, "Stream task ended");
+    vTaskDelete(NULL);
+}
+
+// Stream handler - MJPEG stream (async version)
+static esp_err_t stream_handler(httpd_req_t *req)
+{
+    if (!camera_is_initialized()) {
+        httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "Camera not initialized");
+        return ESP_FAIL;
+    }
+
+    // Only allow one stream at a time
+    if (stream_task_handle != NULL) {
+        httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "Stream already active");
+        return ESP_FAIL;
+    }
+
+    esp_err_t res = httpd_resp_set_type(req, STREAM_CONTENT_TYPE);
+    if (res != ESP_OK) {
+        return res;
+    }
+
+    httpd_resp_set_hdr(req, "Access-Control-Allow-Origin", "*");
+    httpd_resp_set_hdr(req, "X-Framerate", "15");
+
+    // Start async handling - this allows other requests to be processed
+    httpd_req_t *async_req = NULL;
+    res = httpd_req_async_handler_begin(req, &async_req);
+    if (res != ESP_OK) {
+        ESP_LOGE(TAG, "Failed to start async handler: %s", esp_err_to_name(res));
+        return res;
+    }
+
+    // Allocate task data
+    stream_task_data_t *task_data = malloc(sizeof(stream_task_data_t));
+    if (!task_data) {
+        httpd_req_async_handler_complete(async_req);
+        return ESP_ERR_NO_MEM;
+    }
+    task_data->req = async_req;
+    task_data->socket_fd = httpd_req_to_sockfd(req);
+
+    // Create stream task on Core 0
+    BaseType_t xReturned = xTaskCreatePinnedToCore(
+        stream_task,
+        "mjpeg_stream",
+        4096,
+        task_data,
+        3,  // Medium priority
+        &stream_task_handle,
+        0   // Core 0
+    );
+
+    if (xReturned != pdPASS) {
+        ESP_LOGE(TAG, "Failed to create stream task");
+        httpd_req_async_handler_complete(async_req);
+        free(task_data);
+        return ESP_FAIL;
+    }
+
+    return ESP_OK;
 }
 
 // Control handler - receive commands
@@ -288,6 +399,287 @@ static esp_err_t status_handler(httpd_req_t *req)
 }
 #endif // ENABLE_REST_API
 
+// =============================================================================
+// Log Buffer Handlers
+// =============================================================================
+
+// Helper to parse query parameters
+static bool get_query_param(httpd_req_t *req, const char *key, char *value, size_t value_len)
+{
+    size_t buf_len = httpd_req_get_url_query_len(req) + 1;
+    if (buf_len <= 1) return false;
+
+    char *buf = malloc(buf_len);
+    if (!buf) return false;
+
+    if (httpd_req_get_url_query_str(req, buf, buf_len) != ESP_OK) {
+        free(buf);
+        return false;
+    }
+
+    esp_err_t err = httpd_query_key_value(buf, key, value, value_len);
+    free(buf);
+    return err == ESP_OK;
+}
+
+// GET /logs - Return logs as JSON
+static esp_err_t logs_handler(httpd_req_t *req)
+{
+    if (!log_buffer_is_initialized()) {
+        httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "Log buffer not initialized");
+        return ESP_FAIL;
+    }
+
+    // Parse query parameters
+    char level_str[16] = "all";
+    char tag_filter[32] = "";
+    char since_str[16] = "0";
+    char limit_str[16] = "0";
+
+    get_query_param(req, "level", level_str, sizeof(level_str));
+    get_query_param(req, "tag", tag_filter, sizeof(tag_filter));
+    get_query_param(req, "since", since_str, sizeof(since_str));
+    get_query_param(req, "limit", limit_str, sizeof(limit_str));
+
+    log_filter_t filter = log_buffer_parse_level_filter(level_str);
+    uint32_t since = (uint32_t)atol(since_str);
+    size_t limit = (size_t)atol(limit_str);
+
+    char *json = NULL;
+    esp_err_t err = log_buffer_get_json(
+        filter,
+        tag_filter[0] ? tag_filter : NULL,
+        since,
+        &json,
+        limit
+    );
+
+    if (err != ESP_OK || !json) {
+        httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "Failed to get logs");
+        return ESP_FAIL;
+    }
+
+    httpd_resp_set_type(req, "application/json");
+    httpd_resp_set_hdr(req, "Access-Control-Allow-Origin", "*");
+    httpd_resp_set_hdr(req, "Cache-Control", "no-cache");
+    esp_err_t send_err = httpd_resp_sendstr(req, json);
+    free(json);
+
+    return send_err;
+}
+
+// DELETE /logs - Clear log buffer
+static esp_err_t logs_delete_handler(httpd_req_t *req)
+{
+    if (!log_buffer_is_initialized()) {
+        httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "Log buffer not initialized");
+        return ESP_FAIL;
+    }
+
+    log_buffer_clear();
+
+    httpd_resp_set_type(req, "application/json");
+    httpd_resp_set_hdr(req, "Access-Control-Allow-Origin", "*");
+    return httpd_resp_sendstr(req, "{\"status\":\"ok\"}");
+}
+
+// Log stream task data
+typedef struct {
+    httpd_req_t *req;
+    log_filter_t filter;
+    volatile bool running;
+} log_stream_data_t;
+
+// Log stream task - sends SSE events
+static void log_stream_task(void *pvParameters)
+{
+    log_stream_data_t *data = (log_stream_data_t *)pvParameters;
+    httpd_req_t *req = data->req;
+    uint32_t last_timestamp = 0;
+
+    ESP_LOGI(TAG, "Log stream task started");
+
+    while (data->running) {
+        char *json = NULL;
+        uint32_t new_timestamp;
+
+        esp_err_t err = log_buffer_get_new_logs(
+            data->filter,
+            last_timestamp,
+            &json,
+            &new_timestamp
+        );
+
+        if (err == ESP_OK && json) {
+            // Check if there are any logs to send
+            // Parse to see if logs array is empty
+            bool has_logs = strstr(json, "\"logs\":[]") == NULL;
+
+            if (has_logs) {
+                // Send as SSE event
+                char header[64];
+                snprintf(header, sizeof(header), "event: logs\ndata: ");
+                esp_err_t res = httpd_resp_send_chunk(req, header, strlen(header));
+                if (res != ESP_OK) {
+                    free(json);
+                    break;
+                }
+
+                res = httpd_resp_send_chunk(req, json, strlen(json));
+                if (res != ESP_OK) {
+                    free(json);
+                    break;
+                }
+
+                res = httpd_resp_send_chunk(req, "\n\n", 2);
+                if (res != ESP_OK) {
+                    free(json);
+                    break;
+                }
+
+                last_timestamp = new_timestamp;
+            }
+
+            free(json);
+        }
+
+        // Poll interval - 500ms
+        vTaskDelay(pdMS_TO_TICKS(500));
+    }
+
+    // Complete the async request
+    httpd_req_async_handler_complete(req);
+    free(data);
+    log_stream_task_handle = NULL;
+    ESP_LOGI(TAG, "Log stream task ended");
+    vTaskDelete(NULL);
+}
+
+// GET /logs/stream - SSE stream of new logs
+static esp_err_t logs_stream_handler(httpd_req_t *req)
+{
+    if (!log_buffer_is_initialized()) {
+        httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "Log buffer not initialized");
+        return ESP_FAIL;
+    }
+
+    // Only allow one log stream at a time
+    if (log_stream_task_handle != NULL) {
+        httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "Log stream already active");
+        return ESP_FAIL;
+    }
+
+    // Parse level filter
+    char level_str[16] = "all";
+    get_query_param(req, "level", level_str, sizeof(level_str));
+    log_filter_t filter = log_buffer_parse_level_filter(level_str);
+
+    // Set SSE headers
+    httpd_resp_set_type(req, "text/event-stream");
+    httpd_resp_set_hdr(req, "Cache-Control", "no-cache");
+    httpd_resp_set_hdr(req, "Connection", "keep-alive");
+    httpd_resp_set_hdr(req, "Access-Control-Allow-Origin", "*");
+
+    // Start async handling
+    httpd_req_t *async_req = NULL;
+    esp_err_t res = httpd_req_async_handler_begin(req, &async_req);
+    if (res != ESP_OK) {
+        ESP_LOGE(TAG, "Failed to start async handler for log stream: %s", esp_err_to_name(res));
+        return res;
+    }
+
+    // Allocate task data
+    log_stream_data_t *task_data = malloc(sizeof(log_stream_data_t));
+    if (!task_data) {
+        httpd_req_async_handler_complete(async_req);
+        return ESP_ERR_NO_MEM;
+    }
+    task_data->req = async_req;
+    task_data->filter = filter;
+    task_data->running = true;
+
+    // Create log stream task on Core 0
+    BaseType_t xReturned = xTaskCreatePinnedToCore(
+        log_stream_task,
+        "log_stream",
+        4096,
+        task_data,
+        2,  // Lower priority than camera stream
+        &log_stream_task_handle,
+        0   // Core 0
+    );
+
+    if (xReturned != pdPASS) {
+        ESP_LOGE(TAG, "Failed to create log stream task");
+        httpd_req_async_handler_complete(async_req);
+        free(task_data);
+        return ESP_FAIL;
+    }
+
+    return ESP_OK;
+}
+
+// =============================================================================
+// LED Control Handlers
+// =============================================================================
+
+// GET /led - Return LED state
+static esp_err_t led_get_handler(httpd_req_t *req)
+{
+    bool state = flash_led_get_state();
+    char response[32];
+    snprintf(response, sizeof(response), "{\"on\":%s}", state ? "true" : "false");
+
+    httpd_resp_set_type(req, "application/json");
+    httpd_resp_set_hdr(req, "Access-Control-Allow-Origin", "*");
+    return httpd_resp_sendstr(req, response);
+}
+
+// POST /led - Set LED state
+static esp_err_t led_post_handler(httpd_req_t *req)
+{
+    char buf[64];
+    int ret, remaining = req->content_len;
+
+    if (remaining > sizeof(buf) - 1) {
+        httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "Content too large");
+        return ESP_FAIL;
+    }
+
+    ret = httpd_req_recv(req, buf, remaining);
+    if (ret <= 0) {
+        if (ret == HTTPD_SOCK_ERR_TIMEOUT) {
+            httpd_resp_send_408(req);
+        }
+        return ESP_FAIL;
+    }
+    buf[ret] = '\0';
+
+    // Parse JSON
+    cJSON *root = cJSON_Parse(buf);
+    if (!root) {
+        httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "Invalid JSON");
+        return ESP_FAIL;
+    }
+
+    cJSON *on = cJSON_GetObjectItem(root, "on");
+    if (on && cJSON_IsBool(on)) {
+        flash_led_set(cJSON_IsTrue(on));
+        ESP_LOGI(TAG, "Flash LED set to %s", cJSON_IsTrue(on) ? "ON" : "OFF");
+    }
+
+    cJSON_Delete(root);
+
+    // Return current state
+    bool state = flash_led_get_state();
+    char response[32];
+    snprintf(response, sizeof(response), "{\"on\":%s}", state ? "true" : "false");
+
+    httpd_resp_set_type(req, "application/json");
+    httpd_resp_set_hdr(req, "Access-Control-Allow-Origin", "*");
+    return httpd_resp_sendstr(req, response);
+}
+
 esp_err_t web_server_init(const web_server_config_t *config)
 {
     if (server) {
@@ -312,8 +704,10 @@ esp_err_t web_server_init(const web_server_config_t *config)
     httpd_config_t http_config = HTTPD_DEFAULT_CONFIG();
     http_config.server_port = config->port;
     http_config.stack_size = 8192;
-    http_config.max_uri_handlers = 8;
+    http_config.max_uri_handlers = 10;
     http_config.lru_purge_enable = true;
+    // Allow multiple concurrent connections (stream + status/control requests)
+    http_config.max_open_sockets = 10;
 
     ESP_LOGI(TAG, "Starting server on port %d", config->port);
 
@@ -331,6 +725,17 @@ esp_err_t web_server_init(const web_server_config_t *config)
     httpd_register_uri_handler(server, &uri_status);
     ESP_LOGI(TAG, "REST API enabled (/status endpoint)");
 #endif
+
+    // Register log endpoints
+    httpd_register_uri_handler(server, &uri_logs);
+    httpd_register_uri_handler(server, &uri_logs_stream);
+    httpd_register_uri_handler(server, &uri_logs_delete);
+    ESP_LOGI(TAG, "Log endpoints enabled (/logs, /logs/stream)");
+
+    // Register LED endpoints
+    httpd_register_uri_handler(server, &uri_led_get);
+    httpd_register_uri_handler(server, &uri_led_post);
+    ESP_LOGI(TAG, "LED endpoint enabled (/led)");
 
     ESP_LOGI(TAG, "Web server started");
     return ESP_OK;

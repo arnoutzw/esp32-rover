@@ -14,7 +14,7 @@
 set -e
 
 # Default rover IP (AP mode)
-ROVER_IP="${1:-192.168.4.1}"
+ROVER_IP="${1:-192.168.2.75}"
 BASE_URL="http://${ROVER_IP}"
 
 # Colors for output

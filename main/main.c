@@ -25,6 +25,8 @@
 #include "esp_sntp.h"
 #include "esp_sleep.h"
 #include "driver/rtc_io.h"
+#include "log_buffer.h"
+#include "mdns.h"
 
 #include "config.h"
 #include "as5600.h"
@@ -307,7 +309,20 @@ static esp_err_t wifi_start_ap(bool netif_already_init)
 
     s_wifi_is_sta_mode = false;
     snprintf(s_wifi_ip_str, sizeof(s_wifi_ip_str), "192.168.4.1");
-    ESP_LOGI(TAG, "WiFi AP started. SSID: %s, Password: %s", WIFI_AP_SSID, WIFI_AP_PASSWORD);
+
+    // Verbose IP address output for easy visibility
+    ESP_LOGI(TAG, "");
+    ESP_LOGI(TAG, "============================================");
+    ESP_LOGI(TAG, "  WiFi Access Point Started Successfully!");
+    ESP_LOGI(TAG, "============================================");
+    ESP_LOGI(TAG, "  SSID:      %s", WIFI_AP_SSID);
+    ESP_LOGI(TAG, "  Password:  %s", WIFI_AP_PASSWORD);
+    ESP_LOGI(TAG, "  Channel:   %d", WIFI_AP_CHANNEL);
+    ESP_LOGI(TAG, "--------------------------------------------");
+    ESP_LOGI(TAG, "  IP Address: http://%s", s_wifi_ip_str);
+    ESP_LOGI(TAG, "============================================");
+    ESP_LOGI(TAG, "");
+
     return ESP_OK;
 }
 #endif
@@ -1453,6 +1468,9 @@ static void lcd_update_task(void *pvParameters)
 
 void app_main(void)
 {
+    // Initialize log buffer FIRST to capture all subsequent logs (REQ-31)
+    log_buffer_init();
+
     ESP_LOGI(TAG, "ESP32-CAM Rover starting...");
 
 #if defined(ROVER_TARGET_TTGO) && defined(ENABLE_DEEP_SLEEP) && ENABLE_DEEP_SLEEP
@@ -1490,15 +1508,31 @@ void app_main(void)
     // Initialize WiFi (mode determined by config_generated.h)
     ESP_ERROR_CHECK(wifi_init());
 
+    // REQ-32: Initialize mDNS for hostname resolution
+    {
+        esp_err_t mdns_err = mdns_init();
+        if (mdns_err == ESP_OK) {
+            // Set hostname - will be accessible as esp32-rover.local
+            mdns_hostname_set("esp32-rover");
+            // Set instance name for service browser
+            mdns_instance_name_set("ESP32 Rover Control");
+            // Add HTTP service
+            mdns_service_add(NULL, "_http", "_tcp", 80, NULL, 0);
+            ESP_LOGI(TAG, "mDNS initialized: http://esp32-rover.local");
+        } else {
+            ESP_LOGW(TAG, "mDNS init failed: %s", esp_err_to_name(mdns_err));
+        }
+    }
+
 #if defined(ENABLE_OTA) && ENABLE_OTA
-    // Set hostname for mDNS/OTA
+    // Set hostname for OTA (uses same hostname as mDNS)
     esp_netif_t *netif = esp_netif_get_handle_from_ifkey("WIFI_STA_DEF");
     if (netif == NULL) {
         netif = esp_netif_get_handle_from_ifkey("WIFI_AP_DEF");
     }
     if (netif != NULL) {
         esp_netif_set_hostname(netif, OTA_HOSTNAME);
-        ESP_LOGI(TAG, "Hostname set to: %s", OTA_HOSTNAME);
+        ESP_LOGI(TAG, "OTA hostname set to: %s", OTA_HOSTNAME);
     }
 #endif
 
@@ -1536,6 +1570,13 @@ void app_main(void)
     if (ret != ESP_OK) {
         ESP_LOGE(TAG, "Camera init failed: %s", esp_err_to_name(ret));
         // Continue - camera will be disabled
+    }
+
+    // Initialize flash LED and blink to indicate startup
+    ret = flash_led_init();
+    if (ret == ESP_OK) {
+        ESP_LOGI(TAG, "Flash LED startup blink");
+        flash_led_blink(3, 100, 100);  // 3 quick blinks
     }
 #else
     ESP_LOGI(TAG, "Camera disabled in config");

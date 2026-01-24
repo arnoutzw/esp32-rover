@@ -978,4 +978,85 @@ power:
 
 ---
 
+### REQ-31: Serial Log Capture and Web Display [IMPLEMENTED]
+
+**Requirement**: All serial logging since reboot shall be logged and printed on the web-gui page, logging shall only rotate after 2 hours.
+
+**Implementation**:
+- Custom `log_buffer` component that hooks into ESP-IDF's `esp_log_set_vprintf()`
+- Captures all ESP_LOG output to a circular buffer (300 entries, ~42KB)
+- 2-hour rotation period - logs older than 2 hours are excluded from display
+- REST API endpoints for log retrieval
+- Web GUI with real-time log display panel
+
+**REST API Endpoints**:
+- `GET /logs` - Get logs as JSON (supports `level`, `tag`, `since`, `limit` query params)
+- `GET /logs/stream` - SSE stream of new logs (real-time)
+- `DELETE /logs` - Clear log buffer
+
+**Log Entry Format**:
+```json
+{
+  "t": 12345,      // Timestamp (ms since boot)
+  "l": "I",        // Level: E/W/I/D/V
+  "tag": "WIFI",   // Component tag
+  "msg": "Connected to AP"  // Message
+}
+```
+
+**Web UI Features**:
+- Log panel in diagnostics section with color-coded levels
+- Level filter dropdown (All, Errors, Warnings+, Info+, Debug+)
+- Auto-scroll toggle
+- Clear button
+- Entry count and dropped count display
+
+**Memory Usage**:
+- ~42KB heap for 300 entries
+- Each entry: 16 bytes timestamp + 16 bytes tag + 128 bytes message + 1 byte level
+
+**Files**:
+- `components/log_buffer/log_buffer.c` - Circular buffer and vprintf hook
+- `components/log_buffer/include/log_buffer.h` - Public API
+- `components/web_server/web_server.c` - `/logs` endpoints
+- `components/web_server/web_ui.c` - Log display panel JavaScript
+
+---
+
+### REQ-32: mDNS Hostname [IMPLEMENTED]
+
+**Requirement**: The ESP32_Rover shall have a fixed hostname "ESP32-Rover" with mDNS so it is reachable via `esp32-rover.local`.
+
+**Implementation**:
+- Uses ESP-IDF mDNS component (`mdns.h`)
+- Hostname: "esp32-rover"
+- Instance name: "ESP32 Rover Control"
+- HTTP service registered: `_http._tcp` on port 80
+- Device accessible at `http://esp32-rover.local`
+
+**mDNS Services**:
+- HTTP web server: `_http._tcp` port 80
+
+**Usage**:
+```bash
+# Access web interface
+open http://esp32-rover.local
+
+# Ping device
+ping esp32-rover.local
+
+# OTA firmware update via mDNS (see REQ-03)
+curl -X POST -H "X-OTA-Password: rover1234" \
+     --data-binary @build/esp32-rover.bin \
+     http://esp32-rover.local/ota
+```
+
+**Tested**: OTA flashing via mDNS confirmed working - 1MB firmware uploads in ~15 seconds.
+
+**Files**:
+- `main/main.c` - mDNS initialization after WiFi
+- `main/idf_component.yml` - Added `espressif/mdns` component dependency
+
+---
+
 (Add new requirements here as they are defined) 

@@ -183,6 +183,24 @@ static const char web_ui_html[] = R"rawliteral(
         .btn-stop:active {
             transform: scale(0.98);
         }
+        .btn-led {
+            background: #2d2d44;
+            color: #888;
+            padding: 10px 20px;
+            border: 2px solid #444;
+        }
+        .btn-led.on {
+            background: #f9ca24;
+            color: #1a1a2e;
+            border-color: #f9ca24;
+            box-shadow: 0 0 15px rgba(249, 202, 36, 0.5);
+        }
+        .btn-led:hover {
+            background: #444;
+        }
+        .btn-led.on:hover {
+            background: #e0b720;
+        }
         .telemetry {
             display: grid;
             grid-template-columns: repeat(2, 1fr);
@@ -369,8 +387,13 @@ static const char web_ui_html[] = R"rawliteral(
                     </div>
                 </div>
 
-                <div class="control-box">
-                    <button class="btn btn-stop" id="btn-estop">EMERGENCY STOP</button>
+                <div class="controls-row">
+                    <div class="control-box">
+                        <button class="btn btn-led" id="btn-led">FLASH LED</button>
+                    </div>
+                    <div class="control-box">
+                        <button class="btn btn-stop" id="btn-estop">EMERGENCY STOP</button>
+                    </div>
                 </div>
 
                 <div class="telemetry">
@@ -496,6 +519,37 @@ static const char web_ui_html[] = R"rawliteral(
                                 <div class="diag-item">
                                     <span class="diag-label">Local Time</span>
                                     <span class="diag-value" id="diag-localtime">--:--:--</span>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="diag-section">
+                            <div class="diag-section-title" style="display:flex;justify-content:space-between;align-items:center;">
+                                <span>System Logs</span>
+                                <div style="display:flex;gap:6px;align-items:center;">
+                                    <select id="log-level-filter" style="font-size:0.7em;padding:2px 4px;background:#1a1a2e;color:#eee;border:1px solid #333;border-radius:3px;">
+                                        <option value="all">All</option>
+                                        <option value="error">Errors</option>
+                                        <option value="warn">Warnings+</option>
+                                        <option value="info" selected>Info+</option>
+                                    </select>
+                                    <button id="log-clear-btn" style="font-size:0.65em;padding:2px 6px;background:#333;color:#eee;border:none;border-radius:3px;cursor:pointer;">Clear</button>
+                                    <label style="font-size:0.65em;display:flex;align-items:center;gap:3px;cursor:pointer;">
+                                        <input type="checkbox" id="log-autoscroll" checked style="margin:0;">
+                                        Auto
+                                    </label>
+                                </div>
+                            </div>
+                            <div id="log-container" style="max-height:180px;overflow-y:auto;background:#0d0d0d;border-radius:4px;padding:6px;font-family:monospace;font-size:0.7em;line-height:1.3;margin-top:6px;">
+                                <div id="log-entries"></div>
+                            </div>
+                            <div class="diag-grid" style="margin-top:4px;">
+                                <div class="diag-item">
+                                    <span class="diag-label">Entries</span>
+                                    <span class="diag-value" id="log-count">--</span>
+                                </div>
+                                <div class="diag-item">
+                                    <span class="diag-label">Dropped</span>
+                                    <span class="diag-value" id="log-dropped">--</span>
                                 </div>
                             </div>
                         </div>
@@ -784,6 +838,174 @@ static const char web_ui_html[] = R"rawliteral(
         window.addEventListener('resize', updateJoystickRect);
         updateJoystickRect();
         initCamera();
+
+        // =============================================================================
+        // Log Streaming (REQ-31)
+        // =============================================================================
+        let logAutoScroll = true;
+        let logLastTimestamp = 0;
+        let logPollInterval = null;
+
+        const logLevelColors = {
+            'E': '#ff4444',
+            'W': '#ffaa00',
+            'I': '#44ff44',
+            'D': '#888888',
+            'V': '#666666'
+        };
+
+        function formatLogTimestamp(ms) {
+            const secs = Math.floor(ms / 1000);
+            const mins = Math.floor(secs / 60);
+            const hours = Math.floor(mins / 60);
+            return String(hours).padStart(2,'0') + ':' +
+                   String(mins % 60).padStart(2,'0') + ':' +
+                   String(secs % 60).padStart(2,'0');
+        }
+
+        function escapeHtml(text) {
+            const div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML;
+        }
+
+        function appendLogEntry(log) {
+            const container = document.getElementById('log-entries');
+            const entry = document.createElement('div');
+            entry.style.marginBottom = '2px';
+            entry.style.wordBreak = 'break-word';
+
+            const levelColor = logLevelColors[log.l] || '#ccc';
+            entry.innerHTML =
+                '<span style="color:#555">' + formatLogTimestamp(log.t) + '</span> ' +
+                '<span style="color:' + levelColor + ';font-weight:bold">' + log.l + '</span> ' +
+                '<span style="color:#3282b8">' + escapeHtml(log.tag) + '</span> ' +
+                '<span style="color:#ccc">' + escapeHtml(log.msg) + '</span>';
+
+            container.appendChild(entry);
+
+            // Limit displayed entries to prevent memory issues
+            while (container.children.length > 300) {
+                container.removeChild(container.firstChild);
+            }
+
+            // Auto-scroll if enabled
+            if (logAutoScroll) {
+                const logContainer = document.getElementById('log-container');
+                logContainer.scrollTop = logContainer.scrollHeight;
+            }
+        }
+
+        async function fetchLogs() {
+            try {
+                const levelFilter = document.getElementById('log-level-filter').value;
+                const url = '/logs?level=' + levelFilter + '&since=' + logLastTimestamp + '&limit=50';
+                const response = await fetch(url);
+                if (response.ok) {
+                    const data = await response.json();
+
+                    // Update stats
+                    if (data.stats) {
+                        document.getElementById('log-count').textContent = data.stats.count;
+                        document.getElementById('log-dropped').textContent = data.stats.dropped;
+                    }
+
+                    // Append new logs
+                    if (data.logs && data.logs.length > 0) {
+                        data.logs.forEach(log => {
+                            appendLogEntry(log);
+                            if (log.t > logLastTimestamp) {
+                                logLastTimestamp = log.t;
+                            }
+                        });
+                    }
+                }
+            } catch (e) {
+                // Silently fail
+            }
+        }
+
+        async function clearLogs() {
+            try {
+                await fetch('/logs', { method: 'DELETE' });
+                document.getElementById('log-entries').innerHTML = '';
+                logLastTimestamp = 0;
+            } catch (e) {
+                // Silently fail
+            }
+        }
+
+        // Initialize log polling
+        function initLogPolling() {
+            // Initial fetch to get existing logs
+            fetchLogs();
+
+            // Poll every 1 second for new logs
+            if (logPollInterval) clearInterval(logPollInterval);
+            logPollInterval = setInterval(fetchLogs, 1000);
+        }
+
+        // Event listeners for log controls
+        document.getElementById('log-level-filter').addEventListener('change', () => {
+            document.getElementById('log-entries').innerHTML = '';
+            logLastTimestamp = 0;
+            fetchLogs();
+        });
+
+        document.getElementById('log-autoscroll').addEventListener('change', (e) => {
+            logAutoScroll = e.target.checked;
+        });
+
+        document.getElementById('log-clear-btn').addEventListener('click', clearLogs);
+
+        // Start log polling
+        initLogPolling();
+
+        // =============================================================================
+        // Flash LED Control
+        // =============================================================================
+        let ledState = false;
+
+        async function toggleLED() {
+            try {
+                const response = await fetch('/led', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ on: !ledState })
+                });
+                if (response.ok) {
+                    const data = await response.json();
+                    ledState = data.on;
+                    updateLEDButton();
+                }
+            } catch (e) {
+                // Silently fail
+            }
+        }
+
+        async function fetchLEDState() {
+            try {
+                const response = await fetch('/led');
+                if (response.ok) {
+                    const data = await response.json();
+                    ledState = data.on;
+                    updateLEDButton();
+                }
+            } catch (e) {
+                // Silently fail
+            }
+        }
+
+        function updateLEDButton() {
+            const btn = document.getElementById('btn-led');
+            btn.classList.toggle('on', ledState);
+            btn.textContent = ledState ? 'FLASH LED (ON)' : 'FLASH LED';
+        }
+
+        document.getElementById('btn-led').addEventListener('click', toggleLED);
+
+        // Initial LED state fetch
+        fetchLEDState();
     </script>
 </body>
 </html>

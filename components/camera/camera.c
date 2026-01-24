@@ -1,8 +1,14 @@
 #include "camera.h"
 #include <string.h>
 #include "esp_log.h"
+#include "driver/gpio.h"
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
 
 static const char *TAG = "CAMERA";
+
+// Flash LED on ESP32-CAM is on GPIO 4
+#define FLASH_LED_GPIO  GPIO_NUM_4
 
 static bool camera_initialized = false;
 static framesize_t current_frame_size = FRAMESIZE_VGA;
@@ -199,4 +205,94 @@ bool camera_is_initialized(void)
 framesize_t camera_get_frame_size(void)
 {
     return current_frame_size;
+}
+
+// =============================================================================
+// Flash LED Control (ESP32-CAM GPIO 4)
+// =============================================================================
+
+static bool flash_led_initialized = false;
+static bool flash_led_state = false;
+
+esp_err_t flash_led_init(void)
+{
+    if (flash_led_initialized) {
+        return ESP_OK;
+    }
+
+    gpio_config_t io_conf = {
+        .pin_bit_mask = (1ULL << FLASH_LED_GPIO),
+        .mode = GPIO_MODE_OUTPUT,
+        .pull_up_en = GPIO_PULLUP_DISABLE,
+        .pull_down_en = GPIO_PULLDOWN_DISABLE,
+        .intr_type = GPIO_INTR_DISABLE,
+    };
+
+    esp_err_t ret = gpio_config(&io_conf);
+    if (ret != ESP_OK) {
+        ESP_LOGE(TAG, "Failed to configure flash LED GPIO: 0x%x", ret);
+        return ret;
+    }
+
+    // Start with LED off
+    gpio_set_level(FLASH_LED_GPIO, 0);
+    flash_led_state = false;
+    flash_led_initialized = true;
+
+    ESP_LOGI(TAG, "Flash LED initialized on GPIO %d", FLASH_LED_GPIO);
+    return ESP_OK;
+}
+
+void flash_led_on(void)
+{
+    if (!flash_led_initialized) {
+        flash_led_init();
+    }
+    gpio_set_level(FLASH_LED_GPIO, 1);
+    flash_led_state = true;
+}
+
+void flash_led_off(void)
+{
+    if (!flash_led_initialized) {
+        flash_led_init();
+    }
+    gpio_set_level(FLASH_LED_GPIO, 0);
+    flash_led_state = false;
+}
+
+void flash_led_set(bool on)
+{
+    if (on) {
+        flash_led_on();
+    } else {
+        flash_led_off();
+    }
+}
+
+bool flash_led_get_state(void)
+{
+    return flash_led_state;
+}
+
+void flash_led_blink(int count, int on_ms, int off_ms)
+{
+    if (!flash_led_initialized) {
+        flash_led_init();
+    }
+
+    bool previous_state = flash_led_state;
+
+    for (int i = 0; i < count; i++) {
+        gpio_set_level(FLASH_LED_GPIO, 1);
+        vTaskDelay(pdMS_TO_TICKS(on_ms));
+        gpio_set_level(FLASH_LED_GPIO, 0);
+        if (i < count - 1) {
+            vTaskDelay(pdMS_TO_TICKS(off_ms));
+        }
+    }
+
+    // Restore previous state
+    gpio_set_level(FLASH_LED_GPIO, previous_state ? 1 : 0);
+    flash_led_state = previous_state;
 }

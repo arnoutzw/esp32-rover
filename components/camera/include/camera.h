@@ -102,6 +102,46 @@ bool camera_is_initialized(void);
  */
 framesize_t camera_get_frame_size(void);
 
+// =============================================================================
+// Flash LED Control (ESP32-CAM GPIO 4)
+// =============================================================================
+
+/**
+ * @brief Initialize the flash LED GPIO
+ * @return ESP_OK on success
+ */
+esp_err_t flash_led_init(void);
+
+/**
+ * @brief Turn flash LED on
+ */
+void flash_led_on(void);
+
+/**
+ * @brief Turn flash LED off
+ */
+void flash_led_off(void);
+
+/**
+ * @brief Set flash LED state
+ * @param on true to turn on, false to turn off
+ */
+void flash_led_set(bool on);
+
+/**
+ * @brief Get flash LED state
+ * @return true if LED is on
+ */
+bool flash_led_get_state(void);
+
+/**
+ * @brief Blink flash LED
+ * @param count Number of blinks
+ * @param on_ms On time in milliseconds
+ * @param off_ms Off time in milliseconds
+ */
+void flash_led_blink(int count, int on_ms, int off_ms);
+
 #ifdef __cplusplus
 }
 #endif
