@@ -1,0 +1,29 @@
+# Build output
+build/
+sdkconfig
+sdkconfig.old
+
+# IDE/Editor
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# macOS
+.DS_Store
+
+# ESP-IDF managed components (auto-downloaded)
+managed_components/
+
+# Dependency lock (regenerated on build)
+dependencies.lock
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+
+# Temporary files
+*.tmp
+*.log

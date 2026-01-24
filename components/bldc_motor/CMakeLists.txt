@@ -1,0 +1,12 @@
+idf_component_register(
+    SRCS
+        "bldc_motor.c"
+        "foc.c"
+    INCLUDE_DIRS
+        "include"
+    REQUIRES
+        driver
+        as5600
+    PRIV_REQUIRES
+        esp_timer
+)

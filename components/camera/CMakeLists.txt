@@ -1,0 +1,10 @@
+idf_component_register(
+    SRCS
+        "camera.c"
+    INCLUDE_DIRS
+        "include"
+    REQUIRES
+        driver
+        esp_psram
+        espressif__esp32-camera
+)

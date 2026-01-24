@@ -1,0 +1,13 @@
+idf_component_register(
+    SRCS
+        "web_server.c"
+        "web_ui.c"
+    INCLUDE_DIRS
+        "include"
+    REQUIRES
+        esp_http_server
+        camera
+    PRIV_REQUIRES
+        esp_timer
+        espressif__cjson
+)
