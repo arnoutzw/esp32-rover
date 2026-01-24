@@ -23,6 +23,7 @@
 #include "esp_ota_ops.h"
 #include "esp_http_server.h"
 #include "esp_sntp.h"
+#include "esp_sleep.h"
 
 #include "config.h"
 #include "as5600.h"
@@ -1153,6 +1154,60 @@ static int8_t get_wifi_tx_power(void)
     return power / 4;  // Convert from 0.25dBm units to dBm
 }
 
+// =============================================================================
+// Deep Sleep Power Save Mode (REQ-30)
+// =============================================================================
+#if defined(ROVER_TARGET_TTGO) && defined(ENABLE_DEEP_SLEEP) && ENABLE_DEEP_SLEEP
+
+// Sleep mode state machine
+typedef enum {
+    SLEEP_MODE_OFF,
+    SLEEP_MODE_ENTERING,
+    SLEEP_MODE_CONFIRMED
+} sleep_mode_t;
+
+static void enter_deep_sleep(void)
+{
+    ESP_LOGI(TAG, "Entering deep sleep mode...");
+
+    // 1. Stop motor and center servo
+    if (motor_handle) {
+        bldc_motor_set_velocity(motor_handle, 0);
+        bldc_motor_disable(motor_handle);
+    }
+    if (servo_handle) {
+        servo_center(servo_handle);
+    }
+
+    // 2. Show sleep message on LCD
+    lcd_display_clear();
+    // Draw centered "Sleeping..." text
+    lcd_display_splash();  // Reuse splash as visual feedback
+    vTaskDelay(pdMS_TO_TICKS(300));
+
+    // 3. Turn off LCD backlight
+    lcd_display_set_backlight(0);
+    vTaskDelay(pdMS_TO_TICKS(100));
+
+    // 4. Stop WiFi
+    esp_wifi_stop();
+    esp_wifi_deinit();
+
+    // 5. Configure GPIO 0 as EXT0 wake source (wake on LOW = button press)
+    esp_sleep_enable_ext0_wakeup(SLEEP_BUTTON_PIN, 0);
+
+    // 6. Power down unused domains for minimal power consumption
+    esp_sleep_pd_config(ESP_PD_DOMAIN_RTC_SLOW_MEM, ESP_PD_OPTION_OFF);
+    esp_sleep_pd_config(ESP_PD_DOMAIN_RTC_FAST_MEM, ESP_PD_OPTION_OFF);
+
+    ESP_LOGI(TAG, "Good night! Press left button to wake up.");
+
+    // 7. Enter deep sleep (never returns - chip resets on wake)
+    esp_deep_sleep_start();
+}
+
+#endif // ROVER_TARGET_TTGO && ENABLE_DEEP_SLEEP
+
 static void lcd_update_task(void *pvParameters)
 {
     ESP_LOGI(TAG, "LCD update task started");
@@ -1173,6 +1228,13 @@ static void lcd_update_task(void *pvParameters)
     const TickType_t DIAG_ENTRY_HOLD_TIME = pdMS_TO_TICKS(3000);  // 3 seconds to enter
     bool prev_btn_left = false;
     bool prev_btn_right = false;
+
+#if defined(ROVER_TARGET_TTGO) && defined(ENABLE_DEEP_SLEEP) && ENABLE_DEEP_SLEEP
+    // Deep sleep mode tracking (REQ-30)
+    sleep_mode_t sleep_mode = SLEEP_MODE_OFF;
+    TickType_t left_button_hold_start = 0;
+    const TickType_t SLEEP_ENTRY_HOLD_TIME = pdMS_TO_TICKS(SLEEP_BUTTON_HOLD_TIME_MS);
+#endif
 
     lcd_rover_status_t lcd_status = {
         .wifi_ssid = wifi_get_current_ssid(),
@@ -1249,6 +1311,40 @@ static void lcd_update_task(void *pvParameters)
         // Update previous button states for edge detection
         prev_btn_left = btn_left;
         prev_btn_right = btn_right;
+
+#if defined(ROVER_TARGET_TTGO) && defined(ENABLE_DEEP_SLEEP) && ENABLE_DEEP_SLEEP
+        // Deep sleep mode state machine (REQ-30)
+        // Trigger: Hold LEFT button only (not both) for 5 seconds
+        // This is separate from diagnostic mode (both buttons for 3s)
+        bool left_only = btn_left && !btn_right;
+
+        switch (sleep_mode) {
+            case SLEEP_MODE_OFF:
+                if (left_only && diag_mode == DIAG_MODE_OFF) {
+                    // Start counting for sleep mode entry
+                    left_button_hold_start = xTaskGetTickCount();
+                    sleep_mode = SLEEP_MODE_ENTERING;
+                    ESP_LOGI(TAG, "Sleep mode: hold left button for 5 seconds...");
+                }
+                break;
+
+            case SLEEP_MODE_ENTERING:
+                if (!left_only) {
+                    // Released too early or right button pressed
+                    sleep_mode = SLEEP_MODE_OFF;
+                } else if ((xTaskGetTickCount() - left_button_hold_start) >= SLEEP_ENTRY_HOLD_TIME) {
+                    // Held long enough - confirm sleep
+                    sleep_mode = SLEEP_MODE_CONFIRMED;
+                    ESP_LOGI(TAG, "Sleep mode confirmed - entering deep sleep");
+                }
+                break;
+
+            case SLEEP_MODE_CONFIRMED:
+                // Enter deep sleep (this function never returns)
+                enter_deep_sleep();
+                break;
+        }
+#endif
 
         if (diag_mode == DIAG_MODE_ON || diag_mode == DIAG_MODE_WAIT_RELEASE) {
             // Get per-core task counts (REQ-09)
@@ -1346,6 +1442,22 @@ static void lcd_update_task(void *pvParameters)
 void app_main(void)
 {
     ESP_LOGI(TAG, "ESP32-CAM Rover starting...");
+
+#if defined(ROVER_TARGET_TTGO) && defined(ENABLE_DEEP_SLEEP) && ENABLE_DEEP_SLEEP
+    // Check if we woke from deep sleep (REQ-30)
+    esp_sleep_wakeup_cause_t wakeup_cause = esp_sleep_get_wakeup_cause();
+    switch (wakeup_cause) {
+        case ESP_SLEEP_WAKEUP_EXT0:
+            ESP_LOGI(TAG, "Woke from deep sleep via button press");
+            break;
+        case ESP_SLEEP_WAKEUP_UNDEFINED:
+            ESP_LOGI(TAG, "Normal boot (not from sleep)");
+            break;
+        default:
+            ESP_LOGI(TAG, "Woke from deep sleep, cause: %d", wakeup_cause);
+            break;
+    }
+#endif
     ESP_LOGI(TAG, "Free heap: %lu bytes", esp_get_free_heap_size());
 
     // Initialize NVS

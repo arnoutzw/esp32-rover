@@ -115,6 +115,15 @@ ota:
   hostname: "esp32-rover"
 
 # -----------------------------------------------------------------------------
+# Power Management (REQ-30)
+# -----------------------------------------------------------------------------
+power:
+  # Enable deep sleep mode (TTGO only - requires buttons)
+  deep_sleep_enabled: true
+  # Hold time in milliseconds to activate sleep mode
+  sleep_button_hold_time_ms: 5000
+
+# -----------------------------------------------------------------------------
 # Debug Options
 # -----------------------------------------------------------------------------
 debug:

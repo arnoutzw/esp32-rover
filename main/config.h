@@ -182,6 +182,11 @@
 
 // Camera pins not defined for TTGO (no camera)
 
+// Deep Sleep Power Save Configuration (TTGO only - has accessible buttons)
+#define ENABLE_DEEP_SLEEP           1
+#define SLEEP_BUTTON_PIN            GPIO_NUM_0      // Left button triggers sleep
+#define SLEEP_BUTTON_HOLD_TIME_MS   5000            // 5 second hold to enter sleep
+
 #endif // Target selection
 
 // =============================================================================
