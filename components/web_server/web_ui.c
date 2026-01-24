@@ -489,6 +489,14 @@ static const char web_ui_html[] = R"rawliteral(
                                     <span class="diag-label">MQTT</span>
                                     <span class="diag-value" id="diag-mqtt">--</span>
                                 </div>
+                                <div class="diag-item">
+                                    <span class="diag-label">Internet</span>
+                                    <span class="diag-value" id="diag-internet">--</span>
+                                </div>
+                                <div class="diag-item">
+                                    <span class="diag-label">Local Time</span>
+                                    <span class="diag-value" id="diag-localtime">--:--:--</span>
+                                </div>
                             </div>
                         </div>
                     </div>
@@ -727,6 +735,16 @@ static const char web_ui_html[] = R"rawliteral(
                             mqttEl.textContent = 'Disconnected';
                             mqttEl.className = 'diag-value warn';
                         }
+
+                        // Internet connectivity (REQ-10)
+                        const internetEl = document.getElementById('diag-internet');
+                        internetEl.textContent = d.internet ? 'Connected' : 'Offline';
+                        internetEl.className = 'diag-value' + (d.internet ? '' : ' error');
+
+                        // Local time (REQ-13)
+                        const timeEl = document.getElementById('diag-localtime');
+                        timeEl.textContent = d.localTime || '--:--:--';
+                        timeEl.className = 'diag-value' + (d.ntpSynced ? '' : ' warn');
                     }
 
                     setConnected(true);

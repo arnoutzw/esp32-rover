@@ -49,6 +49,11 @@ typedef struct {
     bool rest_api_enabled;          // REST API enabled at compile time
     bool mqtt_enabled;              // MQTT enabled at compile time
     bool mqtt_connected;            // MQTT broker connected
+    bool internet_connected;        // Internet connectivity (REQ-10)
+
+    // Time (REQ-13)
+    const char* local_time;         // Local time string (HH:MM:SS)
+    bool ntp_synced;                // NTP time synchronized
 } rover_status_t;
 
 // Command callback type
@@ -98,6 +103,12 @@ bool web_server_is_running(void);
  * @return Time in milliseconds
  */
 uint32_t web_server_get_command_age_ms(void);
+
+/**
+ * @brief Get HTTP server handle for adding custom endpoints
+ * @return Server handle or NULL if not running
+ */
+httpd_handle_t web_server_get_handle(void);
 
 // HTML content (implemented in web_ui.c)
 extern const char* web_ui_get_html(void);

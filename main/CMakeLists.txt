@@ -17,6 +17,8 @@ idf_component_register(
         web_server
         lcd_display
         mqtt_service
+        lwip
+        app_update
 )
 
 # Allow target selection via environment variable or CMake variable

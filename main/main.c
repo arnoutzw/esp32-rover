@@ -1,5 +1,8 @@
 #include <stdio.h>
 #include <string.h>
+#include <sys/param.h>
+#include <time.h>
+#include <sys/time.h>
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "freertos/semphr.h"
@@ -13,6 +16,13 @@
 #include "esp_adc/adc_oneshot.h"
 #include "esp_adc/adc_cali.h"
 #include "esp_adc/adc_cali_scheme.h"
+#include "lwip/inet.h"
+#include "lwip/netdb.h"
+#include "lwip/sockets.h"
+#include "ping/ping_sock.h"
+#include "esp_ota_ops.h"
+#include "esp_http_server.h"
+#include "esp_sntp.h"
 
 #include "config.h"
 #include "as5600.h"
@@ -203,6 +213,13 @@ static char s_wifi_ip_str[16] = "192.168.4.1";
 static EventGroupHandle_t s_wifi_event_group = NULL;
 #define WIFI_CONNECTED_BIT BIT0
 #define WIFI_FAIL_BIT      BIT1
+
+// REQ-10: Internet connectivity tracking
+static bool s_internet_connected = false;
+
+// REQ-13: NTP time tracking
+static bool s_ntp_synced = false;
+static char s_local_time_str[32] = "--:--:--";
 
 static void wifi_event_handler(void *arg, esp_event_base_t event_base,
                                int32_t event_id, void *event_data)
@@ -441,6 +458,235 @@ const char* wifi_get_current_ssid(void)
     return s_wifi_is_sta_mode ? WIFI_STA_SSID : WIFI_AP_SSID;
 }
 
+// REQ-10: Get internet connectivity status
+bool wifi_is_internet_connected(void)
+{
+    return s_internet_connected;
+}
+
+// =============================================================================
+// REQ-10: Internet Connectivity Check
+// =============================================================================
+
+static bool s_ping_success = false;
+
+static void ping_success_callback(esp_ping_handle_t hdl, void *args)
+{
+    s_ping_success = true;
+}
+
+static void ping_end_callback(esp_ping_handle_t hdl, void *args)
+{
+    // Ping session ended
+}
+
+// Check internet connectivity by pinging 1.1.1.1
+static bool check_internet_connectivity(void)
+{
+    ESP_LOGI(TAG, "Checking internet connectivity (ping 1.1.1.1)...");
+
+    ip_addr_t target_addr;
+    IP4_ADDR(&target_addr.u_addr.ip4, 1, 1, 1, 1);
+    target_addr.type = IPADDR_TYPE_V4;
+
+    esp_ping_config_t ping_config = ESP_PING_DEFAULT_CONFIG();
+    ping_config.target_addr = target_addr;
+    ping_config.count = 3;           // Send 3 pings
+    ping_config.interval_ms = 1000;  // 1 second interval
+    ping_config.timeout_ms = 2000;   // 2 second timeout per ping
+
+    esp_ping_callbacks_t callbacks = {
+        .on_ping_success = ping_success_callback,
+        .on_ping_timeout = NULL,
+        .on_ping_end = ping_end_callback,
+        .cb_args = NULL,
+    };
+
+    s_ping_success = false;
+
+    esp_ping_handle_t ping_handle;
+    esp_err_t ret = esp_ping_new_session(&ping_config, &callbacks, &ping_handle);
+    if (ret != ESP_OK) {
+        ESP_LOGW(TAG, "Failed to create ping session: %s", esp_err_to_name(ret));
+        return false;
+    }
+
+    esp_ping_start(ping_handle);
+
+    // Wait for ping to complete (3 pings * 2s timeout = 6s max, plus some buffer)
+    vTaskDelay(pdMS_TO_TICKS(7000));
+
+    esp_ping_stop(ping_handle);
+    esp_ping_delete_session(ping_handle);
+
+    if (s_ping_success) {
+        ESP_LOGI(TAG, "Internet connectivity: CONNECTED");
+    } else {
+        ESP_LOGW(TAG, "Internet connectivity: NOT CONNECTED");
+    }
+
+    return s_ping_success;
+}
+
+// =============================================================================
+// REQ-13: NTP Time Synchronization
+// =============================================================================
+
+static void time_sync_notification_cb(struct timeval *tv)
+{
+    ESP_LOGI(TAG, "NTP time synchronized!");
+    s_ntp_synced = true;
+}
+
+static void init_sntp(void)
+{
+    ESP_LOGI(TAG, "Initializing SNTP...");
+
+    esp_sntp_setoperatingmode(SNTP_OPMODE_POLL);
+    esp_sntp_setservername(0, "pool.ntp.org");
+    esp_sntp_setservername(1, "time.google.com");
+    esp_sntp_set_time_sync_notification_cb(time_sync_notification_cb);
+    esp_sntp_init();
+
+    // Set timezone for Netherlands (CET/CEST)
+    // CET-1CEST,M3.5.0,M10.5.0/3 means:
+    // - CET = Central European Time, UTC+1
+    // - CEST = Central European Summer Time
+    // - M3.5.0 = DST starts last Sunday of March
+    // - M10.5.0/3 = DST ends last Sunday of October at 3:00
+    setenv("TZ", "CET-1CEST,M3.5.0,M10.5.0/3", 1);
+    tzset();
+
+    ESP_LOGI(TAG, "SNTP initialized, waiting for time sync...");
+}
+
+static void update_local_time_string(void)
+{
+    time_t now;
+    struct tm timeinfo;
+
+    time(&now);
+    localtime_r(&now, &timeinfo);
+
+    if (timeinfo.tm_year > (2020 - 1900)) {
+        // Time is valid (year > 2020)
+        strftime(s_local_time_str, sizeof(s_local_time_str), "%H:%M:%S", &timeinfo);
+    } else {
+        snprintf(s_local_time_str, sizeof(s_local_time_str), "--:--:--");
+    }
+}
+
+// Get current local time string
+const char* get_local_time_str(void)
+{
+    update_local_time_string();
+    return s_local_time_str;
+}
+
+// Check if NTP is synced
+bool is_ntp_synced(void)
+{
+    return s_ntp_synced;
+}
+
+// =============================================================================
+// REQ-11: OTA Update Support
+// =============================================================================
+
+#if defined(ENABLE_OTA) && ENABLE_OTA
+static esp_err_t ota_update_handler(httpd_req_t *req)
+{
+    char buf[512];
+    int received;
+    int remaining = req->content_len;
+    esp_ota_handle_t update_handle = 0;
+    const esp_partition_t *update_partition = NULL;
+    bool is_first_block = true;
+    esp_err_t err;
+
+    ESP_LOGI(TAG, "OTA update started, size: %d bytes", remaining);
+
+    update_partition = esp_ota_get_next_update_partition(NULL);
+    if (update_partition == NULL) {
+        ESP_LOGE(TAG, "No OTA partition found");
+        httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "No OTA partition");
+        return ESP_FAIL;
+    }
+
+    ESP_LOGI(TAG, "Writing to partition: %s", update_partition->label);
+
+    while (remaining > 0) {
+        received = httpd_req_recv(req, buf, MIN(remaining, sizeof(buf)));
+        if (received <= 0) {
+            if (received == HTTPD_SOCK_ERR_TIMEOUT) {
+                continue;
+            }
+            ESP_LOGE(TAG, "OTA receive error");
+            httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "Receive error");
+            return ESP_FAIL;
+        }
+
+        if (is_first_block) {
+            err = esp_ota_begin(update_partition, OTA_SIZE_UNKNOWN, &update_handle);
+            if (err != ESP_OK) {
+                ESP_LOGE(TAG, "esp_ota_begin failed: %s", esp_err_to_name(err));
+                httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "OTA begin failed");
+                return ESP_FAIL;
+            }
+            is_first_block = false;
+        }
+
+        err = esp_ota_write(update_handle, buf, received);
+        if (err != ESP_OK) {
+            ESP_LOGE(TAG, "esp_ota_write failed: %s", esp_err_to_name(err));
+            esp_ota_abort(update_handle);
+            httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "OTA write failed");
+            return ESP_FAIL;
+        }
+
+        remaining -= received;
+    }
+
+    err = esp_ota_end(update_handle);
+    if (err != ESP_OK) {
+        ESP_LOGE(TAG, "esp_ota_end failed: %s", esp_err_to_name(err));
+        httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "OTA end failed");
+        return ESP_FAIL;
+    }
+
+    err = esp_ota_set_boot_partition(update_partition);
+    if (err != ESP_OK) {
+        ESP_LOGE(TAG, "esp_ota_set_boot_partition failed: %s", esp_err_to_name(err));
+        httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "Set boot partition failed");
+        return ESP_FAIL;
+    }
+
+    ESP_LOGI(TAG, "OTA update successful, restarting...");
+    httpd_resp_sendstr(req, "OTA update successful. Rebooting...");
+
+    vTaskDelay(pdMS_TO_TICKS(1000));
+    esp_restart();
+
+    return ESP_OK;
+}
+
+static esp_err_t init_ota_endpoint(httpd_handle_t server)
+{
+    httpd_uri_t ota_uri = {
+        .uri = "/ota",
+        .method = HTTP_POST,
+        .handler = ota_update_handler,
+        .user_ctx = NULL,
+    };
+
+    esp_err_t ret = httpd_register_uri_handler(server, &ota_uri);
+    if (ret == ESP_OK) {
+        ESP_LOGI(TAG, "OTA endpoint registered at /ota");
+    }
+    return ret;
+}
+#endif // ENABLE_OTA
+
 // =============================================================================
 // Command Callback
 // =============================================================================
@@ -664,6 +910,11 @@ static void status_update_task(void *pvParameters)
         status.mqtt_enabled = false;
         status.mqtt_connected = false;
 #endif
+        status.internet_connected = s_internet_connected;
+
+        // REQ-13: Local time
+        status.local_time = get_local_time_str();
+        status.ntp_synced = s_ntp_synced;
 
         // Update web server status
         web_server_update_status(&status);
@@ -1040,6 +1291,9 @@ static void lcd_update_task(void *pvParameters)
                 .mqtt_enabled = false,
                 .mqtt_connected = false,
 #endif
+                .internet_connected = s_internet_connected,
+                .local_time = get_local_time_str(),
+                .ntp_synced = s_ntp_synced,
             };
             lcd_display_diagnostics(&diag);
         } else if (diag_mode == DIAG_MODE_OFF) {
@@ -1112,6 +1366,28 @@ void app_main(void)
     // Initialize WiFi (mode determined by config_generated.h)
     ESP_ERROR_CHECK(wifi_init());
 
+#if defined(ENABLE_OTA) && ENABLE_OTA
+    // Set hostname for mDNS/OTA
+    esp_netif_t *netif = esp_netif_get_handle_from_ifkey("WIFI_STA_DEF");
+    if (netif == NULL) {
+        netif = esp_netif_get_handle_from_ifkey("WIFI_AP_DEF");
+    }
+    if (netif != NULL) {
+        esp_netif_set_hostname(netif, OTA_HOSTNAME);
+        ESP_LOGI(TAG, "Hostname set to: %s", OTA_HOSTNAME);
+    }
+#endif
+
+    // REQ-10: Check internet connectivity if in STA mode
+    if (wifi_is_sta_mode()) {
+        s_internet_connected = check_internet_connectivity();
+
+        // REQ-13: Initialize NTP if internet is available
+        if (s_internet_connected) {
+            init_sntp();
+        }
+    }
+
     // Initialize hardware components
     ret = init_encoder();
     if (ret != ESP_OK) {
@@ -1154,6 +1430,14 @@ void app_main(void)
         ESP_LOGE(TAG, "Web server init failed: %s", esp_err_to_name(ret));
         return;  // Can't continue without web server
     }
+
+#if defined(ENABLE_OTA) && ENABLE_OTA
+    // REQ-11: Register OTA update endpoint
+    httpd_handle_t server_handle = web_server_get_handle();
+    if (server_handle != NULL) {
+        init_ota_endpoint(server_handle);
+    }
+#endif
 
 #if defined(ENABLE_MQTT) && ENABLE_MQTT
     // MQTT requires WiFi connection - only start if in STA mode

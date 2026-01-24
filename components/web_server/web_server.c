@@ -244,7 +244,10 @@ static esp_err_t status_handler(httpd_req_t *req)
             "\"tasksNoAffinity\":%d,"
             "\"restApi\":%s,"
             "\"mqttEnabled\":%s,"
-            "\"mqttConnected\":%s"
+            "\"mqttConnected\":%s,"
+            "\"internet\":%s,"
+            "\"localTime\":\"%s\","
+            "\"ntpSynced\":%s"
         "}"
         "}",
         status.motor_velocity,
@@ -273,7 +276,10 @@ static esp_err_t status_handler(httpd_req_t *req)
         status.tasks_no_affinity,
         status.rest_api_enabled ? "true" : "false",
         status.mqtt_enabled ? "true" : "false",
-        status.mqtt_connected ? "true" : "false"
+        status.mqtt_connected ? "true" : "false",
+        status.internet_connected ? "true" : "false",
+        status.local_time ? status.local_time : "--:--:--",
+        status.ntp_synced ? "true" : "false"
     );
 
     httpd_resp_set_type(req, "application/json");
@@ -390,4 +396,9 @@ uint32_t web_server_get_command_age_ms(void)
     }
 
     return (uint32_t)((now - cmd_time) / 1000);  // Convert to ms
+}
+
+httpd_handle_t web_server_get_handle(void)
+{
+    return server;
 }

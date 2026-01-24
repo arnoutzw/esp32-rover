@@ -71,6 +71,9 @@ typedef struct {
     bool rest_api_enabled;      /**< REST API enabled */
     bool mqtt_enabled;          /**< MQTT enabled */
     bool mqtt_connected;        /**< MQTT broker connected */
+    bool internet_connected;    /**< Internet connectivity (REQ-10) */
+    const char* local_time;     /**< Local time string (REQ-13) */
+    bool ntp_synced;            /**< NTP time synchronized (REQ-13) */
 } lcd_wifi_diag_t;
 
 /**

@@ -142,6 +142,14 @@ def generate_header(config: dict) -> str:
     lines.append(f'#define CFG_ENABLE_ESTOP {1 if safety.get("estop_enabled", True) else 0}')
     lines.append("")
 
+    # OTA configuration
+    ota = config.get("ota", {})
+    lines.append("// OTA Configuration")
+    lines.append(f'#define ENABLE_OTA {1 if ota.get("enabled", True) else 0}')
+    lines.append(f'#define OTA_HOSTNAME "{ota.get("hostname", "esp32-rover")}"')
+    lines.append(f'#define OTA_PASSWORD "{ota.get("password", "rover1234")}"')
+    lines.append("")
+
     # Debug options
     debug = config.get("debug", {})
     lines.append("// Debug Options")

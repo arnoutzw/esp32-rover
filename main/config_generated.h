@@ -65,6 +65,11 @@
 #define CFG_ENABLE_WATCHDOG 1
 #define CFG_ENABLE_ESTOP 1
 
+// OTA Configuration
+#define ENABLE_OTA 1
+#define OTA_HOSTNAME "esp32-rover"
+#define OTA_PASSWORD "rover1234"
+
 // Debug Options
 #define CFG_DEBUG_MOTOR 0
 #define CFG_DEBUG_ENCODER 0

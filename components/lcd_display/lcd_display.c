@@ -808,6 +808,21 @@ esp_err_t lcd_display_diagnostics(const lcd_wifi_diag_t *diag)
     } else {
         lcd_draw_string(106, y, "...", COLOR_YELLOW, COLOR_BLACK, 1);
     }
+    y += 10;
+
+    // Internet connectivity (REQ-10)
+    lcd_draw_string(4, y, "Internet:", COLOR_LIGHTGRAY, COLOR_BLACK, 1);
+    lcd_draw_string(64, y, diag->internet_connected ? "Connected" : "Offline",
+                   diag->internet_connected ? COLOR_GREEN : COLOR_RED, COLOR_BLACK, 1);
+    y += 12;
+
+    // Local time (REQ-13)
+    lcd_draw_string(4, y, "Time:", COLOR_LIGHTGRAY, COLOR_BLACK, 1);
+    if (diag->local_time && diag->ntp_synced) {
+        lcd_draw_string(40, y, diag->local_time, COLOR_GREEN, COLOR_BLACK, 1);
+    } else {
+        lcd_draw_string(40, y, "--:--:--", COLOR_YELLOW, COLOR_BLACK, 1);
+    }
     y += 12;
 
     // Footer with exit instruction
