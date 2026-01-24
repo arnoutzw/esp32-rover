@@ -849,3 +849,100 @@ void lcd_display_reset_state(void)
     s_prev_velocity_x10 = INT16_MIN;
     s_prev_battery_x100 = INT16_MIN;
 }
+
+// =============================================================================
+// Sleep Screen with Snorlax Sprite (REQ-30)
+// =============================================================================
+
+// Snorlax sprite colors (RGB565)
+#define SNORLAX_BODY     0x2146  // Dark teal/blue body
+#define SNORLAX_BELLY    0xFED6  // Cream/beige belly
+#define SNORLAX_FACE     0xFED6  // Same as belly for face
+#define SNORLAX_OUTLINE  0x0000  // Black outline
+#define SNORLAX_FEET     0xFED6  // Cream feet/claws
+
+// 32x32 Snorlax sleeping sprite - each byte is a color index
+// 0=transparent, 1=outline, 2=body, 3=belly/face, 4=closed eyes
+static const uint8_t snorlax_sprite[32][32] = {
+    //0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1
+    { 0,0,0,0,0,0,0,0,0,0,0,1,1,1,1,1,1,1,1,1,1,0,0,0,0,0,0,0,0,0,0,0 }, // 0
+    { 0,0,0,0,0,0,0,0,0,1,1,2,2,2,2,2,2,2,2,2,2,1,1,0,0,0,0,0,0,0,0,0 }, // 1
+    { 0,0,0,0,0,0,0,0,1,2,2,2,2,2,2,2,2,2,2,2,2,2,2,1,0,0,0,0,0,0,0,0 }, // 2
+    { 0,0,0,0,0,0,0,1,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,1,0,0,0,0,0,0,0 }, // 3
+    { 0,0,0,0,0,0,1,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,1,0,0,0,0,0,0 }, // 4
+    { 0,0,0,0,0,1,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,1,0,0,0,0,0 }, // 5
+    { 0,0,0,0,1,2,2,2,2,2,1,1,1,2,2,2,2,2,1,1,1,2,2,2,2,2,2,1,0,0,0,0 }, // 6  ears
+    { 0,0,0,1,2,2,2,2,2,1,3,3,3,1,2,2,2,1,3,3,3,1,2,2,2,2,2,2,1,0,0,0 }, // 7  ears
+    { 0,0,0,1,2,2,2,2,2,1,3,3,3,1,2,2,2,1,3,3,3,1,2,2,2,2,2,2,1,0,0,0 }, // 8
+    { 0,0,1,2,2,2,2,2,2,2,1,1,1,2,2,2,2,2,1,1,1,2,2,2,2,2,2,2,2,1,0,0 }, // 9
+    { 0,0,1,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,1,0,0 }, // 10
+    { 0,1,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,1,0 }, // 11
+    { 0,1,2,2,2,2,2,1,1,1,1,1,2,2,2,2,2,2,1,1,1,1,1,2,2,2,2,2,2,2,1,0 }, // 12 closed eyes
+    { 0,1,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,1,0 }, // 13
+    { 0,1,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,1,0 }, // 14
+    { 1,2,2,2,2,2,2,2,2,2,2,2,2,1,1,1,1,1,1,2,2,2,2,2,2,2,2,2,2,2,2,1 }, // 15 mouth
+    { 1,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,1 }, // 16
+    { 1,2,2,2,2,2,2,2,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,2,2,2,2,2,2,2,1 }, // 17 belly top
+    { 1,2,2,2,2,2,2,1,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,1,2,2,2,2,2,2,1 }, // 18
+    { 1,2,2,2,2,2,1,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,1,2,2,2,2,2,1 }, // 19
+    { 1,2,2,2,2,2,1,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,1,2,2,2,2,2,1 }, // 20
+    { 1,2,2,2,2,2,1,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,1,2,2,2,2,2,1 }, // 21
+    { 1,2,2,2,2,2,1,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,1,2,2,2,2,2,1 }, // 22
+    { 1,2,2,2,2,2,2,1,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,1,2,2,2,2,2,2,1 }, // 23
+    { 0,1,2,2,2,2,2,2,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,2,2,2,2,2,2,1,0 }, // 24 belly bottom
+    { 0,1,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,1,0 }, // 25
+    { 0,0,1,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,1,0,0 }, // 26
+    { 0,0,1,2,2,1,1,1,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,1,1,1,2,2,2,1,0,0 }, // 27 feet
+    { 0,0,0,1,1,3,3,3,1,1,2,2,2,2,2,2,2,2,2,2,2,2,1,3,3,3,1,1,1,0,0,0 }, // 28
+    { 0,0,0,0,1,3,3,3,3,1,1,1,1,1,1,1,1,1,1,1,1,1,1,3,3,3,3,1,0,0,0,0 }, // 29
+    { 0,0,0,0,0,1,1,1,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,1,1,1,0,0,0,0,0 }, // 30
+    { 0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0 }, // 31
+};
+
+// Helper to get RGB565 color from palette index
+static uint16_t snorlax_get_color(uint8_t idx) {
+    switch (idx) {
+        case 1: return SNORLAX_OUTLINE;
+        case 2: return SNORLAX_BODY;
+        case 3: return SNORLAX_BELLY;
+        default: return COLOR_BLACK; // transparent = background
+    }
+}
+
+// Draw the Snorlax sprite at given position with scale factor
+static void lcd_draw_snorlax(int x, int y, int scale) {
+    for (int row = 0; row < 32; row++) {
+        for (int col = 0; col < 32; col++) {
+            uint8_t idx = snorlax_sprite[row][col];
+            if (idx != 0) { // Skip transparent pixels
+                uint16_t color = snorlax_get_color(idx);
+                lcd_fill_rect(x + col * scale, y + row * scale, scale, scale, color);
+            }
+        }
+    }
+}
+
+esp_err_t lcd_display_sleep_screen(void)
+{
+    lcd_display_clear();
+
+    // Draw title "Sleeping..."
+    lcd_draw_string(20, 10, "Sleeping...", COLOR_CYAN, COLOR_BLACK, 2);
+
+    // Draw Snorlax sprite centered (32x32 at scale 3 = 96x96 pixels)
+    int sprite_size = 32 * 3; // 96 pixels
+    int sprite_x = (LCD_WIDTH - sprite_size) / 2;
+    int sprite_y = 50;
+    lcd_draw_snorlax(sprite_x, sprite_y, 3);
+
+    // Draw animated "Zzz" with increasing sizes
+    lcd_draw_string(sprite_x + sprite_size - 10, sprite_y - 5, "z", COLOR_WHITE, COLOR_BLACK, 1);
+    lcd_draw_string(sprite_x + sprite_size + 5, sprite_y - 15, "Z", COLOR_WHITE, COLOR_BLACK, 1);
+    lcd_draw_string(sprite_x + sprite_size + 15, sprite_y - 30, "Z", COLOR_WHITE, COLOR_BLACK, 2);
+
+    // Footer message
+    lcd_draw_string(8, LCD_HEIGHT - 30, "Press RIGHT btn", COLOR_YELLOW, COLOR_BLACK, 1);
+    lcd_draw_string(8, LCD_HEIGHT - 18, "to wake up", COLOR_YELLOW, COLOR_BLACK, 1);
+
+    return ESP_OK;
+}

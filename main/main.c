@@ -24,6 +24,7 @@
 #include "esp_http_server.h"
 #include "esp_sntp.h"
 #include "esp_sleep.h"
+#include "driver/rtc_io.h"
 
 #include "config.h"
 #include "as5600.h"
@@ -1179,11 +1180,9 @@ static void enter_deep_sleep(void)
         servo_center(servo_handle);
     }
 
-    // 2. Show sleep message on LCD
-    lcd_display_clear();
-    // Draw centered "Sleeping..." text
-    lcd_display_splash();  // Reuse splash as visual feedback
-    vTaskDelay(pdMS_TO_TICKS(300));
+    // 2. Show sleep screen with Snorlax sprite on LCD
+    lcd_display_sleep_screen();
+    vTaskDelay(pdMS_TO_TICKS(2000));  // Show sleep screen for 2 seconds
 
     // 3. Turn off LCD backlight
     lcd_display_set_backlight(0);
@@ -1193,16 +1192,29 @@ static void enter_deep_sleep(void)
     esp_wifi_stop();
     esp_wifi_deinit();
 
-    // 5. Configure GPIO 0 as EXT0 wake source (wake on LOW = button press)
-    esp_sleep_enable_ext0_wakeup(SLEEP_BUTTON_PIN, 0);
+    // 5. Wait for left button release before entering sleep
+    // GPIO 0 is active LOW, so wait until it reads HIGH (released)
+    ESP_LOGI(TAG, "Waiting for button release...");
+    while (gpio_get_level(SLEEP_BUTTON_PIN) == 0) {
+        vTaskDelay(pdMS_TO_TICKS(50));
+    }
+    // Debounce - wait a bit more to ensure stable release
+    vTaskDelay(pdMS_TO_TICKS(200));
 
-    // 6. Power down unused domains for minimal power consumption
+    // 6. Configure GPIO 35 (right button) as EXT0 wake source (wake on LOW = button press)
+    // Note: GPIO 35 is input-only but is an RTC GPIO, so it supports ext0 wakeup
+    // Enable internal pull-up on RTC domain to prevent floating
+    esp_sleep_enable_ext0_wakeup(BUTTON_RIGHT_PIN, 0);
+    rtc_gpio_pullup_en(BUTTON_RIGHT_PIN);
+    rtc_gpio_pulldown_dis(BUTTON_RIGHT_PIN);
+
+    // 7. Power down unused domains for minimal power consumption
     esp_sleep_pd_config(ESP_PD_DOMAIN_RTC_SLOW_MEM, ESP_PD_OPTION_OFF);
     esp_sleep_pd_config(ESP_PD_DOMAIN_RTC_FAST_MEM, ESP_PD_OPTION_OFF);
 
-    ESP_LOGI(TAG, "Good night! Press left button to wake up.");
+    ESP_LOGI(TAG, "Good night! Press RIGHT button to wake up.");
 
-    // 7. Enter deep sleep (never returns - chip resets on wake)
+    // 8. Enter deep sleep (never returns - chip resets on wake)
     esp_deep_sleep_start();
 }
 

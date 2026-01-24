@@ -16,6 +16,7 @@ A WiFi-controlled rover using ESP32 with SimpleFOC BLDC motor control and servo 
 - **LCD Display**: ST7789 135x240 on-device status display (TTGO only)
 - **Hardware Buttons**: Left/Right button input with WebUI indicators (TTGO only)
 - **Safety Features**: Command timeout watchdog and emergency stop
+- **Deep Sleep Mode**: Hold left button 5 seconds for power-saving sleep (~10µA)
 - **Self-Contained**: ESP-IDF v5.2.2 embedded in project
 
 ## Supported Hardware
@@ -165,6 +166,23 @@ The TTGO T-Display has two front buttons that are exposed through:
 
 Buttons are active LOW with internal pull-ups enabled.
 
+### Button Functions
+
+| Button | Short Press | Long Press (5 sec) |
+|--------|-------------|-------------------|
+| Left (GPIO 0) | Status indicator | Enter deep sleep |
+| Right (GPIO 35) | Status indicator | Wake from deep sleep |
+
+### Deep Sleep Mode
+
+To save battery power, the rover supports deep sleep mode:
+
+1. **Enter Sleep**: Hold LEFT button for 5 seconds (without pressing right)
+2. **Sleep Screen**: Displays a sleeping Snorlax sprite with "Zzz..." animation
+3. **Wake Up**: Press RIGHT button to wake and reboot
+
+In deep sleep mode, the ESP32 consumes only ~10µA (vs ~180mA active).
+
 ## Configuration
 
 Edit `main/config.h` to customize:
@@ -259,7 +277,14 @@ Core 1: Motor control loop (100Hz)
 
 ## Changelog
 
-### v1.1 (Latest)
+### v1.2 (Latest)
+- Added deep sleep power save mode (REQ-30)
+  - Hold left button 5 seconds to enter sleep
+  - Press right button to wake up
+  - Displays Snorlax sleep animation
+  - ~10µA power consumption in sleep
+
+### v1.1
 - Added LCD display component for TTGO T-Display (ST7789 135x240)
 - Added hardware button support with WebUI indicators
 - Fixed SPI clock speed for non-IOMUX pins (26MHz max)

@@ -127,6 +127,16 @@ esp_err_t lcd_display_diagnostics(const lcd_wifi_diag_t *diag);
  */
 void lcd_display_reset_state(void);
 
+/**
+ * @brief Show sleep screen with animated Snorlax
+ *
+ * Displays a pixelated Snorlax sprite with "Zzz..." animation
+ * for entering deep sleep mode.
+ *
+ * @return ESP_OK on success
+ */
+esp_err_t lcd_display_sleep_screen(void);
+
 #ifdef __cplusplus
 }
 #endif
