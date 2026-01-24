@@ -64,7 +64,10 @@ typedef struct {
     uint32_t uptime_secs;       /**< Uptime in seconds */
     float battery_volts;        /**< Battery voltage */
     float cpu_freq_mhz;         /**< CPU frequency */
-    uint8_t task_count;         /**< Number of running tasks */
+    uint8_t task_count;         /**< Total number of running tasks */
+    uint8_t tasks_core0;        /**< Tasks running on core 0 */
+    uint8_t tasks_core1;        /**< Tasks running on core 1 */
+    uint8_t tasks_no_affinity;  /**< Tasks with no core affinity */
     bool rest_api_enabled;      /**< REST API enabled */
     bool mqtt_enabled;          /**< MQTT enabled */
     bool mqtt_connected;        /**< MQTT broker connected */

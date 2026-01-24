@@ -3,8 +3,7 @@
  * @brief Unit tests for diagnostic mode state machine (REQ-06)
  *
  * REQ-06: The diagnostic screen is entered by long pressing both buttons
- * together for 3s. Once the buttons are let loose you will stay there.
- * Exit by holding both buttons for 1s.
+ * together for 3s. Exit by short press of any button.
  */
 
 #include "unity.h"
@@ -20,19 +19,19 @@ typedef enum {
     DIAG_MODE_ENTERING,      /* Both buttons held, counting down to enter */
     DIAG_MODE_WAIT_RELEASE,  /* Entered, waiting for buttons to be released */
     DIAG_MODE_ON,            /* Diagnostic screen active, buttons released */
-    DIAG_MODE_EXIT_PENDING,  /* Both buttons pressed to exit, waiting for hold */
     DIAG_MODE_EXITING        /* Confirmed exit, returning to normal */
 } diag_mode_t;
 
 /* Timing constants (in ticks, assuming 1ms per tick for testing) */
 #define DIAG_ENTRY_HOLD_TIME 3000  /* 3 seconds to enter */
-#define DIAG_EXIT_HOLD_TIME  1000  /* 1 second to exit */
 
 /* State machine context */
 typedef struct {
     diag_mode_t mode;
     uint32_t both_buttons_start;
     uint32_t current_tick;
+    bool prev_btn_left;
+    bool prev_btn_right;
 } diag_context_t;
 
 /* Initialize context */
@@ -41,12 +40,17 @@ static void diag_init(diag_context_t *ctx)
     ctx->mode = DIAG_MODE_OFF;
     ctx->both_buttons_start = 0;
     ctx->current_tick = 0;
+    ctx->prev_btn_left = false;
+    ctx->prev_btn_right = false;
 }
 
 /* Process one tick of the state machine */
 static void diag_process(diag_context_t *ctx, bool btn_left, bool btn_right)
 {
     bool both_pressed = btn_left && btn_right;
+    bool any_pressed = btn_left || btn_right;
+    bool btn_left_pressed = btn_left && !ctx->prev_btn_left;   /* Rising edge */
+    bool btn_right_pressed = btn_right && !ctx->prev_btn_right; /* Rising edge */
 
     switch (ctx->mode) {
         case DIAG_MODE_OFF:
@@ -65,22 +69,14 @@ static void diag_process(diag_context_t *ctx, bool btn_left, bool btn_right)
             break;
 
         case DIAG_MODE_WAIT_RELEASE:
-            if (!both_pressed) {
+            if (!any_pressed) {
                 ctx->mode = DIAG_MODE_ON;
             }
             break;
 
         case DIAG_MODE_ON:
-            if (both_pressed) {
-                ctx->both_buttons_start = ctx->current_tick;
-                ctx->mode = DIAG_MODE_EXIT_PENDING;
-            }
-            break;
-
-        case DIAG_MODE_EXIT_PENDING:
-            if (!both_pressed) {
-                ctx->mode = DIAG_MODE_ON;
-            } else if ((ctx->current_tick - ctx->both_buttons_start) >= DIAG_EXIT_HOLD_TIME) {
+            /* Exit on any button press (short press) */
+            if (btn_left_pressed || btn_right_pressed) {
                 ctx->mode = DIAG_MODE_EXITING;
             }
             break;
@@ -89,14 +85,17 @@ static void diag_process(diag_context_t *ctx, bool btn_left, bool btn_right)
             ctx->mode = DIAG_MODE_OFF;
             break;
     }
+
+    /* Update previous button states for edge detection */
+    ctx->prev_btn_left = btn_left;
+    ctx->prev_btn_right = btn_right;
 }
 
 /* Helper to check if currently showing diagnostics */
 static bool diag_is_showing(diag_context_t *ctx)
 {
     return ctx->mode == DIAG_MODE_ON ||
-           ctx->mode == DIAG_MODE_WAIT_RELEASE ||
-           ctx->mode == DIAG_MODE_EXIT_PENDING;
+           ctx->mode == DIAG_MODE_WAIT_RELEASE;
 }
 
 /* ==========================================================================
@@ -235,7 +234,7 @@ void test_req06_stays_on_after_release(void)
     TEST_ASSERT_TRUE(diag_is_showing(&ctx));
 }
 
-void test_req06_brief_press_in_on_mode_stays_on(void)
+void test_req06_left_button_press_exits(void)
 {
     diag_context_t ctx;
     diag_init(&ctx);
@@ -249,42 +248,38 @@ void test_req06_brief_press_in_on_mode_stays_on(void)
     diag_process(&ctx, false, false);
     TEST_ASSERT_EQUAL(DIAG_MODE_ON, ctx.mode);
 
-    /* Brief press (500ms) - should not exit */
-    for (int i = 3002; i < 3502; i++) {
-        ctx.current_tick = i;
-        diag_process(&ctx, true, true);
-    }
-    TEST_ASSERT_EQUAL(DIAG_MODE_EXIT_PENDING, ctx.mode);
-
-    /* Release before 1s - should go back to ON */
-    ctx.current_tick = 3502;
-    diag_process(&ctx, false, false);
-    TEST_ASSERT_EQUAL(DIAG_MODE_ON, ctx.mode);
-}
-
-void test_req06_hold_1s_in_on_mode_exits(void)
-{
-    diag_context_t ctx;
-    diag_init(&ctx);
-
-    /* Enter diagnostic mode */
-    for (int i = 0; i <= 3000; i++) {
-        ctx.current_tick = i;
-        diag_process(&ctx, true, true);
-    }
-    ctx.current_tick = 3001;
-    diag_process(&ctx, false, false);
-    TEST_ASSERT_EQUAL(DIAG_MODE_ON, ctx.mode);
-
-    /* Hold both buttons for 1 second to exit */
-    for (int i = 3002; i <= 4002; i++) {
-        ctx.current_tick = i;
-        diag_process(&ctx, true, true);
-    }
+    /* Press left button - should exit */
+    ctx.current_tick = 3002;
+    diag_process(&ctx, true, false);
     TEST_ASSERT_EQUAL(DIAG_MODE_EXITING, ctx.mode);
 
     /* Process one more tick to complete exit */
-    ctx.current_tick = 4003;
+    ctx.current_tick = 3003;
+    diag_process(&ctx, false, false);
+    TEST_ASSERT_EQUAL(DIAG_MODE_OFF, ctx.mode);
+}
+
+void test_req06_right_button_press_exits(void)
+{
+    diag_context_t ctx;
+    diag_init(&ctx);
+
+    /* Enter diagnostic mode */
+    for (int i = 0; i <= 3000; i++) {
+        ctx.current_tick = i;
+        diag_process(&ctx, true, true);
+    }
+    ctx.current_tick = 3001;
+    diag_process(&ctx, false, false);
+    TEST_ASSERT_EQUAL(DIAG_MODE_ON, ctx.mode);
+
+    /* Press right button - should exit */
+    ctx.current_tick = 3002;
+    diag_process(&ctx, false, true);
+    TEST_ASSERT_EQUAL(DIAG_MODE_EXITING, ctx.mode);
+
+    /* Process one more tick to complete exit */
+    ctx.current_tick = 3003;
     diag_process(&ctx, false, false);
     TEST_ASSERT_EQUAL(DIAG_MODE_OFF, ctx.mode);
 }
@@ -324,20 +319,13 @@ void test_req06_full_cycle(void)
     }
     TEST_ASSERT_EQUAL(DIAG_MODE_ON, ctx.mode);
 
-    /* Press both buttons - enters EXIT_PENDING */
+    /* Press any button to exit */
     ctx.current_tick = 8000;
-    diag_process(&ctx, true, true);
-    TEST_ASSERT_EQUAL(DIAG_MODE_EXIT_PENDING, ctx.mode);
-
-    /* Hold for 1 second - enters EXITING */
-    for (int i = 8001; i <= 9000; i++) {
-        ctx.current_tick = i;
-        diag_process(&ctx, true, true);
-    }
+    diag_process(&ctx, true, false);
     TEST_ASSERT_EQUAL(DIAG_MODE_EXITING, ctx.mode);
 
     /* Process to complete exit - back to OFF */
-    ctx.current_tick = 9001;
+    ctx.current_tick = 8001;
     diag_process(&ctx, false, false);
     TEST_ASSERT_EQUAL(DIAG_MODE_OFF, ctx.mode);
     TEST_ASSERT_FALSE(diag_is_showing(&ctx));
@@ -357,17 +345,17 @@ void test_req06_can_reenter_after_exit(void)
     diag_process(&ctx, false, false);
     TEST_ASSERT_EQUAL(DIAG_MODE_ON, ctx.mode);
 
-    /* Exit */
-    for (int i = 3002; i <= 4002; i++) {
-        ctx.current_tick = i;
-        diag_process(&ctx, true, true);
-    }
-    ctx.current_tick = 4003;
+    /* Exit with button press */
+    ctx.current_tick = 3002;
+    diag_process(&ctx, true, false);
+    TEST_ASSERT_EQUAL(DIAG_MODE_EXITING, ctx.mode);
+
+    ctx.current_tick = 3003;
     diag_process(&ctx, false, false);
     TEST_ASSERT_EQUAL(DIAG_MODE_OFF, ctx.mode);
 
     /* Wait a bit */
-    for (int i = 4004; i < 5000; i++) {
+    for (int i = 3004; i < 5000; i++) {
         ctx.current_tick = i;
         diag_process(&ctx, false, false);
     }
@@ -405,10 +393,10 @@ int run_diag_state_machine_tests(void)
 
     printf("\nStay in Diagnostic Mode Tests\n");
     RUN_TEST(test_req06_stays_on_after_release);
-    RUN_TEST(test_req06_brief_press_in_on_mode_stays_on);
 
-    printf("\nExit Tests\n");
-    RUN_TEST(test_req06_hold_1s_in_on_mode_exits);
+    printf("\nExit Tests (short press any button)\n");
+    RUN_TEST(test_req06_left_button_press_exits);
+    RUN_TEST(test_req06_right_button_press_exits);
 
     printf("\nFull Cycle Tests\n");
     RUN_TEST(test_req06_full_cycle);

@@ -835,7 +835,6 @@ typedef enum {
     DIAG_MODE_ENTERING,      // Both buttons held, counting down to enter
     DIAG_MODE_WAIT_RELEASE,  // Entered, waiting for buttons to be released
     DIAG_MODE_ON,            // Diagnostic screen active, buttons released
-    DIAG_MODE_EXIT_PENDING,  // Both buttons pressed to exit, waiting for hold
     DIAG_MODE_EXITING        // Confirmed exit, returning to normal
 } diag_mode_t;
 
@@ -855,6 +854,43 @@ static int8_t get_wifi_tx_power(void)
     return power / 4;  // Convert from 0.25dBm units to dBm
 }
 
+// REQ-09: Get task counts per core
+typedef struct {
+    uint8_t core0;
+    uint8_t core1;
+    uint8_t no_affinity;
+} task_core_counts_t;
+
+static void get_task_core_counts(task_core_counts_t *counts)
+{
+    counts->core0 = 0;
+    counts->core1 = 0;
+    counts->no_affinity = 0;
+
+    UBaseType_t num_tasks = uxTaskGetNumberOfTasks();
+    if (num_tasks == 0) return;
+
+    // Allocate buffer for task status array
+    TaskStatus_t *task_array = pvPortMalloc(num_tasks * sizeof(TaskStatus_t));
+    if (task_array == NULL) return;
+
+    // Get task states
+    UBaseType_t actual_count = uxTaskGetSystemState(task_array, num_tasks, NULL);
+
+    for (UBaseType_t i = 0; i < actual_count; i++) {
+        BaseType_t core = xTaskGetAffinity(task_array[i].xHandle);
+        if (core == 0) {
+            counts->core0++;
+        } else if (core == 1) {
+            counts->core1++;
+        } else {
+            // tskNO_AFFINITY means task can run on any core
+            counts->no_affinity++;
+        }
+    }
+
+    vPortFree(task_array);
+}
 
 static void lcd_update_task(void *pvParameters)
 {
@@ -874,7 +910,8 @@ static void lcd_update_task(void *pvParameters)
     diag_mode_t diag_mode = DIAG_MODE_OFF;
     TickType_t both_buttons_start = 0;
     const TickType_t DIAG_ENTRY_HOLD_TIME = pdMS_TO_TICKS(3000);  // 3 seconds to enter
-    const TickType_t DIAG_EXIT_HOLD_TIME = pdMS_TO_TICKS(1000);   // 1 second to exit
+    bool prev_btn_left = false;
+    bool prev_btn_right = false;
 
     lcd_rover_status_t lcd_status = {
         .wifi_ssid = wifi_get_current_ssid(),
@@ -896,9 +933,11 @@ static void lcd_update_task(void *pvParameters)
         uint32_t uptime_secs = (xTaskGetTickCount() - start_ticks) / configTICK_RATE_HZ;
 
         // Diagnostic mode state machine
-        // REQ-06: Long press both buttons 3s to enter, stay in diagnostic mode after release
-        //         Long press both buttons 1s to exit
+        // REQ-06: Long press both buttons 3s to enter, short press any button to exit
         bool both_pressed = btn_left && btn_right;
+        bool any_pressed = btn_left || btn_right;
+        bool btn_left_pressed = btn_left && !prev_btn_left;   // Rising edge
+        bool btn_right_pressed = btn_right && !prev_btn_right; // Rising edge
 
         switch (diag_mode) {
             case DIAG_MODE_OFF:
@@ -924,26 +963,15 @@ static void lcd_update_task(void *pvParameters)
 
             case DIAG_MODE_WAIT_RELEASE:
                 // Wait for user to release buttons after entering diagnostic mode
-                if (!both_pressed) {
+                if (!any_pressed) {
                     diag_mode = DIAG_MODE_ON;
-                    ESP_LOGI(TAG, "Diagnostic mode active - hold both buttons 1s to exit");
+                    ESP_LOGI(TAG, "Diagnostic mode active - press any button to exit");
                 }
                 break;
 
             case DIAG_MODE_ON:
-                // Stay in diagnostic mode until both buttons pressed to start exit
-                if (both_pressed) {
-                    both_buttons_start = xTaskGetTickCount();
-                    diag_mode = DIAG_MODE_EXIT_PENDING;
-                }
-                break;
-
-            case DIAG_MODE_EXIT_PENDING:
-                if (!both_pressed) {
-                    // Released too early, stay in diagnostic mode
-                    diag_mode = DIAG_MODE_ON;
-                } else if ((xTaskGetTickCount() - both_buttons_start) >= DIAG_EXIT_HOLD_TIME) {
-                    // Held long enough to exit
+                // Exit on any button press (short press)
+                if (btn_left_pressed || btn_right_pressed) {
                     diag_mode = DIAG_MODE_EXITING;
                 }
                 break;
@@ -957,7 +985,15 @@ static void lcd_update_task(void *pvParameters)
                 break;
         }
 
-        if (diag_mode == DIAG_MODE_ON || diag_mode == DIAG_MODE_WAIT_RELEASE || diag_mode == DIAG_MODE_EXIT_PENDING) {
+        // Update previous button states for edge detection
+        prev_btn_left = btn_left;
+        prev_btn_right = btn_right;
+
+        if (diag_mode == DIAG_MODE_ON || diag_mode == DIAG_MODE_WAIT_RELEASE) {
+            // Get per-core task counts (REQ-09)
+            task_core_counts_t task_counts;
+            get_task_core_counts(&task_counts);
+
             // Show diagnostic screen
             lcd_wifi_diag_t diag = {
                 .ssid = wifi_get_current_ssid(),
@@ -974,6 +1010,9 @@ static void lcd_update_task(void *pvParameters)
                 .uptime_secs = uptime_secs,
                 .cpu_freq_mhz = CONFIG_ESP_DEFAULT_CPU_FREQ_MHZ,
                 .task_count = uxTaskGetNumberOfTasks(),
+                .tasks_core0 = task_counts.core0,
+                .tasks_core1 = task_counts.core1,
+                .tasks_no_affinity = task_counts.no_affinity,
 #if defined(ENABLE_BATTERY_ADC) && ENABLE_BATTERY_ADC
                 .battery_volts = read_battery_voltage(),
 #else

@@ -760,14 +760,16 @@ esp_err_t lcd_display_diagnostics(const lcd_wifi_diag_t *diag)
     lcd_draw_string(4, y + 2, "-- System --", COLOR_CYAN, COLOR_DARKGRAY, 1);
     y += 12;
 
-    // CPU and Tasks on same line
+    // CPU frequency
     lcd_draw_string(4, y, "CPU:", COLOR_LIGHTGRAY, COLOR_BLACK, 1);
     snprintf(buf, sizeof(buf), "%.0fMHz", diag->cpu_freq_mhz);
     lcd_draw_string(34, y, buf, COLOR_GREEN, COLOR_BLACK, 1);
+    y += 10;
 
-    lcd_draw_string(85, y, "T:", COLOR_LIGHTGRAY, COLOR_BLACK, 1);
-    snprintf(buf, sizeof(buf), "%d", diag->task_count);
-    lcd_draw_string(100, y, buf, COLOR_CYAN, COLOR_BLACK, 1);
+    // Tasks per core (REQ-09)
+    lcd_draw_string(4, y, "Tasks:", COLOR_LIGHTGRAY, COLOR_BLACK, 1);
+    snprintf(buf, sizeof(buf), "C0:%d C1:%d", diag->tasks_core0, diag->tasks_core1);
+    lcd_draw_string(46, y, buf, COLOR_CYAN, COLOR_BLACK, 1);
     y += 10;
 
     // Battery and Uptime on same line
@@ -810,7 +812,7 @@ esp_err_t lcd_display_diagnostics(const lcd_wifi_diag_t *diag)
 
     // Footer with exit instruction
     lcd_fill_rect(0, LCD_HEIGHT - 14, LCD_WIDTH, 14, COLOR_DARKGRAY);
-    lcd_draw_string(4, LCD_HEIGHT - 10, "Hold both btns 1s exit", COLOR_WHITE, COLOR_DARKGRAY, 1);
+    lcd_draw_string(8, LCD_HEIGHT - 10, "Press any btn to exit", COLOR_WHITE, COLOR_DARKGRAY, 1);
 
     return ESP_OK;
 }
