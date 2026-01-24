@@ -29,3 +29,6 @@ __pycache__/
 *.log
 test/*.o
 test/test_runner
+
+# Secrets (contains passwords and credentials)
+secrets.yaml

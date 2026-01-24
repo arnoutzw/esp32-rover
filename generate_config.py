@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """
-Generate config_generated.h from rover_config.yaml
+Generate config_generated.h from rover_config.yaml and secrets.yaml
 
-This script reads the YAML configuration and generates C preprocessor
-definitions for compile-time configuration of the rover firmware.
+This script reads the YAML configuration and secrets, then generates C 
+preprocessor definitions for compile-time configuration of the rover firmware.
 
 Usage:
     python generate_config.py [config.yaml] [output.h]
@@ -11,6 +11,8 @@ Usage:
 Defaults:
     config.yaml = rover_config.yaml
     output.h = main/config_generated.h
+
+Secrets are loaded from secrets.yaml in the same directory as config.yaml.
 """
 
 import sys
@@ -24,12 +26,28 @@ except ImportError:
     sys.exit(1)
 
 
-def generate_header(config: dict) -> str:
-    """Generate C header content from configuration dictionary."""
+def load_secrets(config_dir: str) -> dict:
+    """Load secrets from secrets.yaml if it exists."""
+    secrets_path = os.path.join(config_dir, "secrets.yaml")
+    if os.path.exists(secrets_path):
+        try:
+            with open(secrets_path, "r") as f:
+                return yaml.safe_load(f) or {}
+        except yaml.YAMLError as e:
+            print(f"Warning: Invalid YAML in {secrets_path}: {e}")
+            return {}
+    else:
+        print(f"Warning: secrets.yaml not found at {secrets_path}")
+        print("         Copy secrets.yaml.example to secrets.yaml and fill in your values.")
+        return {}
+
+
+def generate_header(config: dict, secrets: dict) -> str:
+    """Generate C header content from configuration and secrets dictionaries."""
     lines = [
         "// =============================================================================",
         "// AUTO-GENERATED FILE - DO NOT EDIT MANUALLY",
-        "// Generated from rover_config.yaml by generate_config.py",
+        "// Generated from rover_config.yaml and secrets.yaml by generate_config.py",
         "// =============================================================================",
         "#pragma once",
         "",
@@ -62,20 +80,20 @@ def generate_header(config: dict) -> str:
         lines.append("#define WIFI_MODE_STA_FIRST 1")
     lines.append("")
 
-    # AP settings
+    # AP settings (password from secrets)
     ap = wifi.get("ap", {})
     lines.append("// WiFi AP Settings")
     lines.append(f'#define WIFI_AP_SSID "{ap.get("ssid", "ESP32-Rover")}"')
-    lines.append(f'#define WIFI_AP_PASSWORD "{ap.get("password", "rover1234")}"')
+    lines.append(f'#define WIFI_AP_PASSWORD "{secrets.get("wifi_ap_password", "rover1234")}"')
     lines.append(f'#define WIFI_AP_CHANNEL {ap.get("channel", 1)}')
     lines.append(f'#define WIFI_AP_MAX_CONN {ap.get("max_connections", 4)}')
     lines.append("")
 
-    # STA settings
+    # STA settings (SSID and password from secrets)
     sta = wifi.get("sta", {})
     lines.append("// WiFi STA Settings")
-    lines.append(f'#define WIFI_STA_SSID "{sta.get("ssid", "")}"')
-    lines.append(f'#define WIFI_STA_PASSWORD "{sta.get("password", "")}"')
+    lines.append(f'#define WIFI_STA_SSID "{secrets.get("wifi_sta_ssid", "")}"')
+    lines.append(f'#define WIFI_STA_PASSWORD "{secrets.get("wifi_sta_password", "")}"')
     lines.append(f'#define WIFI_STA_CONNECT_TIMEOUT_S {sta.get("connect_timeout", 10)}')
     lines.append("")
 
@@ -86,15 +104,15 @@ def generate_header(config: dict) -> str:
     lines.append(f'#define REST_API_CACHE_INTERVAL_MS {rest_api.get("cache_interval_ms", 1000)}')
     lines.append("")
 
-    # MQTT configuration
+    # MQTT configuration (username/password from secrets)
     mqtt = config.get("mqtt", {})
     broker = mqtt.get("broker", {})
     lines.append("// MQTT Configuration")
     lines.append(f'#define ENABLE_MQTT {1 if mqtt.get("enabled", False) else 0}')
     lines.append(f'#define MQTT_BROKER_HOST "{broker.get("host", "")}"')
     lines.append(f'#define MQTT_BROKER_PORT {broker.get("port", 1883)}')
-    lines.append(f'#define MQTT_USERNAME "{broker.get("username", "")}"')
-    lines.append(f'#define MQTT_PASSWORD "{broker.get("password", "")}"')
+    lines.append(f'#define MQTT_USERNAME "{secrets.get("mqtt_username", "")}"')
+    lines.append(f'#define MQTT_PASSWORD "{secrets.get("mqtt_password", "")}"')
     lines.append(f'#define MQTT_CLIENT_ID "{mqtt.get("client_id", "esp32-rover")}"')
     lines.append(f'#define MQTT_TOPIC_PREFIX "{mqtt.get("topic_prefix", "esp32-rover")}"')
     lines.append(f'#define MQTT_PUBLISH_INTERVAL_MS {mqtt.get("publish_interval_ms", 5000)}')
@@ -142,12 +160,12 @@ def generate_header(config: dict) -> str:
     lines.append(f'#define CFG_ENABLE_ESTOP {1 if safety.get("estop_enabled", True) else 0}')
     lines.append("")
 
-    # OTA configuration
+    # OTA configuration (password from secrets)
     ota = config.get("ota", {})
     lines.append("// OTA Configuration")
     lines.append(f'#define ENABLE_OTA {1 if ota.get("enabled", True) else 0}')
     lines.append(f'#define OTA_HOSTNAME "{ota.get("hostname", "esp32-rover")}"')
-    lines.append(f'#define OTA_PASSWORD "{ota.get("password", "rover1234")}"')
+    lines.append(f'#define OTA_PASSWORD "{secrets.get("ota_password", "rover1234")}"')
     lines.append("")
 
     # Debug options
@@ -185,8 +203,12 @@ def main():
         print(f"Error: Invalid YAML in {config_path}: {e}")
         sys.exit(1)
 
+    # Load secrets
+    config_dir = os.path.dirname(config_path)
+    secrets = load_secrets(config_dir)
+
     # Generate header
-    header_content = generate_header(config)
+    header_content = generate_header(config, secrets)
 
     # Write output
     os.makedirs(os.path.dirname(output_path), exist_ok=True)
