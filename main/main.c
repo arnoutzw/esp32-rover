@@ -154,7 +154,11 @@ static float read_battery_voltage(void)
     }
 
     int raw_value = 0;
-    ESP_ERROR_CHECK(adc_oneshot_read(s_adc_handle, BATTERY_ADC_CHANNEL, &raw_value));
+    esp_err_t ret = adc_oneshot_read(s_adc_handle, BATTERY_ADC_CHANNEL, &raw_value);
+    if (ret != ESP_OK) {
+        // ADC read can timeout during WiFi activity - return last filtered value
+        return s_battery_voltage_filtered;
+    }
 
     float voltage_mv;
     if (s_adc_cali_handle) {

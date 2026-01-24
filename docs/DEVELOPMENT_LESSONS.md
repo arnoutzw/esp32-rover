@@ -443,6 +443,34 @@ float read_battery_voltage(void) {
 - **Choose time constant carefully** - Too fast = flicker, too slow = unresponsive
 - **Initialize filter with first reading** - Avoids startup glitch from zero
 
+### Issue: ADC Timeout Crash During WiFi Activity
+
+**Symptom**: Firmware would crash randomly with `ESP_ERR_TIMEOUT` in `adc_oneshot_read()`, especially when WiFi clients were connected.
+
+**Root Cause**: On ESP32, WiFi and ADC1 share some hardware resources. During heavy WiFi activity, ADC reads can timeout. The code was using `ESP_ERROR_CHECK()` which calls `abort()` on any error:
+
+```c
+// WRONG - crashes on timeout
+ESP_ERROR_CHECK(adc_oneshot_read(s_adc_handle, BATTERY_ADC_CHANNEL, &raw_value));
+```
+
+**Solution**: Handle the timeout gracefully by returning the last filtered value:
+
+```c
+// CORRECT - handle timeout gracefully
+esp_err_t ret = adc_oneshot_read(s_adc_handle, BATTERY_ADC_CHANNEL, &raw_value);
+if (ret != ESP_OK) {
+    // ADC read can timeout during WiFi activity - return last filtered value
+    return s_battery_voltage_filtered;
+}
+```
+
+**Lesson Learned**:
+- **Never use `ESP_ERROR_CHECK` for operations that can legitimately fail** - ADC reads during WiFi, network timeouts, etc.
+- **WiFi and ADC1 conflict on ESP32** - Be prepared for ADC timeouts when WiFi is active
+- **Return last known good value** - For sensor readings, stale data is better than a crash
+- **Reserve `ESP_ERROR_CHECK` for init-time operations** - Where failure means the system can't function anyway
+
 ---
 
 ## Summary of Best Practices
