@@ -1509,16 +1509,17 @@ void app_main(void)
     ESP_ERROR_CHECK(wifi_init());
 
     // REQ-32: Initialize mDNS for hostname resolution
+    // Hostname is target-specific: esp32-rover.local (ESP32-CAM) or ttgo-rover.local (TTGO)
     {
         esp_err_t mdns_err = mdns_init();
         if (mdns_err == ESP_OK) {
-            // Set hostname - will be accessible as esp32-rover.local
-            mdns_hostname_set("esp32-rover");
+            // Set hostname from config (target-specific)
+            mdns_hostname_set(MDNS_HOSTNAME);
             // Set instance name for service browser
-            mdns_instance_name_set("ESP32 Rover Control");
+            mdns_instance_name_set(MDNS_INSTANCE_NAME);
             // Add HTTP service
             mdns_service_add(NULL, "_http", "_tcp", 80, NULL, 0);
-            ESP_LOGI(TAG, "mDNS initialized: http://esp32-rover.local");
+            ESP_LOGI(TAG, "mDNS initialized: http://%s.local", MDNS_HOSTNAME);
         } else {
             ESP_LOGW(TAG, "mDNS init failed: %s", esp_err_to_name(mdns_err));
         }

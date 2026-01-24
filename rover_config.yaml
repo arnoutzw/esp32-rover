@@ -9,9 +9,11 @@
 # =============================================================================
 
 # -----------------------------------------------------------------------------
-# Build Target
+# Build Target (for config generation - mDNS hostname selection)
 # -----------------------------------------------------------------------------
-target: ttgo  # Options: "esp32cam" or "ttgo"
+# NOTE: This sets target-specific options like mDNS hostname.
+# The actual build target is selected via: ./build.sh esp32cam or ./build.sh ttgo
+target: esp32cam  # Options: "esp32cam" or "ttgo"
 
 # -----------------------------------------------------------------------------
 # WiFi Configuration
@@ -107,12 +109,24 @@ safety:
   estop_enabled: true
 
 # -----------------------------------------------------------------------------
+# mDNS Configuration (REQ-32)
+# -----------------------------------------------------------------------------
+# Hostname for mDNS discovery - device will be accessible at <hostname>.local
+# Different hostnames per target to allow multiple devices on the same network
+mdns:
+  # Hostname when building for ESP32-CAM
+  hostname_esp32cam: "esp32-rover"
+  # Hostname when building for TTGO T-Display
+  hostname_ttgo: "ttgo-rover"
+  # Instance name shown in service browsers
+  instance_name: "ESP32 Rover Control"
+
+# -----------------------------------------------------------------------------
 # OTA Update Configuration
 # -----------------------------------------------------------------------------
 # Password is loaded from secrets.yaml
 ota:
   enabled: true
-  hostname: "esp32-rover"
 
 # -----------------------------------------------------------------------------
 # Power Management (REQ-30)

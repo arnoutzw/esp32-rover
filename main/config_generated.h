@@ -1,11 +1,11 @@
 // =============================================================================
 // AUTO-GENERATED FILE - DO NOT EDIT MANUALLY
-// Generated from rover_config.yaml by generate_config.py
+// Generated from rover_config.yaml and secrets.yaml by generate_config.py
 // =============================================================================
 #pragma once
 
-// NOTE: ROVER_TARGET is set by build.sh via compiler flags
-// Do not define ROVER_TARGET_TTGO or ROVER_TARGET_ESP32CAM here
+// Config generated for target: esp32cam
+// NOTE: ROVER_TARGET_* is defined by CMake, not here
 
 // WiFi Mode Configuration
 #define WIFI_MODE_AP_ONLY 0
@@ -66,9 +66,13 @@
 #define CFG_ENABLE_WATCHDOG 1
 #define CFG_ENABLE_ESTOP 1
 
+// mDNS Configuration
+#define MDNS_HOSTNAME "esp32-rover"
+#define MDNS_INSTANCE_NAME "ESP32 Rover Control"
+
 // OTA Configuration
 #define ENABLE_OTA 1
-#define OTA_HOSTNAME "esp32-rover"
+#define OTA_HOSTNAME MDNS_HOSTNAME
 #define OTA_PASSWORD "rover1234"
 
 // Debug Options

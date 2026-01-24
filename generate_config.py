@@ -53,12 +53,13 @@ def generate_header(config: dict, secrets: dict) -> str:
         "",
     ]
 
-    # Target selection
+    # Target selection - NOTE: The actual ROVER_TARGET_* is set by CMake via build command
+    # (./build.sh esp32cam or ./build.sh ttgo). The YAML target is used here only
+    # for target-specific config generation like mDNS hostname.
     target = config.get("target", "ttgo").lower()
-    if target == "esp32cam":
-        lines.append("#define ROVER_TARGET_ESP32CAM 1")
-    else:
-        lines.append("#define ROVER_TARGET_TTGO 1")
+    # Don't define ROVER_TARGET_* here - CMake does that based on build command
+    lines.append(f"// Config generated for target: {target}")
+    lines.append("// NOTE: ROVER_TARGET_* is defined by CMake, not here")
     lines.append("")
 
     # WiFi configuration
@@ -160,11 +161,22 @@ def generate_header(config: dict, secrets: dict) -> str:
     lines.append(f'#define CFG_ENABLE_ESTOP {1 if safety.get("estop_enabled", True) else 0}')
     lines.append("")
 
-    # OTA configuration (password from secrets)
+    # mDNS configuration (target-specific hostname)
+    mdns = config.get("mdns", {})
+    lines.append("// mDNS Configuration")
+    if target == "esp32cam":
+        mdns_hostname = mdns.get("hostname_esp32cam", "esp32-rover")
+    else:
+        mdns_hostname = mdns.get("hostname_ttgo", "ttgo-rover")
+    lines.append(f'#define MDNS_HOSTNAME "{mdns_hostname}"')
+    lines.append(f'#define MDNS_INSTANCE_NAME "{mdns.get("instance_name", "ESP32 Rover Control")}"')
+    lines.append("")
+
+    # OTA configuration (password from secrets, hostname from mDNS)
     ota = config.get("ota", {})
     lines.append("// OTA Configuration")
     lines.append(f'#define ENABLE_OTA {1 if ota.get("enabled", True) else 0}')
-    lines.append(f'#define OTA_HOSTNAME "{ota.get("hostname", "esp32-rover")}"')
+    lines.append(f'#define OTA_HOSTNAME MDNS_HOSTNAME')  # Use same hostname as mDNS
     lines.append(f'#define OTA_PASSWORD "{secrets.get("ota_password", "rover1234")}"')
     lines.append("")
 

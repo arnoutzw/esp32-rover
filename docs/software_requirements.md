@@ -1025,35 +1025,56 @@ power:
 
 ### REQ-32: mDNS Hostname [IMPLEMENTED]
 
-**Requirement**: The ESP32_Rover shall have a fixed hostname "ESP32-Rover" with mDNS so it is reachable via `esp32-rover.local`.
+**Requirement**: The ESP32_Rover shall have a fixed hostname with mDNS so it is reachable via `<hostname>.local`. The hostname shall be target-specific to allow multiple devices on the same network.
 
 **Implementation**:
 - Uses ESP-IDF mDNS component (`mdns.h`)
-- Hostname: "esp32-rover"
+- Target-specific hostnames configured in `rover_config.yaml`
 - Instance name: "ESP32 Rover Control"
 - HTTP service registered: `_http._tcp` on port 80
-- Device accessible at `http://esp32-rover.local`
+
+**Target-Specific Hostnames**:
+| Target | Hostname | URL |
+|--------|----------|-----|
+| ESP32-CAM | `esp32-rover` | `http://esp32-rover.local` |
+| TTGO T-Display | `ttgo-rover` | `http://ttgo-rover.local` |
+
+**Configuration** (`rover_config.yaml`):
+```yaml
+mdns:
+  hostname_esp32cam: "esp32-rover"
+  hostname_ttgo: "ttgo-rover"
+  instance_name: "ESP32 Rover Control"
+```
 
 **mDNS Services**:
 - HTTP web server: `_http._tcp` port 80
 
 **Usage**:
 ```bash
-# Access web interface
+# Access ESP32-CAM web interface
 open http://esp32-rover.local
 
-# Ping device
-ping esp32-rover.local
+# Access TTGO web interface
+open http://ttgo-rover.local
 
-# OTA firmware update via mDNS (see REQ-03)
+# OTA firmware update via mDNS (ESP32-CAM example)
 curl -X POST -H "X-OTA-Password: rover1234" \
      --data-binary @build/esp32-rover.bin \
      http://esp32-rover.local/ota
+
+# OTA firmware update (TTGO example)
+curl -X POST -H "X-OTA-Password: rover1234" \
+     --data-binary @build/esp32-rover.bin \
+     http://ttgo-rover.local/ota
 ```
 
 **Tested**: OTA flashing via mDNS confirmed working - 1MB firmware uploads in ~15 seconds.
 
 **Files**:
+- `rover_config.yaml` - mDNS hostname configuration
+- `generate_config.py` - Generates target-specific `MDNS_HOSTNAME` define
+- `main/config_generated.h` - `MDNS_HOSTNAME`, `MDNS_INSTANCE_NAME`
 - `main/main.c` - mDNS initialization after WiFi
 - `main/idf_component.yml` - Added `espressif/mdns` component dependency
 
