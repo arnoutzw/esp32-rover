@@ -41,6 +41,11 @@ typedef struct {
     uint32_t uptime_secs;           // Uptime in seconds
     float cpu_freq_mhz;             // CPU frequency
     uint8_t task_count;             // Number of running tasks
+
+    // Service status
+    bool rest_api_enabled;          // REST API enabled at compile time
+    bool mqtt_enabled;              // MQTT enabled at compile time
+    bool mqtt_connected;            // MQTT broker connected
 } rover_status_t;
 
 // Command callback type

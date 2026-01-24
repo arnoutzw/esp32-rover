@@ -787,6 +787,27 @@ esp_err_t lcd_display_diagnostics(const lcd_wifi_diag_t *diag)
     lcd_draw_string(85, y, buf, COLOR_GREEN, COLOR_BLACK, 1);
     y += 12;
 
+    // Services Section
+    lcd_fill_rect(0, y, LCD_WIDTH, 10, COLOR_DARKGRAY);
+    lcd_draw_string(4, y + 2, "-- Services --", COLOR_CYAN, COLOR_DARKGRAY, 1);
+    y += 12;
+
+    // REST API status
+    lcd_draw_string(4, y, "REST:", COLOR_LIGHTGRAY, COLOR_BLACK, 1);
+    lcd_draw_string(40, y, diag->rest_api_enabled ? "ON" : "OFF",
+                   diag->rest_api_enabled ? COLOR_GREEN : COLOR_RED, COLOR_BLACK, 1);
+
+    // MQTT status
+    lcd_draw_string(70, y, "MQTT:", COLOR_LIGHTGRAY, COLOR_BLACK, 1);
+    if (!diag->mqtt_enabled) {
+        lcd_draw_string(106, y, "OFF", COLOR_RED, COLOR_BLACK, 1);
+    } else if (diag->mqtt_connected) {
+        lcd_draw_string(106, y, "OK", COLOR_GREEN, COLOR_BLACK, 1);
+    } else {
+        lcd_draw_string(106, y, "...", COLOR_YELLOW, COLOR_BLACK, 1);
+    }
+    y += 12;
+
     // Footer with exit instruction
     lcd_fill_rect(0, LCD_HEIGHT - 14, LCD_WIDTH, 14, COLOR_DARKGRAY);
     lcd_draw_string(12, LCD_HEIGHT - 10, "Release to exit", COLOR_WHITE, COLOR_DARKGRAY, 1);

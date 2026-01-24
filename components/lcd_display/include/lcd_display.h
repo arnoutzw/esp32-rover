@@ -65,6 +65,9 @@ typedef struct {
     float battery_volts;        /**< Battery voltage */
     float cpu_freq_mhz;         /**< CPU frequency */
     uint8_t task_count;         /**< Number of running tasks */
+    bool rest_api_enabled;      /**< REST API enabled */
+    bool mqtt_enabled;          /**< MQTT enabled */
+    bool mqtt_connected;        /**< MQTT broker connected */
 } lcd_wifi_diag_t;
 
 /**

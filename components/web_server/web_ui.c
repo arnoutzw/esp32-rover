@@ -471,6 +471,19 @@ static const char web_ui_html[] = R"rawliteral(
                                 </div>
                             </div>
                         </div>
+                        <div class="diag-section">
+                            <div class="diag-section-title">Services</div>
+                            <div class="diag-grid">
+                                <div class="diag-item">
+                                    <span class="diag-label">REST API</span>
+                                    <span class="diag-value" id="diag-restapi">--</span>
+                                </div>
+                                <div class="diag-item">
+                                    <span class="diag-label">MQTT</span>
+                                    <span class="diag-value" id="diag-mqtt">--</span>
+                                </div>
+                            </div>
+                        </div>
                     </div>
                 </div>
             </div>
@@ -689,6 +702,23 @@ static const char web_ui_html[] = R"rawliteral(
                         document.getElementById('diag-tasks').textContent = d.tasks;
                         document.getElementById('diag-battery').textContent = data.battery.toFixed(2) + 'V';
                         document.getElementById('diag-uptime').textContent = formatUptime(d.uptime);
+
+                        // Services section
+                        const restEl = document.getElementById('diag-restapi');
+                        restEl.textContent = d.restApi ? 'ON' : 'OFF';
+                        restEl.className = 'diag-value' + (d.restApi ? '' : ' error');
+
+                        const mqttEl = document.getElementById('diag-mqtt');
+                        if (!d.mqttEnabled) {
+                            mqttEl.textContent = 'OFF';
+                            mqttEl.className = 'diag-value error';
+                        } else if (d.mqttConnected) {
+                            mqttEl.textContent = 'Connected';
+                            mqttEl.className = 'diag-value';
+                        } else {
+                            mqttEl.textContent = 'Disconnected';
+                            mqttEl.className = 'diag-value warn';
+                        }
                     }
 
                     setConnected(true);

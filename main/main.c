@@ -603,6 +603,20 @@ static void status_update_task(void *pvParameters)
         status.cpu_freq_mhz = CONFIG_ESP_DEFAULT_CPU_FREQ_MHZ;
         status.task_count = uxTaskGetNumberOfTasks();
 
+        // Service status
+#if defined(ENABLE_REST_API) && ENABLE_REST_API
+        status.rest_api_enabled = true;
+#else
+        status.rest_api_enabled = false;
+#endif
+#if defined(ENABLE_MQTT) && ENABLE_MQTT
+        status.mqtt_enabled = true;
+        status.mqtt_connected = mqtt_service_is_connected();
+#else
+        status.mqtt_enabled = false;
+        status.mqtt_connected = false;
+#endif
+
         // Update web server status
         web_server_update_status(&status);
 
@@ -940,6 +954,18 @@ static void lcd_update_task(void *pvParameters)
                 .battery_volts = read_battery_voltage(),
 #else
                 .battery_volts = 0.0f,
+#endif
+#if defined(ENABLE_REST_API) && ENABLE_REST_API
+                .rest_api_enabled = true,
+#else
+                .rest_api_enabled = false,
+#endif
+#if defined(ENABLE_MQTT) && ENABLE_MQTT
+                .mqtt_enabled = true,
+                .mqtt_connected = mqtt_service_is_connected(),
+#else
+                .mqtt_enabled = false,
+                .mqtt_connected = false,
 #endif
             };
             lcd_display_diagnostics(&diag);

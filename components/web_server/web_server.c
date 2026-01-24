@@ -206,7 +206,7 @@ static esp_err_t control_handler(httpd_req_t *req)
 // Status handler - return current status with full diagnostics
 static esp_err_t status_handler(httpd_req_t *req)
 {
-    char response[768];
+    char response[896];
 
     rover_status_t status = {0};
     if (state_mutex && xSemaphoreTake(state_mutex, pdMS_TO_TICKS(10)) == pdTRUE) {
@@ -238,7 +238,10 @@ static esp_err_t status_handler(httpd_req_t *req)
             "\"freeInternal\":%lu,"
             "\"uptime\":%lu,"
             "\"cpuFreq\":%.0f,"
-            "\"tasks\":%d"
+            "\"tasks\":%d,"
+            "\"restApi\":%s,"
+            "\"mqttEnabled\":%s,"
+            "\"mqttConnected\":%s"
         "}"
         "}",
         status.motor_velocity,
@@ -261,7 +264,10 @@ static esp_err_t status_handler(httpd_req_t *req)
         (unsigned long)status.free_internal,
         (unsigned long)status.uptime_secs,
         status.cpu_freq_mhz,
-        status.task_count
+        status.task_count,
+        status.rest_api_enabled ? "true" : "false",
+        status.mqtt_enabled ? "true" : "false",
+        status.mqtt_connected ? "true" : "false"
     );
 
     httpd_resp_set_type(req, "application/json");
