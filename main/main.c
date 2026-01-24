@@ -909,7 +909,7 @@ void app_main(void)
     xTaskCreatePinnedToCore(
         status_update_task,
         "status",
-        2048,
+        4096,  // Increased from 2048 for diagnostic data collection
         NULL,
         2,  // Lower priority
         &status_task_handle,
