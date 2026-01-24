@@ -204,6 +204,27 @@ static const char web_ui_html[] = R"rawliteral(
             font-family: monospace;
             color: #3282b8;
         }
+        .button-indicators {
+            display: flex;
+            gap: 10px;
+            margin-top: 5px;
+        }
+        .hw-button {
+            padding: 8px 16px;
+            border-radius: 6px;
+            font-size: 0.9em;
+            font-weight: bold;
+            background: #2d2d44;
+            color: #666;
+            border: 2px solid #444;
+            transition: all 0.1s;
+        }
+        .hw-button.pressed {
+            background: #3282b8;
+            color: #fff;
+            border-color: #3282b8;
+            box-shadow: 0 0 10px rgba(50, 130, 184, 0.5);
+        }
         @media (max-width: 768px) {
             .main-content {
                 flex-direction: column;
@@ -285,6 +306,13 @@ static const char web_ui_html[] = R"rawliteral(
                     <div class="telemetry-item">
                         <span class="telemetry-label">Battery</span>
                         <span class="telemetry-value" id="tel-battery">--V</span>
+                    </div>
+                    <div class="telemetry-item" style="grid-column: span 2;">
+                        <span class="telemetry-label">Hardware Buttons</span>
+                        <div class="button-indicators">
+                            <span class="hw-button" id="btn-left">L</span>
+                            <span class="hw-button" id="btn-right">R</span>
+                        </div>
                     </div>
                 </div>
             </div>
@@ -448,6 +476,9 @@ static const char web_ui_html[] = R"rawliteral(
                         data.velocity.toFixed(1) + ' rad/s';
                     document.getElementById('tel-battery').textContent =
                         data.battery.toFixed(1) + 'V';
+                    // Update button indicators
+                    document.getElementById('btn-left').classList.toggle('pressed', data.btnL);
+                    document.getElementById('btn-right').classList.toggle('pressed', data.btnR);
                     setConnected(true);
                 }
             } catch (e) {

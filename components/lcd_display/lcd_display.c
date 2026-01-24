@@ -441,6 +441,17 @@ esp_err_t lcd_display_update(const lcd_rover_status_t *status)
     lcd_fill_rect(0, 0, LCD_WIDTH, 20, header_color);
     lcd_draw_string(4, 6, status->connected ? "CONNECTED" : "WAITING", COLOR_WHITE, header_color, 1);
 
+    // Button indicators in header (right side)
+    // Left button indicator
+    uint16_t btn_l_color = status->button_left ? COLOR_WHITE : COLOR_DARKGRAY;
+    lcd_fill_rect(LCD_WIDTH - 30, 4, 12, 12, btn_l_color);
+    lcd_draw_string(LCD_WIDTH - 28, 6, "L", status->button_left ? header_color : COLOR_LIGHTGRAY, btn_l_color, 1);
+
+    // Right button indicator
+    uint16_t btn_r_color = status->button_right ? COLOR_WHITE : COLOR_DARKGRAY;
+    lcd_fill_rect(LCD_WIDTH - 15, 4, 12, 12, btn_r_color);
+    lcd_draw_string(LCD_WIDTH - 13, 6, "R", status->button_right ? header_color : COLOR_LIGHTGRAY, btn_r_color, 1);
+
     // E-STOP indicator
     if (status->estop) {
         lcd_fill_rect(0, 22, LCD_WIDTH, 20, COLOR_RED);

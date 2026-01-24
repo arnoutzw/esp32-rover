@@ -24,6 +24,8 @@ typedef struct {
     bool motor_enabled;
     bool camera_active;
     int wifi_rssi;
+    bool button_left;
+    bool button_right;
 } rover_status_t;
 
 // Command callback type

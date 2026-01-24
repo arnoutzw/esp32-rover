@@ -195,7 +195,7 @@ static esp_err_t control_handler(httpd_req_t *req)
 // Status handler - return current status
 static esp_err_t status_handler(httpd_req_t *req)
 {
-    char response[256];
+    char response[320];
 
     rover_status_t status = {0};
     if (state_mutex && xSemaphoreTake(state_mutex, pdMS_TO_TICKS(10)) == pdTRUE) {
@@ -204,13 +204,15 @@ static esp_err_t status_handler(httpd_req_t *req)
     }
 
     snprintf(response, sizeof(response),
-        "{\"velocity\":%.2f,\"battery\":%.2f,\"steering\":%.1f,\"motor\":%s,\"camera\":%s,\"rssi\":%d}",
+        "{\"velocity\":%.2f,\"battery\":%.2f,\"steering\":%.1f,\"motor\":%s,\"camera\":%s,\"rssi\":%d,\"btnL\":%s,\"btnR\":%s}",
         status.motor_velocity,
         status.battery_voltage,
         status.steering_angle,
         status.motor_enabled ? "true" : "false",
         status.camera_active ? "true" : "false",
-        status.wifi_rssi
+        status.wifi_rssi,
+        status.button_left ? "true" : "false",
+        status.button_right ? "true" : "false"
     );
 
     httpd_resp_set_type(req, "application/json");

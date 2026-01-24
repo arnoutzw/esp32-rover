@@ -41,6 +41,41 @@ static TaskHandle_t lcd_task_handle = NULL;
 #endif
 
 // =============================================================================
+// Button Support
+// =============================================================================
+
+#if defined(ENABLE_BUTTONS) && ENABLE_BUTTONS
+static bool s_buttons_initialized = false;
+
+static void init_buttons(void)
+{
+    if (s_buttons_initialized) return;
+
+    // Configure button pins as input with pull-up (buttons are active LOW)
+    gpio_config_t btn_conf = {
+        .pin_bit_mask = (1ULL << BUTTON_LEFT_PIN) | (1ULL << BUTTON_RIGHT_PIN),
+        .mode = GPIO_MODE_INPUT,
+        .pull_up_en = GPIO_PULLUP_ENABLE,
+        .pull_down_en = GPIO_PULLDOWN_DISABLE,
+        .intr_type = GPIO_INTR_DISABLE,
+    };
+    gpio_config(&btn_conf);
+    s_buttons_initialized = true;
+    ESP_LOGI(TAG, "Buttons initialized (GPIO %d, %d)", BUTTON_LEFT_PIN, BUTTON_RIGHT_PIN);
+}
+
+static bool read_button_left(void)
+{
+    return s_buttons_initialized && (gpio_get_level(BUTTON_LEFT_PIN) == 0);  // Active LOW
+}
+
+static bool read_button_right(void)
+{
+    return s_buttons_initialized && (gpio_get_level(BUTTON_RIGHT_PIN) == 0);  // Active LOW
+}
+#endif
+
+// =============================================================================
 // WiFi Configuration
 // =============================================================================
 
@@ -269,6 +304,12 @@ static void status_update_task(void *pvParameters)
             status.wifi_rssi = ap_info.rssi;
         }
 
+#if defined(ENABLE_BUTTONS) && ENABLE_BUTTONS
+        // Button states
+        status.button_left = read_button_left();
+        status.button_right = read_button_right();
+#endif
+
         // Update web server status
         web_server_update_status(&status);
 
@@ -427,6 +468,10 @@ static esp_err_t init_lcd_display(void)
 {
     ESP_LOGI(TAG, "Initializing LCD display");
 
+#if defined(ENABLE_BUTTONS) && ENABLE_BUTTONS
+    init_buttons();
+#endif
+
     lcd_display_config_t config = {
         .pin_sclk = LCD_PIN_SCLK,
         .pin_mosi = LCD_PIN_MOSI,
@@ -480,6 +525,12 @@ static void lcd_update_task(void *pvParameters)
 
         // Battery voltage (placeholder)
         lcd_status.battery_volts = 7.4f;
+
+#if defined(ENABLE_BUTTONS) && ENABLE_BUTTONS
+        // Read button states
+        lcd_status.button_left = read_button_left();
+        lcd_status.button_right = read_button_right();
+#endif
 
         // Update display
         lcd_display_update(&lcd_status);

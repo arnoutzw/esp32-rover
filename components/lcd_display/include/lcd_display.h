@@ -38,6 +38,8 @@ typedef struct {
     float battery_volts;    /**< Battery voltage */
     bool connected;         /**< WiFi client connected */
     bool estop;             /**< Emergency stop active */
+    bool button_left;       /**< Left button pressed */
+    bool button_right;      /**< Right button pressed */
     const char* wifi_ssid;  /**< WiFi SSID */
     const char* wifi_ip;    /**< IP address */
 } lcd_rover_status_t;

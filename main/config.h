@@ -133,6 +133,11 @@
 #define LCD_PIN_BACKLIGHT   GPIO_NUM_4
 #define ENABLE_LCD_DISPLAY  1            // Enable LCD on TTGO
 
+// Front Button Configuration (TTGO T-Display built-in buttons)
+#define BUTTON_LEFT_PIN     GPIO_NUM_0   // Left button (active LOW)
+#define BUTTON_RIGHT_PIN    GPIO_NUM_35  // Right button (active LOW)
+#define ENABLE_BUTTONS      1            // Enable button support
+
 // Camera pins not defined for TTGO (no camera)
 
 #endif // Target selection
