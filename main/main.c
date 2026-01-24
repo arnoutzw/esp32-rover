@@ -832,9 +832,11 @@ static esp_err_t init_lcd_display(void)
 // Diagnostic mode state
 typedef enum {
     DIAG_MODE_OFF,
-    DIAG_MODE_ENTERING,  // Both buttons held, counting down
-    DIAG_MODE_ON,        // Diagnostic screen shown
-    DIAG_MODE_EXITING    // Buttons released, returning to normal
+    DIAG_MODE_ENTERING,      // Both buttons held, counting down to enter
+    DIAG_MODE_WAIT_RELEASE,  // Entered, waiting for buttons to be released
+    DIAG_MODE_ON,            // Diagnostic screen active, buttons released
+    DIAG_MODE_EXIT_PENDING,  // Both buttons pressed to exit, waiting for hold
+    DIAG_MODE_EXITING        // Confirmed exit, returning to normal
 } diag_mode_t;
 
 static uint8_t get_connected_station_count(void)
@@ -871,7 +873,8 @@ static void lcd_update_task(void *pvParameters)
     // Diagnostic mode tracking
     diag_mode_t diag_mode = DIAG_MODE_OFF;
     TickType_t both_buttons_start = 0;
-    const TickType_t DIAG_HOLD_TIME = pdMS_TO_TICKS(3000);  // 3 seconds
+    const TickType_t DIAG_ENTRY_HOLD_TIME = pdMS_TO_TICKS(3000);  // 3 seconds to enter
+    const TickType_t DIAG_EXIT_HOLD_TIME = pdMS_TO_TICKS(1000);   // 1 second to exit
 
     lcd_rover_status_t lcd_status = {
         .wifi_ssid = wifi_get_current_ssid(),
@@ -893,6 +896,8 @@ static void lcd_update_task(void *pvParameters)
         uint32_t uptime_secs = (xTaskGetTickCount() - start_ticks) / configTICK_RATE_HZ;
 
         // Diagnostic mode state machine
+        // REQ-06: Long press both buttons 3s to enter, stay in diagnostic mode after release
+        //         Long press both buttons 1s to exit
         bool both_pressed = btn_left && btn_right;
 
         switch (diag_mode) {
@@ -909,17 +914,36 @@ static void lcd_update_task(void *pvParameters)
                 if (!both_pressed) {
                     // Released too early
                     diag_mode = DIAG_MODE_OFF;
-                } else if ((xTaskGetTickCount() - both_buttons_start) >= DIAG_HOLD_TIME) {
-                    // Held long enough, enter diagnostic mode
-                    diag_mode = DIAG_MODE_ON;
+                } else if ((xTaskGetTickCount() - both_buttons_start) >= DIAG_ENTRY_HOLD_TIME) {
+                    // Held long enough, enter diagnostic mode but wait for release first
+                    diag_mode = DIAG_MODE_WAIT_RELEASE;
                     lcd_display_clear();
-                    ESP_LOGI(TAG, "Entering diagnostic mode");
+                    ESP_LOGI(TAG, "Diagnostic mode entered - release buttons to view");
+                }
+                break;
+
+            case DIAG_MODE_WAIT_RELEASE:
+                // Wait for user to release buttons after entering diagnostic mode
+                if (!both_pressed) {
+                    diag_mode = DIAG_MODE_ON;
+                    ESP_LOGI(TAG, "Diagnostic mode active - hold both buttons 1s to exit");
                 }
                 break;
 
             case DIAG_MODE_ON:
+                // Stay in diagnostic mode until both buttons pressed to start exit
+                if (both_pressed) {
+                    both_buttons_start = xTaskGetTickCount();
+                    diag_mode = DIAG_MODE_EXIT_PENDING;
+                }
+                break;
+
+            case DIAG_MODE_EXIT_PENDING:
                 if (!both_pressed) {
-                    // Buttons released, exit diagnostic mode
+                    // Released too early, stay in diagnostic mode
+                    diag_mode = DIAG_MODE_ON;
+                } else if ((xTaskGetTickCount() - both_buttons_start) >= DIAG_EXIT_HOLD_TIME) {
+                    // Held long enough to exit
                     diag_mode = DIAG_MODE_EXITING;
                 }
                 break;
@@ -933,7 +957,7 @@ static void lcd_update_task(void *pvParameters)
                 break;
         }
 
-        if (diag_mode == DIAG_MODE_ON) {
+        if (diag_mode == DIAG_MODE_ON || diag_mode == DIAG_MODE_WAIT_RELEASE || diag_mode == DIAG_MODE_EXIT_PENDING) {
             // Show diagnostic screen
             lcd_wifi_diag_t diag = {
                 .ssid = wifi_get_current_ssid(),

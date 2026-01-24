@@ -810,7 +810,7 @@ esp_err_t lcd_display_diagnostics(const lcd_wifi_diag_t *diag)
 
     // Footer with exit instruction
     lcd_fill_rect(0, LCD_HEIGHT - 14, LCD_WIDTH, 14, COLOR_DARKGRAY);
-    lcd_draw_string(12, LCD_HEIGHT - 10, "Release to exit", COLOR_WHITE, COLOR_DARKGRAY, 1);
+    lcd_draw_string(4, LCD_HEIGHT - 10, "Hold both btns 1s exit", COLOR_WHITE, COLOR_DARKGRAY, 1);
 
     return ESP_OK;
 }

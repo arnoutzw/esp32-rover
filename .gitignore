@@ -27,3 +27,5 @@ __pycache__/
 # Temporary files
 *.tmp
 *.log
+test/*.o
+test/test_runner
