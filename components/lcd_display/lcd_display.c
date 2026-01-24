@@ -367,11 +367,11 @@ esp_err_t lcd_display_init(const lcd_display_config_t *config)
     ESP_ERROR_CHECK(spi_bus_initialize(SPI2_HOST, &buscfg, SPI_DMA_CH_AUTO));
 
     spi_device_interface_config_t devcfg = {
-        .clock_speed_hz = 26 * 1000 * 1000,  // 26 MHz (max for non-IOMUX pins in full-duplex)
+        .clock_speed_hz = 40 * 1000 * 1000,  // 40 MHz (ST7789 supports up to 80MHz)
         .mode = 0,
         .spics_io_num = config->pin_cs,
         .queue_size = 7,
-        .flags = SPI_DEVICE_NO_DUMMY,  // Display is write-only, no dummy cycles needed
+        .flags = SPI_DEVICE_NO_DUMMY | SPI_DEVICE_HALFDUPLEX,  // Write-only display, enables higher clock speeds
     };
     ESP_ERROR_CHECK(spi_bus_add_device(SPI2_HOST, &devcfg, &s_spi));
 

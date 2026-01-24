@@ -756,7 +756,7 @@ static void lcd_update_task(void *pvParameters)
             lcd_display_update(&lcd_status);
         }
 
-        vTaskDelay(pdMS_TO_TICKS(50));  // Update at 20Hz for responsive buttons
+        vTaskDelay(pdMS_TO_TICKS(16));  // Update at ~60Hz for smooth display
     }
 }
 #endif
