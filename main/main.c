@@ -25,7 +25,6 @@
 #include "esp_sntp.h"
 #include "esp_sleep.h"
 #include "driver/rtc_io.h"
-#include "log_buffer.h"
 #include "mdns.h"
 
 #include "config.h"
@@ -42,6 +41,7 @@
 #if defined(ENABLE_MQTT) && ENABLE_MQTT
 #include "mqtt_service.h"
 #endif
+#include "log_buffer.h"
 
 static const char *TAG = "ROVER_MAIN";
 
@@ -1267,6 +1267,7 @@ static void lcd_update_task(void *pvParameters)
         .wifi_ssid = wifi_get_current_ssid(),
         .wifi_ip = wifi_get_ip_str(),
         .mac_addr = mac_str,
+        .mdns_hostname = MDNS_HOSTNAME,
     };
 
     while (1) {
@@ -1383,6 +1384,7 @@ static void lcd_update_task(void *pvParameters)
                 .ssid = wifi_get_current_ssid(),
                 .ip_addr = wifi_get_ip_str(),
                 .mac_addr = mac_str,
+                .mdns_hostname = MDNS_HOSTNAME,
                 .channel = WIFI_AP_CHANNEL,
                 .connected_stations = get_connected_station_count(),
                 .tx_power = get_wifi_tx_power(),
@@ -1468,7 +1470,7 @@ static void lcd_update_task(void *pvParameters)
 
 void app_main(void)
 {
-    // Initialize log buffer FIRST to capture all subsequent logs (REQ-31)
+    // REQ-31: Initialize log buffer FIRST to capture all boot logs
     log_buffer_init();
 
     ESP_LOGI(TAG, "ESP32-CAM Rover starting...");

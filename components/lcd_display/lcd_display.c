@@ -599,16 +599,21 @@ esp_err_t lcd_display_update(const lcd_rover_status_t *status)
 
     if (!s_wifi_info_drawn) {
         lcd_fill_rect(0, info_y, LCD_WIDTH, 42, COLOR_DARKGRAY);
-        // SSID and IP on first line
+        // SSID on first line
         if (status->wifi_ssid) {
             lcd_draw_string(4, info_y + 2, status->wifi_ssid, COLOR_WHITE, COLOR_DARKGRAY, 1);
         }
-        if (status->wifi_ip) {
+        // mDNS hostname.local on second line (more user-friendly than IP)
+        if (status->mdns_hostname) {
+            char mdns_str[32];
+            snprintf(mdns_str, sizeof(mdns_str), "%s.local", status->mdns_hostname);
+            lcd_draw_string(4, info_y + 12, mdns_str, COLOR_CYAN, COLOR_DARKGRAY, 1);
+        } else if (status->wifi_ip) {
             lcd_draw_string(4, info_y + 12, status->wifi_ip, COLOR_CYAN, COLOR_DARKGRAY, 1);
         }
-        // MAC address on second line
-        if (status->mac_addr) {
-            lcd_draw_string(4, info_y + 22, status->mac_addr, COLOR_YELLOW, COLOR_DARKGRAY, 1);
+        // IP address on third line
+        if (status->wifi_ip) {
+            lcd_draw_string(4, info_y + 22, status->wifi_ip, COLOR_YELLOW, COLOR_DARKGRAY, 1);
         }
         s_wifi_info_drawn = true;
     }
@@ -711,6 +716,14 @@ esp_err_t lcd_display_diagnostics(const lcd_wifi_diag_t *diag)
     lcd_draw_string(4, y, "IP:", COLOR_LIGHTGRAY, COLOR_BLACK, 1);
     if (diag->ip_addr) {
         lcd_draw_string(28, y, diag->ip_addr, COLOR_CYAN, COLOR_BLACK, 1);
+    }
+    y += 10;
+
+    // mDNS Hostname
+    lcd_draw_string(4, y, "mDNS:", COLOR_LIGHTGRAY, COLOR_BLACK, 1);
+    if (diag->mdns_hostname) {
+        snprintf(buf, sizeof(buf), "%s.local", diag->mdns_hostname);
+        lcd_draw_string(40, y, buf, COLOR_GREEN, COLOR_BLACK, 1);
     }
     y += 10;
 

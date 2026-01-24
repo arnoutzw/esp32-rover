@@ -43,6 +43,7 @@ typedef struct {
     const char* wifi_ssid;  /**< WiFi SSID */
     const char* wifi_ip;    /**< IP address */
     const char* mac_addr;   /**< MAC address string */
+    const char* mdns_hostname; /**< mDNS hostname (without .local) */
     uint32_t uptime_secs;   /**< Uptime in seconds */
 } lcd_rover_status_t;
 
@@ -53,6 +54,7 @@ typedef struct {
     const char* ssid;           /**< AP SSID */
     const char* ip_addr;        /**< IP address */
     const char* mac_addr;       /**< MAC address */
+    const char* mdns_hostname;  /**< mDNS hostname (without .local) */
     uint8_t channel;            /**< WiFi channel */
     uint8_t connected_stations; /**< Number of connected stations */
     int8_t tx_power;            /**< TX power in dBm */

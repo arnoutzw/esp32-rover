@@ -1,59 +1,48 @@
-// =============================================================================
-// Log Buffer Component - Captures ESP_LOG output for web display
-// =============================================================================
-#pragma once
+#ifndef LOG_BUFFER_H
+#define LOG_BUFFER_H
 
+#include "esp_err.h"
+#include <stddef.h>
 #include <stdint.h>
 #include <stdbool.h>
-#include <stddef.h>
-#include "esp_err.h"
 
 #ifdef __cplusplus
 extern "C" {
 #endif
 
-// Configuration
-#define LOG_BUFFER_SIZE         (48 * 1024)   // 48KB ring buffer
-#define LOG_ENTRY_MAX_SIZE      512           // Max single log entry
-#define LOG_TAG_MAX_LEN         32            // Max tag length
-#define LOG_ROTATION_PERIOD_MS  (2 * 60 * 60 * 1000)  // 2 hours
+// Log buffer size (32KB default)
+#ifndef LOG_BUFFER_SIZE
+#define LOG_BUFFER_SIZE (32 * 1024)
+#endif
 
-// Log level filter (bitmask)
-typedef enum {
-    LOG_FILTER_NONE    = 0,
-    LOG_FILTER_ERROR   = (1 << 1),   // ESP_LOG_ERROR = 1
-    LOG_FILTER_WARN    = (1 << 2),   // ESP_LOG_WARN = 2
-    LOG_FILTER_INFO    = (1 << 3),   // ESP_LOG_INFO = 3
-    LOG_FILTER_DEBUG   = (1 << 4),   // ESP_LOG_DEBUG = 4
-    LOG_FILTER_VERBOSE = (1 << 5),   // ESP_LOG_VERBOSE = 5
-    LOG_FILTER_ALL     = 0xFF
-} log_filter_t;
+// Maximum size of a single log entry (tag + message + header)
+#define LOG_ENTRY_MAX_SIZE 512
 
-// Statistics structure
+// Log levels matching ESP-IDF (esp_log.h)
+#define LOG_LEVEL_NONE    0
+#define LOG_LEVEL_ERROR   1
+#define LOG_LEVEL_WARN    2
+#define LOG_LEVEL_INFO    3
+#define LOG_LEVEL_DEBUG   4
+#define LOG_LEVEL_VERBOSE 5
+
+/**
+ * @brief Log buffer statistics
+ */
 typedef struct {
-    uint32_t entry_count;       // Current entries in buffer
-    uint32_t dropped_count;     // Entries dropped since init
-    uint32_t buffer_size;       // Total buffer size
-    uint32_t buffer_used;       // Bytes currently used
-    uint32_t oldest_timestamp;  // Oldest entry timestamp (ms since boot)
+    size_t entry_count;       // Number of log entries in buffer
+    size_t bytes_used;        // Bytes currently used in buffer
+    size_t bytes_dropped;     // Total bytes dropped due to buffer full
+    size_t buffer_size;       // Total buffer size
 } log_buffer_stats_t;
-
-// Log entry for iteration
-typedef struct {
-    uint32_t timestamp_ms;      // Timestamp in ms since boot
-    uint8_t level;              // Log level (1=E, 2=W, 3=I, 4=D, 5=V)
-    const char *tag;            // Tag string (pointer to internal buffer)
-    const char *message;        // Message string (pointer to internal buffer)
-} log_entry_t;
 
 /**
  * @brief Initialize log buffer and install vprintf hook
  *
- * Must be called early in app_main() before other logging occurs.
- * All subsequent ESP_LOGx calls will be captured to the ring buffer
- * while still being output to UART.
+ * This should be called early in app_main() to capture boot logs.
+ * Logs will continue to be output via UART as normal.
  *
- * @return ESP_OK on success, ESP_ERR_NO_MEM if buffer allocation fails
+ * @return ESP_OK on success, error code otherwise
  */
 esp_err_t log_buffer_init(void);
 
@@ -69,78 +58,51 @@ void log_buffer_deinit(void);
 bool log_buffer_is_initialized(void);
 
 /**
- * @brief Get logs as JSON array string
+ * @brief Get all logs as formatted text
  *
- * Returns a JSON object containing logs array and stats.
- * Format: {"logs":[{"t":123,"l":"I","tag":"X","msg":"Y"}],"stats":{...}}
- *
- * @param filter Bitmask of log levels to include (LOG_FILTER_ALL for all)
- * @param tag_filter Optional tag substring filter (NULL for all)
- * @param since_timestamp Only logs after this timestamp (0 for all)
- * @param out_json Output buffer for JSON string (caller must free with free())
- * @param max_entries Maximum entries to return (0 for all)
- * @return ESP_OK on success, ESP_ERR_NO_MEM if allocation fails
- */
-esp_err_t log_buffer_get_json(
-    log_filter_t filter,
-    const char *tag_filter,
-    uint32_t since_timestamp,
-    char **out_json,
-    size_t max_entries
-);
-
-/**
- * @brief Get new logs since last timestamp as JSON
- *
- * Efficient for polling - only returns logs newer than since_timestamp.
- * Updates out_last_timestamp to the newest log's timestamp for next call.
- *
- * @param filter Bitmask of log levels to include
- * @param since_timestamp Only logs after this timestamp
- * @param out_json Output buffer for JSON string (caller must free)
- * @param out_last_timestamp Updated with timestamp of newest log returned
+ * @param out_text      Pointer to receive allocated string (caller must free)
+ * @param out_len       Pointer to receive string length
+ * @param min_level     Minimum log level to include (1=Error, 2=Warn, 3=Info, etc.)
  * @return ESP_OK on success
  */
-esp_err_t log_buffer_get_new_logs(
-    log_filter_t filter,
-    uint32_t since_timestamp,
-    char **out_json,
-    uint32_t *out_last_timestamp
-);
+esp_err_t log_buffer_get_text(char **out_text, size_t *out_len, uint8_t min_level);
 
 /**
- * @brief Get buffer statistics
- * @param stats Output structure
+ * @brief Get log buffer statistics
+ *
+ * @param stats         Pointer to receive statistics
  * @return ESP_OK on success
  */
 esp_err_t log_buffer_get_stats(log_buffer_stats_t *stats);
 
 /**
- * @brief Clear all logs from buffer
+ * @brief Clear all buffered logs
  */
 void log_buffer_clear(void);
 
 /**
- * @brief Force rotation check (remove entries older than 2 hours)
+ * @brief Get the read position for SSE streaming
  *
- * Called automatically, but can be forced manually.
+ * This returns an opaque position marker that can be used with
+ * log_buffer_read_next() for streaming new logs.
+ *
+ * @return Current read position
  */
-void log_buffer_rotate(void);
+size_t log_buffer_get_read_position(void);
 
 /**
- * @brief Convert log level number to character
- * @param level Log level (1-5)
- * @return Character: 'E', 'W', 'I', 'D', 'V', or '?'
+ * @brief Read the next log entry as JSON for SSE streaming
+ *
+ * @param position      Pointer to read position (updated on success)
+ * @param json_out      Buffer to receive JSON string
+ * @param max_len       Maximum length of json_out buffer
+ * @param min_level     Minimum log level to include
+ * @return true if an entry was read, false if no more entries
  */
-char log_buffer_level_to_char(uint8_t level);
-
-/**
- * @brief Convert level string to filter bitmask
- * @param level_str "error", "warn", "info", "debug", "verbose", or "all"
- * @return Bitmask including requested level and all more severe levels
- */
-log_filter_t log_buffer_parse_level_filter(const char *level_str);
+bool log_buffer_read_next(size_t *position, char *json_out, size_t max_len, uint8_t min_level);
 
 #ifdef __cplusplus
 }
 #endif
+
+#endif // LOG_BUFFER_H

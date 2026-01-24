@@ -17,6 +17,7 @@ idf_component_register(
         web_server
         lcd_display
         mqtt_service
+        log_buffer
         lwip
         app_update
 )

@@ -9,8 +9,10 @@ CONFIG_ESPTOOLPY_FLASHSIZE_4MB=y
 CONFIG_PARTITION_TABLE_CUSTOM=y
 CONFIG_PARTITION_TABLE_CUSTOM_FILENAME="partitions.csv"
 
-# PSRAM support - disabled for TTGO T-Display (no PSRAM)
-# CONFIG_ESP32_SPIRAM_SUPPORT is not set
+# PSRAM support - TTGO T-Display does NOT have PSRAM
+# Explicitly disabled to prevent boot failures
+CONFIG_ESP32_SPIRAM_SUPPORT=n
+CONFIG_SPIRAM=n
 
 # Camera support - disabled for TTGO T-Display
 # CONFIG_CAMERA_CORE0 is not set

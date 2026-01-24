@@ -76,10 +76,11 @@ static const char web_ui_html[] = R"rawliteral(
             justify-content: center;
             background: #000;
             position: relative;
+            min-height: 0;
         }
         .camera-view img {
-            max-width: 100%;
-            max-height: 100%;
+            width: 100%;
+            height: 100%;
             object-fit: contain;
         }
         .camera-placeholder {
@@ -326,13 +327,65 @@ static const char web_ui_html[] = R"rawliteral(
         .diag-full-row {
             grid-column: span 2;
         }
+        /* REQ-31: Log panel styles */
+        .log-controls {
+            display: flex;
+            gap: 10px;
+            align-items: center;
+            margin-bottom: 8px;
+        }
+        .log-controls select {
+            background: #2d2d44;
+            color: #eee;
+            border: 1px solid #444;
+            border-radius: 4px;
+            padding: 4px 8px;
+            font-size: 0.8em;
+        }
+        .log-controls button {
+            background: #3282b8;
+            color: #fff;
+            border: none;
+            border-radius: 4px;
+            padding: 4px 12px;
+            font-size: 0.8em;
+            cursor: pointer;
+        }
+        .log-controls button:hover {
+            background: #2a6a9a;
+        }
+        .log-container {
+            background: #0a0a12;
+            border-radius: 4px;
+            max-height: 200px;
+            overflow-y: auto;
+            font-family: monospace;
+            font-size: 0.75em;
+            padding: 8px;
+        }
+        .log-entry {
+            white-space: pre-wrap;
+            word-break: break-all;
+            margin: 2px 0;
+        }
+        .log-entry.error { color: #ff4444; }
+        .log-entry.warn { color: #ffaa00; }
+        .log-entry.info { color: #44ff44; }
+        .log-entry.debug { color: #888; }
+        .log-entry.verbose { color: #666; }
+        .log-status {
+            font-size: 0.75em;
+            color: #888;
+            margin-top: 4px;
+        }
         @media (max-width: 768px) {
             .main-content {
                 flex-direction: column;
             }
             .camera-panel {
                 flex: none;
-                height: 40vh;
+                min-height: 30vh;
+                max-height: 50vh;
             }
             .joystick {
                 width: 150px;
@@ -341,6 +394,11 @@ static const char web_ui_html[] = R"rawliteral(
             .joystick-knob {
                 width: 50px;
                 height: 50px;
+            }
+        }
+        @media (min-width: 769px) {
+            .camera-panel {
+                min-height: 300px;
             }
         }
     </style>
@@ -523,35 +581,22 @@ static const char web_ui_html[] = R"rawliteral(
                             </div>
                         </div>
                         <div class="diag-section">
-                            <div class="diag-section-title" style="display:flex;justify-content:space-between;align-items:center;">
-                                <span>System Logs</span>
-                                <div style="display:flex;gap:6px;align-items:center;">
-                                    <select id="log-level-filter" style="font-size:0.7em;padding:2px 4px;background:#1a1a2e;color:#eee;border:1px solid #333;border-radius:3px;">
-                                        <option value="all">All</option>
-                                        <option value="error">Errors</option>
-                                        <option value="warn">Warnings+</option>
-                                        <option value="info" selected>Info+</option>
-                                    </select>
-                                    <button id="log-clear-btn" style="font-size:0.65em;padding:2px 6px;background:#333;color:#eee;border:none;border-radius:3px;cursor:pointer;">Clear</button>
-                                    <label style="font-size:0.65em;display:flex;align-items:center;gap:3px;cursor:pointer;">
-                                        <input type="checkbox" id="log-autoscroll" checked style="margin:0;">
-                                        Auto
-                                    </label>
-                                </div>
+                            <div class="diag-section-title">System Logs</div>
+                            <div class="log-controls">
+                                <select id="log-level-filter" onchange="updateLogFilter()">
+                                    <option value="1">Errors</option>
+                                    <option value="2">Warnings+</option>
+                                    <option value="3" selected>Info+</option>
+                                    <option value="4">Debug+</option>
+                                    <option value="5">Verbose</option>
+                                </select>
+                                <button onclick="downloadLogs()">Download</button>
+                                <button onclick="clearLogs()">Clear</button>
                             </div>
-                            <div id="log-container" style="max-height:180px;overflow-y:auto;background:#0d0d0d;border-radius:4px;padding:6px;font-family:monospace;font-size:0.7em;line-height:1.3;margin-top:6px;">
+                            <div class="log-container" id="log-container">
                                 <div id="log-entries"></div>
                             </div>
-                            <div class="diag-grid" style="margin-top:4px;">
-                                <div class="diag-item">
-                                    <span class="diag-label">Entries</span>
-                                    <span class="diag-value" id="log-count">--</span>
-                                </div>
-                                <div class="diag-item">
-                                    <span class="diag-label">Dropped</span>
-                                    <span class="diag-value" id="log-dropped">--</span>
-                                </div>
-                            </div>
+                            <div class="log-status" id="log-status">Connecting...</div>
                         </div>
                     </div>
                 </div>
@@ -729,12 +774,49 @@ static const char web_ui_html[] = R"rawliteral(
             return Math.round(bytes / 1024) + 'K';
         }
 
+        // Target-based UI visibility (REQ-33)
+        let targetConfigured = false;
+        let currentTarget = null;
+        function configureUIForTarget(target) {
+            if (targetConfigured) return;
+            targetConfigured = true;
+            currentTarget = target;
+
+            const cameraPanel = document.querySelector('.camera-panel');
+            const flashLedBtn = document.getElementById('btn-led');
+            const hwButtonsRow = document.querySelector('.telemetry-item:has(.button-indicators)');
+
+            // Update title based on target
+            const titleEl = document.querySelector('.header h1');
+            if (titleEl) {
+                titleEl.textContent = target === 'ttgo' ? 'TTGO Rover' : 'ESP32-CAM Rover';
+            }
+
+            if (target === 'ttgo') {
+                // TTGO: Hide camera panel and flash LED, show hardware buttons
+                if (cameraPanel) cameraPanel.style.display = 'none';
+                if (flashLedBtn) flashLedBtn.parentElement.style.display = 'none';
+                // Hardware buttons remain visible (default)
+            } else {
+                // ESP32-CAM: Show camera and flash LED, hide hardware buttons
+                // Camera and flash LED remain visible (default)
+                if (hwButtonsRow) hwButtonsRow.style.display = 'none';
+                // Initialize camera only for ESP32-CAM
+                initCamera();
+            }
+        }
+
         // Fetch status
         async function fetchStatus() {
             try {
                 const response = await fetch('/status');
                 if (response.ok) {
                     const data = await response.json();
+
+                    // Configure UI based on target (once)
+                    if (data.target) {
+                        configureUIForTarget(data.target);
+                    }
                     document.getElementById('tel-velocity').textContent =
                         data.velocity.toFixed(1) + ' rad/s';
                     document.getElementById('tel-battery').textContent =
@@ -837,129 +919,8 @@ static const char web_ui_html[] = R"rawliteral(
         // Initialize
         window.addEventListener('resize', updateJoystickRect);
         updateJoystickRect();
-        initCamera();
-
-        // =============================================================================
-        // Log Streaming (REQ-31)
-        // =============================================================================
-        let logAutoScroll = true;
-        let logLastTimestamp = 0;
-        let logPollInterval = null;
-
-        const logLevelColors = {
-            'E': '#ff4444',
-            'W': '#ffaa00',
-            'I': '#44ff44',
-            'D': '#888888',
-            'V': '#666666'
-        };
-
-        function formatLogTimestamp(ms) {
-            const secs = Math.floor(ms / 1000);
-            const mins = Math.floor(secs / 60);
-            const hours = Math.floor(mins / 60);
-            return String(hours).padStart(2,'0') + ':' +
-                   String(mins % 60).padStart(2,'0') + ':' +
-                   String(secs % 60).padStart(2,'0');
-        }
-
-        function escapeHtml(text) {
-            const div = document.createElement('div');
-            div.textContent = text;
-            return div.innerHTML;
-        }
-
-        function appendLogEntry(log) {
-            const container = document.getElementById('log-entries');
-            const entry = document.createElement('div');
-            entry.style.marginBottom = '2px';
-            entry.style.wordBreak = 'break-word';
-
-            const levelColor = logLevelColors[log.l] || '#ccc';
-            entry.innerHTML =
-                '<span style="color:#555">' + formatLogTimestamp(log.t) + '</span> ' +
-                '<span style="color:' + levelColor + ';font-weight:bold">' + log.l + '</span> ' +
-                '<span style="color:#3282b8">' + escapeHtml(log.tag) + '</span> ' +
-                '<span style="color:#ccc">' + escapeHtml(log.msg) + '</span>';
-
-            container.appendChild(entry);
-
-            // Limit displayed entries to prevent memory issues
-            while (container.children.length > 300) {
-                container.removeChild(container.firstChild);
-            }
-
-            // Auto-scroll if enabled
-            if (logAutoScroll) {
-                const logContainer = document.getElementById('log-container');
-                logContainer.scrollTop = logContainer.scrollHeight;
-            }
-        }
-
-        async function fetchLogs() {
-            try {
-                const levelFilter = document.getElementById('log-level-filter').value;
-                const url = '/logs?level=' + levelFilter + '&since=' + logLastTimestamp + '&limit=50';
-                const response = await fetch(url);
-                if (response.ok) {
-                    const data = await response.json();
-
-                    // Update stats
-                    if (data.stats) {
-                        document.getElementById('log-count').textContent = data.stats.count;
-                        document.getElementById('log-dropped').textContent = data.stats.dropped;
-                    }
-
-                    // Append new logs
-                    if (data.logs && data.logs.length > 0) {
-                        data.logs.forEach(log => {
-                            appendLogEntry(log);
-                            if (log.t > logLastTimestamp) {
-                                logLastTimestamp = log.t;
-                            }
-                        });
-                    }
-                }
-            } catch (e) {
-                // Silently fail
-            }
-        }
-
-        async function clearLogs() {
-            try {
-                await fetch('/logs', { method: 'DELETE' });
-                document.getElementById('log-entries').innerHTML = '';
-                logLastTimestamp = 0;
-            } catch (e) {
-                // Silently fail
-            }
-        }
-
-        // Initialize log polling
-        function initLogPolling() {
-            // Initial fetch to get existing logs
-            fetchLogs();
-
-            // Poll every 1 second for new logs
-            if (logPollInterval) clearInterval(logPollInterval);
-            logPollInterval = setInterval(fetchLogs, 1000);
-        }
-
-        // Event listeners for log controls
-        document.getElementById('log-level-filter').addEventListener('change', () => {
-            document.getElementById('log-entries').innerHTML = '';
-            logLastTimestamp = 0;
-            fetchLogs();
-        });
-
-        document.getElementById('log-autoscroll').addEventListener('change', (e) => {
-            logAutoScroll = e.target.checked;
-        });
-
-        document.getElementById('log-clear-btn').addEventListener('click', clearLogs);
-
-        // Start log polling
-        initLogPolling();
+        // Camera initialization is deferred until target is known (REQ-33)
+        // See configureUIForTarget() - camera only initialized for ESP32-CAM
 
         // =============================================================================
         // Flash LED Control
@@ -1006,6 +967,109 @@ static const char web_ui_html[] = R"rawliteral(
 
         // Initial LED state fetch
         fetchLEDState();
+
+        // =============================================================================
+        // REQ-31: Log Streaming
+        // =============================================================================
+        let logEventSource = null;
+        let logLevel = 3;  // Default: Info
+        let logEntryCount = 0;
+        const MAX_LOG_ENTRIES = 500;
+
+        function levelToClass(level) {
+            switch (level) {
+                case 'E': return 'error';
+                case 'W': return 'warn';
+                case 'I': return 'info';
+                case 'D': return 'debug';
+                case 'V': return 'verbose';
+                default: return 'info';
+            }
+        }
+
+        function appendLogEntry(entry) {
+            const container = document.getElementById('log-entries');
+            const div = document.createElement('div');
+            div.className = 'log-entry ' + levelToClass(entry.l);
+            div.textContent = '[' + String(entry.t).padStart(8, ' ') + '] ' +
+                              entry.l + ' ' + entry.tag + ': ' + entry.msg;
+            container.appendChild(div);
+            logEntryCount++;
+
+            // Limit entries to prevent memory issues
+            while (logEntryCount > MAX_LOG_ENTRIES) {
+                container.removeChild(container.firstChild);
+                logEntryCount--;
+            }
+
+            // Auto-scroll to bottom
+            const logContainer = document.getElementById('log-container');
+            logContainer.scrollTop = logContainer.scrollHeight;
+        }
+
+        function startLogStream() {
+            if (logEventSource) {
+                logEventSource.close();
+            }
+
+            const url = '/logs/stream?level=' + logLevel;
+            logEventSource = new EventSource(url);
+
+            logEventSource.onopen = function() {
+                document.getElementById('log-status').textContent = 'Connected - streaming logs';
+            };
+
+            logEventSource.addEventListener('log', function(e) {
+                try {
+                    const entry = JSON.parse(e.data);
+                    appendLogEntry(entry);
+                } catch (err) {
+                    // Ignore parse errors
+                }
+            });
+
+            logEventSource.onerror = function() {
+                document.getElementById('log-status').textContent = 'Disconnected - reconnecting...';
+                logEventSource.close();
+                logEventSource = null;
+                // Reconnect after delay
+                setTimeout(startLogStream, 3000);
+            };
+        }
+
+        function updateLogFilter() {
+            logLevel = parseInt(document.getElementById('log-level-filter').value);
+            // Clear current logs and restart stream with new filter
+            document.getElementById('log-entries').innerHTML = '';
+            logEntryCount = 0;
+            startLogStream();
+        }
+
+        function downloadLogs() {
+            window.location.href = '/logs?download=1&level=' + logLevel;
+        }
+
+        async function clearLogs() {
+            try {
+                await fetch('/logs', { method: 'DELETE' });
+                document.getElementById('log-entries').innerHTML = '';
+                logEntryCount = 0;
+            } catch (e) {
+                // Silently fail
+            }
+        }
+
+        // Start log stream when diagnostics is expanded
+        const diagObserver = new MutationObserver(function(mutations) {
+            mutations.forEach(function(mutation) {
+                if (mutation.target.classList.contains('expanded') && !logEventSource) {
+                    startLogStream();
+                }
+            });
+        });
+
+        const diagContent = document.getElementById('diag-content');
+        diagObserver.observe(diagContent, { attributes: true, attributeFilter: ['class'] });
     </script>
 </body>
 </html>

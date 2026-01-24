@@ -129,7 +129,7 @@
 #define CAM_PIN_PCLK        GPIO_NUM_22
 
 #define CAM_XCLK_FREQ       20000000     // 20MHz XCLK
-#define CAM_FRAME_SIZE      FRAMESIZE_VGA  // 640x480
+#define CAM_FRAME_SIZE      FRAMESIZE_QVGA // 320x240 (lower resolution, less noise)
 #define CAM_JPEG_QUALITY    12           // 0-63, lower is better quality
 
 #else // ROVER_TARGET_TTGO

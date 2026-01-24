@@ -980,46 +980,137 @@ power:
 
 ### REQ-31: Serial Log Capture and Web Display [IMPLEMENTED]
 
-**Requirement**: All serial logging since reboot shall be logged and printed on the web-gui page, logging shall only rotate after 2 hours.
+**Requirement**: All ESP_LOG serial output since reboot shall be captured in a ring buffer and displayed in the web GUI diagnostics panel with live streaming via Server-Sent Events (SSE).
 
-**Implementation**:
-- Custom `log_buffer` component that hooks into ESP-IDF's `esp_log_set_vprintf()`
-- Captures all ESP_LOG output to a circular buffer (300 entries, ~42KB)
-- 2-hour rotation period - logs older than 2 hours are excluded from display
-- REST API endpoints for log retrieval
-- Web GUI with real-time log display panel
+**Rationale**:
+- Enables remote debugging without physical serial connection
+- Captures boot-time logs that may be missed when connecting later
+- Provides real-time log visibility in the browser
+- Essential for diagnosing issues on deployed devices
 
-**REST API Endpoints**:
-- `GET /logs` - Get logs as JSON (supports `level`, `tag`, `since`, `limit` query params)
-- `GET /logs/stream` - SSE stream of new logs (real-time)
-- `DELETE /logs` - Clear log buffer
+**Proposed Implementation**:
 
-**Log Entry Format**:
-```json
-{
-  "t": 12345,      // Timestamp (ms since boot)
-  "l": "I",        // Level: E/W/I/D/V
-  "tag": "WIFI",   // Component tag
-  "msg": "Connected to AP"  // Message
-}
+1. **Log Buffer Component** (`components/log_buffer/`):
+   - Ring buffer using ESP-IDF `esp_ringbuf` (32KB default, configurable)
+   - Hook into logging via `esp_log_set_vprintf()`
+   - Passthrough to UART maintains normal serial output
+   - Oldest entries automatically discarded when buffer is full
+   - Thread-safe for multi-core access
+
+2. **Log Entry Structure**:
+   ```c
+   typedef struct {
+       uint32_t timestamp_ms;  // esp_log_timestamp()
+       uint8_t  level;         // E=1, W=2, I=3, D=4, V=5
+       uint8_t  tag_len;
+       uint16_t msg_len;
+       // Followed by: tag string + message string (no null terminators)
+   } log_entry_header_t;
+   ```
+
+3. **REST API Endpoints**:
+   - `GET /logs` - Download all buffered logs as plain text
+   - `GET /logs/stream` - SSE stream for live log updates
+   - `DELETE /logs` - Clear the log buffer
+   - Query params: `level` (filter by minimum level)
+
+4. **Web UI - Logs Panel** (in diagnostics section):
+   ```html
+   <div class="diag-section">
+       <div class="diag-section-title">
+           <span>System Logs</span>
+           <select id="log-level-filter">
+               <option value="1">Errors</option>
+               <option value="2">Warnings+</option>
+               <option value="3" selected>Info+</option>
+               <option value="4">Debug+</option>
+           </select>
+       </div>
+       <div id="log-container">
+           <pre id="log-entries"></pre>
+       </div>
+   </div>
+   ```
+
+5. **JavaScript** (SSE client):
+   ```javascript
+   const logSource = new EventSource('/logs/stream');
+   logSource.onmessage = (e) => {
+       const entry = JSON.parse(e.data);
+       appendLogEntry(entry);
+   };
+   ```
+
+**Memory Budget**:
+| Component | Size | Notes |
+|-----------|------|-------|
+| Ring buffer | 32 KB | ~400-600 log entries depending on message length |
+| SSE task stack | 4 KB | Per active SSE connection |
+| JSON formatting | 1 KB | Temporary, on stack |
+| **Total** | ~37 KB | Per SSE client connection |
+
+**Buffer Sizing Rationale**:
+- 32KB ring buffer chosen as balance between history depth and memory usage
+- No time-based rotation - simply overwrites oldest entries when full
+- At typical log rates (~10 entries/second during activity), holds ~1-2 minutes of recent logs
+- Sufficient to capture boot sequence and recent activity
+
+**SSE Stream Format**:
+```
+event: log
+data: {"t":12345,"l":"I","tag":"MAIN","msg":"Rover started"}
+
+event: log
+data: {"t":12350,"l":"W","tag":"WIFI","msg":"Reconnecting..."}
 ```
 
-**Web UI Features**:
-- Log panel in diagnostics section with color-coded levels
-- Level filter dropdown (All, Errors, Warnings+, Info+, Debug+)
-- Auto-scroll toggle
-- Clear button
-- Entry count and dropped count display
+**Log Display Format** (text):
+```
+[   12345] I MAIN: ESP32 Rover starting...
+[   12350] W WIFI: Connection lost, reconnecting...
+[timestamp] [level] [tag]: [message]
+```
 
-**Memory Usage**:
-- ~42KB heap for 300 entries
-- Each entry: 16 bytes timestamp + 16 bytes tag + 128 bytes message + 1 byte level
+**Files** (to be created/modified):
+- `components/log_buffer/CMakeLists.txt` - New component
+- `components/log_buffer/include/log_buffer.h` - Public API
+- `components/log_buffer/log_buffer.c` - Ring buffer + vprintf hook
+- `main/main.c` - Call `log_buffer_init()` early in `app_main()`
+- `components/web_server/CMakeLists.txt` - Add log_buffer dependency
+- `components/web_server/web_server.c` - Add `/logs` and `/logs/stream` endpoints
+- `components/web_server/web_ui.c` - Add logs panel to diagnostics
+
+**API**:
+```c
+// Initialize log buffer and install vprintf hook
+esp_err_t log_buffer_init(void);
+
+// Get all logs as formatted text (caller must free)
+esp_err_t log_buffer_get_text(char **out_text, size_t *out_len, uint8_t min_level);
+
+// Get buffer statistics
+esp_err_t log_buffer_get_stats(size_t *count, size_t *bytes_used, size_t *bytes_dropped);
+
+// Clear all buffered logs
+void log_buffer_clear(void);
+
+// Iterator for SSE streaming
+typedef struct log_buffer_iterator log_buffer_iterator_t;
+log_buffer_iterator_t* log_buffer_iterator_create(uint8_t min_level);
+bool log_buffer_iterator_next(log_buffer_iterator_t *iter, char *json_out, size_t max_len);
+void log_buffer_iterator_destroy(log_buffer_iterator_t *iter);
+```
+
+**Status**: Implemented
 
 **Files**:
-- `components/log_buffer/log_buffer.c` - Circular buffer and vprintf hook
+- `components/log_buffer/CMakeLists.txt` - Component build config
 - `components/log_buffer/include/log_buffer.h` - Public API
-- `components/web_server/web_server.c` - `/logs` endpoints
-- `components/web_server/web_ui.c` - Log display panel JavaScript
+- `components/log_buffer/log_buffer.c` - Ring buffer + vprintf hook
+- `main/main.c` - `log_buffer_init()` called at start of `app_main()`
+- `components/web_server/CMakeLists.txt` - Added log_buffer dependency
+- `components/web_server/web_server.c` - `/logs`, `/logs/stream`, `DELETE /logs` endpoints
+- `components/web_server/web_ui.c` - Logs panel in diagnostics with SSE streaming
 
 ---
 
@@ -1080,4 +1171,106 @@ curl -X POST -H "X-OTA-Password: rover1234" \
 
 ---
 
-(Add new requirements here as they are defined) 
+### REQ-33: Conditionally Visible UI Items [IMPLEMENTED]
+
+**Requirement**: Depending on the build target, certain web UI elements shall be visible or hidden.
+
+| Element | ESP32-CAM | TTGO T-Display |
+|---------|-----------|----------------|
+| Camera stream | Visible | Hidden |
+| Flash LED button | Visible | Hidden |
+| Hardware buttons (L/R) | Hidden | Visible |
+| Page title | "ESP32-CAM Rover" | "TTGO Rover" |
+
+**Implementation**:
+- `/status` endpoint returns `"target":"esp32cam"` or `"target":"ttgo"` field
+- JavaScript `configureUIForTarget()` function hides/shows elements on first status fetch
+- Camera stream initialization deferred until target is known (only initialized for ESP32-CAM)
+- Title dynamically updated based on target
+
+**API Response**:
+```json
+{
+  "target": "esp32cam",
+  "velocity": 0.0,
+  ...
+}
+```
+
+**Web UI Visibility Logic**:
+```javascript
+if (target === 'ttgo') {
+    // Hide camera panel and flash LED
+    // Hardware buttons remain visible
+} else {
+    // Hide hardware button indicators
+    // Camera and flash LED remain visible
+}
+```
+
+**Files**:
+- `components/web_server/web_server.c` - Added `target` field to status JSON
+- `components/web_server/web_ui.c` - Added `configureUIForTarget()` function
+
+**Status**: Implemented and tested
+
+---
+
+### REQ-34: Camera Stream Toggle Button [NOT IMPLEMENTED]
+
+**Requirement**: The web interface for ESP32-CAM shall have a button to terminate (and restart) the camera stream. The intention is to save resources on the ESP32-CAM when the camera feed is not needed.
+
+**Rationale**:
+- Camera streaming consumes significant CPU and memory resources
+- OTA updates may fail when camera stream is active (timeouts observed at ~10% progress)
+- Users may not always need live video feed
+- Allows better resource management during other operations
+
+**Proposed Implementation**:
+- Add "Camera: ON/OFF" toggle button in web UI (only visible on ESP32-CAM target)
+- Button state reflects current camera stream status
+- When OFF:
+  - Camera stream endpoint returns placeholder image or 503 status
+  - Camera frame buffer released
+  - Stream task stopped
+- When ON:
+  - Camera stream resumes normal operation
+- State persists until user changes it or device reboots
+
+**API**:
+- `POST /camera` with JSON body `{"enabled": true/false}`
+- `GET /camera` returns `{"enabled": true/false}`
+
+**Web UI**:
+- Button next to Flash LED button (ESP32-CAM only)
+- Green when streaming, gray when stopped
+- Label: "CAM ON" / "CAM OFF"
+
+**Files** (to be created/modified):
+- `components/web_server/web_server.c` - Camera control endpoints
+- `components/web_server/web_ui.c` - Camera toggle button UI
+- `components/camera/camera.c` - Stream enable/disable API
+
+**Status**: NOT IMPLEMENTED
+
+---
+
+### REQ-35: Log Download Button [IMPLEMENTED]
+
+**Requirement**: The web interface shall have a button to download the buffered logs as a text file.
+
+**Implementation**:
+- "Download" button in the System Logs section of diagnostics panel
+- Button triggers browser download via `/logs?download=1`
+- Server adds `Content-Disposition: attachment; filename="esp32_logs.txt"` header
+- Also includes "Clear" button to clear the log buffer
+
+**Files**:
+- `components/web_server/web_server.c` - `download` query param handling in `/logs` endpoint
+- `components/web_server/web_ui.c` - Download and Clear buttons in logs panel
+
+**Status**: Implemented (as part of REQ-31)
+
+---
+
+(Add new requirements here as they are defined)
