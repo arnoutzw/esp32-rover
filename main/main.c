@@ -25,6 +25,9 @@
 #if defined(ENABLE_LCD_DISPLAY) && ENABLE_LCD_DISPLAY
 #include "lcd_display.h"
 #endif
+#if defined(ENABLE_MQTT) && ENABLE_MQTT
+#include "mqtt_service.h"
+#endif
 
 static const char *TAG = "ROVER_MAIN";
 
@@ -193,6 +196,14 @@ static float read_battery_voltage(void)
 // WiFi Configuration
 // =============================================================================
 
+// WiFi state tracking
+static bool s_wifi_is_sta_mode = false;
+static bool s_wifi_sta_connected = false;
+static char s_wifi_ip_str[16] = "192.168.4.1";
+static EventGroupHandle_t s_wifi_event_group = NULL;
+#define WIFI_CONNECTED_BIT BIT0
+#define WIFI_FAIL_BIT      BIT1
+
 static void wifi_event_handler(void *arg, esp_event_base_t event_base,
                                int32_t event_id, void *event_data)
 {
@@ -214,50 +225,60 @@ static void wifi_event_handler(void *arg, esp_event_base_t event_base,
                 esp_wifi_connect();
                 break;
             case WIFI_EVENT_STA_DISCONNECTED:
-                ESP_LOGI(TAG, "Disconnected, reconnecting...");
-                esp_wifi_connect();
+                if (s_wifi_event_group) {
+                    xEventGroupSetBits(s_wifi_event_group, WIFI_FAIL_BIT);
+                }
+                s_wifi_sta_connected = false;
+                ESP_LOGI(TAG, "Disconnected from WiFi");
                 break;
             default:
                 break;
         }
     } else if (event_base == IP_EVENT && event_id == IP_EVENT_STA_GOT_IP) {
         ip_event_got_ip_t *event = (ip_event_got_ip_t *)event_data;
-        ESP_LOGI(TAG, "Got IP: " IPSTR, IP2STR(&event->ip_info.ip));
+        snprintf(s_wifi_ip_str, sizeof(s_wifi_ip_str), IPSTR, IP2STR(&event->ip_info.ip));
+        ESP_LOGI(TAG, "Got IP: %s", s_wifi_ip_str);
+        s_wifi_sta_connected = true;
+        if (s_wifi_event_group) {
+            xEventGroupSetBits(s_wifi_event_group, WIFI_CONNECTED_BIT);
+        }
     }
 }
 
-static esp_err_t wifi_init_ap(void)
+#if WIFI_MODE_AP_ONLY
+// Start WiFi in AP mode (AP-only configuration)
+static esp_err_t wifi_start_ap(bool netif_already_init)
 {
-    ESP_LOGI(TAG, "Initializing WiFi AP mode");
+    ESP_LOGI(TAG, "Starting WiFi AP mode");
 
-    ESP_ERROR_CHECK(esp_netif_init());
-    ESP_ERROR_CHECK(esp_event_loop_create_default());
+    if (!netif_already_init) {
+        ESP_ERROR_CHECK(esp_netif_init());
+        ESP_ERROR_CHECK(esp_event_loop_create_default());
+    }
     esp_netif_create_default_wifi_ap();
 
     wifi_init_config_t cfg = WIFI_INIT_CONFIG_DEFAULT();
-    ESP_ERROR_CHECK(esp_wifi_init(&cfg));
-
-    // Use RAM storage to avoid NVS overriding our config
-    ESP_ERROR_CHECK(esp_wifi_set_storage(WIFI_STORAGE_RAM));
-
-    ESP_ERROR_CHECK(esp_event_handler_instance_register(WIFI_EVENT,
-                                                        ESP_EVENT_ANY_ID,
-                                                        &wifi_event_handler,
-                                                        NULL,
-                                                        NULL));
+    if (!netif_already_init) {
+        ESP_ERROR_CHECK(esp_wifi_init(&cfg));
+        ESP_ERROR_CHECK(esp_wifi_set_storage(WIFI_STORAGE_RAM));
+        ESP_ERROR_CHECK(esp_event_handler_instance_register(WIFI_EVENT,
+                                                            ESP_EVENT_ANY_ID,
+                                                            &wifi_event_handler,
+                                                            NULL, NULL));
+    }
 
     wifi_config_t wifi_config = {
         .ap = {
-            .ssid = WIFI_SSID,
-            .ssid_len = strlen(WIFI_SSID),
-            .channel = WIFI_CHANNEL,
-            .password = WIFI_PASSWORD,
-            .max_connection = WIFI_MAX_CONN,
+            .ssid = WIFI_AP_SSID,
+            .ssid_len = strlen(WIFI_AP_SSID),
+            .channel = WIFI_AP_CHANNEL,
+            .password = WIFI_AP_PASSWORD,
+            .max_connection = WIFI_AP_MAX_CONN,
             .authmode = WIFI_AUTH_WPA_WPA2_PSK,
         },
     };
 
-    if (strlen(WIFI_PASSWORD) == 0) {
+    if (strlen(WIFI_AP_PASSWORD) == 0) {
         wifi_config.ap.authmode = WIFI_AUTH_OPEN;
     }
 
@@ -265,13 +286,24 @@ static esp_err_t wifi_init_ap(void)
     ESP_ERROR_CHECK(esp_wifi_set_config(WIFI_IF_AP, &wifi_config));
     ESP_ERROR_CHECK(esp_wifi_start());
 
-    ESP_LOGI(TAG, "WiFi AP started. SSID: %s, Password: %s", WIFI_SSID, WIFI_PASSWORD);
+    s_wifi_is_sta_mode = false;
+    snprintf(s_wifi_ip_str, sizeof(s_wifi_ip_str), "192.168.4.1");
+    ESP_LOGI(TAG, "WiFi AP started. SSID: %s, Password: %s", WIFI_AP_SSID, WIFI_AP_PASSWORD);
     return ESP_OK;
 }
+#endif
 
-static esp_err_t wifi_init_sta(void)
+#if WIFI_MODE_STA_FIRST || WIFI_MODE_STA_ONLY
+// Try to connect to STA network with timeout, return true if successful
+static bool wifi_try_sta_connect(void)
 {
-    ESP_LOGI(TAG, "Initializing WiFi Station mode");
+    ESP_LOGI(TAG, "Attempting to connect to WiFi network: %s", WIFI_STA_SSID);
+
+    s_wifi_event_group = xEventGroupCreate();
+    if (!s_wifi_event_group) {
+        ESP_LOGE(TAG, "Failed to create event group");
+        return false;
+    }
 
     ESP_ERROR_CHECK(esp_netif_init());
     ESP_ERROR_CHECK(esp_event_loop_create_default());
@@ -279,31 +311,134 @@ static esp_err_t wifi_init_sta(void)
 
     wifi_init_config_t cfg = WIFI_INIT_CONFIG_DEFAULT();
     ESP_ERROR_CHECK(esp_wifi_init(&cfg));
+    ESP_ERROR_CHECK(esp_wifi_set_storage(WIFI_STORAGE_RAM));
 
     ESP_ERROR_CHECK(esp_event_handler_instance_register(WIFI_EVENT,
                                                         ESP_EVENT_ANY_ID,
                                                         &wifi_event_handler,
-                                                        NULL,
-                                                        NULL));
+                                                        NULL, NULL));
     ESP_ERROR_CHECK(esp_event_handler_instance_register(IP_EVENT,
                                                         IP_EVENT_STA_GOT_IP,
                                                         &wifi_event_handler,
-                                                        NULL,
-                                                        NULL));
+                                                        NULL, NULL));
 
-    wifi_config_t wifi_config = {
-        .sta = {
-            .ssid = WIFI_STA_SSID,
-            .password = WIFI_STA_PASSWORD,
-        },
-    };
+    wifi_config_t wifi_config = {0};
+    strncpy((char *)wifi_config.sta.ssid, WIFI_STA_SSID, sizeof(wifi_config.sta.ssid) - 1);
+    strncpy((char *)wifi_config.sta.password, WIFI_STA_PASSWORD, sizeof(wifi_config.sta.password) - 1);
 
     ESP_ERROR_CHECK(esp_wifi_set_mode(WIFI_MODE_STA));
     ESP_ERROR_CHECK(esp_wifi_set_config(WIFI_IF_STA, &wifi_config));
     ESP_ERROR_CHECK(esp_wifi_start());
 
-    ESP_LOGI(TAG, "WiFi Station connecting to: %s", WIFI_STA_SSID);
+    // Wait for connection with timeout
+    ESP_LOGI(TAG, "Waiting for STA connection (timeout: %d seconds)...", WIFI_STA_CONNECT_TIMEOUT_S);
+    EventBits_t bits = xEventGroupWaitBits(s_wifi_event_group,
+                                            WIFI_CONNECTED_BIT | WIFI_FAIL_BIT,
+                                            pdFALSE, pdFALSE,
+                                            pdMS_TO_TICKS(WIFI_STA_CONNECT_TIMEOUT_S * 1000));
+
+    if (bits & WIFI_CONNECTED_BIT) {
+        ESP_LOGI(TAG, "Successfully connected to WiFi network: %s", WIFI_STA_SSID);
+        s_wifi_is_sta_mode = true;
+        vEventGroupDelete(s_wifi_event_group);
+        s_wifi_event_group = NULL;
+        return true;
+    }
+
+    ESP_LOGW(TAG, "Failed to connect to WiFi network: %s", WIFI_STA_SSID);
+    vEventGroupDelete(s_wifi_event_group);
+    s_wifi_event_group = NULL;
+    return false;
+}
+#endif // WIFI_MODE_STA_FIRST || WIFI_MODE_STA_ONLY
+
+#if WIFI_MODE_STA_FIRST
+// Switch from failed STA to AP mode (only needed in STA-first mode)
+static esp_err_t wifi_switch_to_ap(void)
+{
+    ESP_LOGI(TAG, "Switching from STA to AP mode...");
+
+    // Stop current WiFi but keep it initialized
+    esp_wifi_stop();
+
+    // Create AP netif
+    esp_netif_create_default_wifi_ap();
+
+    // Configure and start AP mode
+    wifi_config_t wifi_config = {
+        .ap = {
+            .ssid = WIFI_AP_SSID,
+            .ssid_len = strlen(WIFI_AP_SSID),
+            .channel = WIFI_AP_CHANNEL,
+            .password = WIFI_AP_PASSWORD,
+            .max_connection = WIFI_AP_MAX_CONN,
+            .authmode = WIFI_AUTH_WPA_WPA2_PSK,
+        },
+    };
+
+    if (strlen(WIFI_AP_PASSWORD) == 0) {
+        wifi_config.ap.authmode = WIFI_AUTH_OPEN;
+    }
+
+    ESP_ERROR_CHECK(esp_wifi_set_mode(WIFI_MODE_AP));
+    ESP_ERROR_CHECK(esp_wifi_set_config(WIFI_IF_AP, &wifi_config));
+    ESP_ERROR_CHECK(esp_wifi_start());
+
+    s_wifi_is_sta_mode = false;
+    snprintf(s_wifi_ip_str, sizeof(s_wifi_ip_str), "192.168.4.1");
+    ESP_LOGI(TAG, "WiFi AP started. SSID: %s, Password: %s", WIFI_AP_SSID, WIFI_AP_PASSWORD);
     return ESP_OK;
+}
+#endif // WIFI_MODE_STA_FIRST
+
+// Initialize WiFi based on configuration mode
+static esp_err_t wifi_init(void)
+{
+#if WIFI_MODE_STA_FIRST
+    // STA-first mode: Try STA, fall back to AP if connection fails
+    ESP_LOGI(TAG, "WiFi mode: STA-first with AP fallback");
+    if (wifi_try_sta_connect()) {
+        return ESP_OK;  // Connected to STA network
+    }
+    // STA failed, switch to AP mode
+    ESP_LOGW(TAG, "STA connection failed, falling back to AP mode");
+    return wifi_switch_to_ap();
+
+#elif WIFI_MODE_STA_ONLY
+    // STA-only mode: Just connect to STA, no fallback
+    ESP_LOGI(TAG, "WiFi mode: STA only");
+    if (wifi_try_sta_connect()) {
+        return ESP_OK;
+    }
+    ESP_LOGE(TAG, "STA connection failed and no fallback configured");
+    return ESP_FAIL;
+
+#else
+    // AP-only mode (default): Just start AP
+    ESP_LOGI(TAG, "WiFi mode: AP only");
+    return wifi_start_ap(false);
+#endif
+}
+
+// Helper functions for status reporting
+bool wifi_is_sta_mode(void)
+{
+    return s_wifi_is_sta_mode;
+}
+
+bool wifi_is_sta_connected(void)
+{
+    return s_wifi_sta_connected;
+}
+
+const char* wifi_get_ip_str(void)
+{
+    return s_wifi_ip_str;
+}
+
+const char* wifi_get_current_ssid(void)
+{
+    return s_wifi_is_sta_mode ? WIFI_STA_SSID : WIFI_AP_SSID;
 }
 
 // =============================================================================
@@ -441,10 +576,10 @@ static void status_update_task(void *pvParameters)
         // =================================================================
         // Diagnostic data (same as LCD diagnostics)
         // =================================================================
-        status.wifi_ssid = WIFI_SSID;
-        status.wifi_ip = "192.168.4.1";
+        status.wifi_ssid = wifi_get_current_ssid();
+        status.wifi_ip = wifi_get_ip_str();
         status.mac_addr = mac_str;
-        status.wifi_channel = WIFI_CHANNEL;
+        status.wifi_channel = WIFI_AP_CHANNEL;
 
         // Connected clients
         wifi_sta_list_t sta_list;
@@ -470,6 +605,11 @@ static void status_update_task(void *pvParameters)
 
         // Update web server status
         web_server_update_status(&status);
+
+#if defined(ENABLE_MQTT) && ENABLE_MQTT
+        // Update MQTT service status
+        mqtt_service_update_status(&status);
+#endif
 
         vTaskDelay(pdMS_TO_TICKS(50));  // Update at 20Hz for responsive button feedback
     }
@@ -617,6 +757,26 @@ static esp_err_t init_web_server(void)
     return web_server_init(&config);
 }
 
+#if defined(ENABLE_MQTT) && ENABLE_MQTT
+static esp_err_t init_mqtt_service(void)
+{
+    ESP_LOGI(TAG, "Initializing MQTT service");
+
+    mqtt_service_config_t config = {
+        .broker_host = MQTT_BROKER_HOST,
+        .broker_port = MQTT_BROKER_PORT,
+        .username = MQTT_USERNAME,
+        .password = MQTT_PASSWORD,
+        .client_id = MQTT_CLIENT_ID,
+        .topic_prefix = MQTT_TOPIC_PREFIX,
+        .publish_interval_ms = MQTT_PUBLISH_INTERVAL_MS,
+        .qos = MQTT_QOS,
+    };
+
+    return mqtt_service_init(&config);
+}
+#endif
+
 #if defined(ENABLE_LCD_DISPLAY) && ENABLE_LCD_DISPLAY
 // =============================================================================
 // LCD Display Task
@@ -700,8 +860,8 @@ static void lcd_update_task(void *pvParameters)
     const TickType_t DIAG_HOLD_TIME = pdMS_TO_TICKS(3000);  // 3 seconds
 
     lcd_rover_status_t lcd_status = {
-        .wifi_ssid = WIFI_SSID,
-        .wifi_ip = "192.168.4.1",
+        .wifi_ssid = wifi_get_current_ssid(),
+        .wifi_ip = wifi_get_ip_str(),
         .mac_addr = mac_str,
     };
 
@@ -762,10 +922,10 @@ static void lcd_update_task(void *pvParameters)
         if (diag_mode == DIAG_MODE_ON) {
             // Show diagnostic screen
             lcd_wifi_diag_t diag = {
-                .ssid = WIFI_SSID,
-                .ip_addr = "192.168.4.1",
+                .ssid = wifi_get_current_ssid(),
+                .ip_addr = wifi_get_ip_str(),
                 .mac_addr = mac_str,
-                .channel = WIFI_CHANNEL,
+                .channel = WIFI_AP_CHANNEL,
                 .connected_stations = get_connected_station_count(),
                 .tx_power = get_wifi_tx_power(),
                 .free_heap = esp_get_free_heap_size(),
@@ -792,6 +952,8 @@ static void lcd_update_task(void *pvParameters)
             }
 
             // Update LCD status struct
+            lcd_status.wifi_ssid = wifi_get_current_ssid();
+            lcd_status.wifi_ip = wifi_get_ip_str();
             lcd_status.speed_percent = (int)cmd.speed;
             lcd_status.steering_degrees = (int)((cmd.steering / 100.0f) * STEERING_MAX_ANGLE);
             lcd_status.estop = cmd.emergency_stop;
@@ -848,12 +1010,8 @@ void app_main(void)
         return;
     }
 
-    // Initialize WiFi
-#if ROVER_WIFI_MODE_AP
-    ESP_ERROR_CHECK(wifi_init_ap());
-#else
-    ESP_ERROR_CHECK(wifi_init_sta());
-#endif
+    // Initialize WiFi (mode determined by config_generated.h)
+    ESP_ERROR_CHECK(wifi_init());
 
     // Initialize hardware components
     ret = init_encoder();
@@ -898,6 +1056,19 @@ void app_main(void)
         return;  // Can't continue without web server
     }
 
+#if defined(ENABLE_MQTT) && ENABLE_MQTT
+    // MQTT requires WiFi connection - only start if in STA mode
+    if (wifi_is_sta_mode()) {
+        ret = init_mqtt_service();
+        if (ret != ESP_OK) {
+            ESP_LOGW(TAG, "MQTT service init failed: %s (continuing without MQTT)", esp_err_to_name(ret));
+            // Continue - MQTT is optional
+        }
+    } else {
+        ESP_LOGI(TAG, "MQTT disabled - not in STA mode");
+    }
+#endif
+
     // Create motor control task on Core 1
     xTaskCreatePinnedToCore(
         motor_control_task,
@@ -934,6 +1105,10 @@ void app_main(void)
 #endif
 
     ESP_LOGI(TAG, "Rover initialized successfully!");
-    ESP_LOGI(TAG, "Connect to WiFi '%s' and open http://192.168.4.1", WIFI_SSID);
+    if (wifi_is_sta_mode()) {
+        ESP_LOGI(TAG, "Connected to WiFi '%s', open http://%s", wifi_get_current_ssid(), wifi_get_ip_str());
+    } else {
+        ESP_LOGI(TAG, "Connect to WiFi '%s' and open http://%s", wifi_get_current_ssid(), wifi_get_ip_str());
+    }
     ESP_LOGI(TAG, "Free heap: %lu bytes", esp_get_free_heap_size());
 }

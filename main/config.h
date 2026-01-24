@@ -12,7 +12,11 @@
 // Set the target here or via compiler flag: -DROVER_TARGET_ESP32CAM=1
 // =============================================================================
 
-// Default to TTGO T-Display if no target specified
+// Include auto-generated configuration from rover_config.yaml
+// Run: python generate_config.py to regenerate after YAML changes
+#include "config_generated.h"
+
+// Default to TTGO T-Display if no target specified (override from config_generated.h)
 #if !defined(ROVER_TARGET_ESP32CAM) && !defined(ROVER_TARGET_TTGO)
     #define ROVER_TARGET_TTGO       1
 #endif
@@ -30,17 +34,48 @@
 #endif
 
 // -----------------------------------------------------------------------------
-// WiFi Configuration
+// WiFi Configuration (defaults - overridden by config_generated.h if present)
 // -----------------------------------------------------------------------------
-#define ROVER_WIFI_MODE_AP  1   // 1 = Access Point, 0 = Station
-#define WIFI_SSID           "ESP32-Rover"
-#define WIFI_PASSWORD       "rover1234"
-#define WIFI_CHANNEL        1
-#define WIFI_MAX_CONN       4
+#ifndef WIFI_MODE_AP_ONLY
+#define WIFI_MODE_AP_ONLY   1   // Default to AP mode
+#endif
+#ifndef WIFI_MODE_STA_ONLY
+#define WIFI_MODE_STA_ONLY  0
+#endif
+#ifndef WIFI_MODE_STA_FIRST
+#define WIFI_MODE_STA_FIRST 0
+#endif
 
-// Station mode settings (when ROVER_WIFI_MODE_AP = 0)
+// AP settings (defaults)
+#ifndef WIFI_AP_SSID
+#define WIFI_AP_SSID        "ESP32-Rover"
+#endif
+#ifndef WIFI_AP_PASSWORD
+#define WIFI_AP_PASSWORD    "rover1234"
+#endif
+#ifndef WIFI_AP_CHANNEL
+#define WIFI_AP_CHANNEL     1
+#endif
+#ifndef WIFI_AP_MAX_CONN
+#define WIFI_AP_MAX_CONN    4
+#endif
+
+// STA settings (defaults)
+#ifndef WIFI_STA_SSID
 #define WIFI_STA_SSID       "YourHomeNetwork"
+#endif
+#ifndef WIFI_STA_PASSWORD
 #define WIFI_STA_PASSWORD   "YourPassword"
+#endif
+#ifndef WIFI_STA_CONNECT_TIMEOUT_S
+#define WIFI_STA_CONNECT_TIMEOUT_S 10
+#endif
+
+// Legacy compatibility defines
+#define WIFI_SSID           WIFI_AP_SSID
+#define WIFI_PASSWORD       WIFI_AP_PASSWORD
+#define WIFI_CHANNEL        WIFI_AP_CHANNEL
+#define WIFI_MAX_CONN       WIFI_AP_MAX_CONN
 
 // =============================================================================
 // Target-Specific Pin Configurations

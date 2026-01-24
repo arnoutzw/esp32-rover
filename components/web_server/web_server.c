@@ -1,10 +1,16 @@
 #include "web_server.h"
 #include "camera.h"
+#include "config.h"
 #include <string.h>
 #include <stdlib.h>
 #include "esp_log.h"
 #include "esp_timer.h"
 #include "cJSON.h"
+
+// Default REST API enable if not defined in config
+#ifndef ENABLE_REST_API
+#define ENABLE_REST_API 1
+#endif
 
 static const char *TAG = "WEB_SERVER";
 
@@ -24,7 +30,9 @@ static SemaphoreHandle_t state_mutex = NULL;
 static esp_err_t root_handler(httpd_req_t *req);
 static esp_err_t stream_handler(httpd_req_t *req);
 static esp_err_t control_handler(httpd_req_t *req);
+#if ENABLE_REST_API
 static esp_err_t status_handler(httpd_req_t *req);
+#endif
 
 // URI handlers
 static const httpd_uri_t uri_root = {
@@ -48,12 +56,14 @@ static const httpd_uri_t uri_control = {
     .user_ctx = NULL
 };
 
+#if ENABLE_REST_API
 static const httpd_uri_t uri_status = {
     .uri = "/status",
     .method = HTTP_GET,
     .handler = status_handler,
     .user_ctx = NULL
 };
+#endif
 
 // Root handler - serve HTML UI
 static esp_err_t root_handler(httpd_req_t *req)
@@ -192,6 +202,7 @@ static esp_err_t control_handler(httpd_req_t *req)
     return ESP_OK;
 }
 
+#if ENABLE_REST_API
 // Status handler - return current status with full diagnostics
 static esp_err_t status_handler(httpd_req_t *req)
 {
@@ -257,6 +268,7 @@ static esp_err_t status_handler(httpd_req_t *req)
     httpd_resp_set_hdr(req, "Access-Control-Allow-Origin", "*");
     return httpd_resp_sendstr(req, response);
 }
+#endif // ENABLE_REST_API
 
 esp_err_t web_server_init(const web_server_config_t *config)
 {
@@ -297,7 +309,10 @@ esp_err_t web_server_init(const web_server_config_t *config)
     httpd_register_uri_handler(server, &uri_root);
     httpd_register_uri_handler(server, &uri_stream);
     httpd_register_uri_handler(server, &uri_control);
+#if ENABLE_REST_API
     httpd_register_uri_handler(server, &uri_status);
+    ESP_LOGI(TAG, "REST API enabled (/status endpoint)");
+#endif
 
     ESP_LOGI(TAG, "Web server started");
     return ESP_OK;

@@ -1,14 +1,12 @@
 idf_component_register(
     SRCS
-        "web_server.c"
-        "web_ui.c"
+        "mqtt_service.c"
     INCLUDE_DIRS
         "include"
     REQUIRES
-        esp_http_server
-        camera
+        web_server
     PRIV_REQUIRES
-        esp_timer
+        mqtt
         espressif__cjson
         main
 )

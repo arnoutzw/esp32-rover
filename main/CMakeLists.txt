@@ -16,6 +16,7 @@ idf_component_register(
         camera
         web_server
         lcd_display
+        mqtt_service
 )
 
 # Allow target selection via environment variable or CMake variable

@@ -10,6 +10,8 @@ This document captures key bugfixes, feature implementations, and lessons learne
 - [Display Optimization](#display-optimization)
 - [Responsive Input Handling](#responsive-input-handling)
 - [System Diagnostics](#system-diagnostics)
+- [Configuration System](#configuration-system)
+- [WiFi Connectivity](#wifi-connectivity)
 - [Summary of Best Practices](#summary-of-best-practices)
 
 ---
@@ -470,6 +472,174 @@ if (ret != ESP_OK) {
 - **WiFi and ADC1 conflict on ESP32** - Be prepared for ADC timeouts when WiFi is active
 - **Return last known good value** - For sensor readings, stale data is better than a crash
 - **Reserve `ESP_ERROR_CHECK` for init-time operations** - Where failure means the system can't function anyway
+
+---
+
+## Configuration System
+
+### Feature: YAML-Based Compile-Time Configuration
+
+**Goal**: Provide an easy way to configure firmware settings without modifying C header files.
+
+**Implementation**: A `rover_config.yaml` file defines all compile-time options, and `generate_config.py` converts it to C preprocessor definitions.
+
+**Example `rover_config.yaml`**:
+```yaml
+target: ttgo
+
+wifi:
+  mode: sta_first  # ap_only, sta_only, or sta_first
+  ap:
+    ssid: "ESP32-Rover"
+    password: "rover1234"
+    channel: 1
+  sta:
+    ssid: "MyHomeNetwork"
+    password: "MyPassword"
+    connect_timeout: 10
+
+rest_api:
+  enabled: true
+  cache_interval_ms: 1000
+
+mqtt:
+  enabled: true
+  broker:
+    host: "192.168.1.100"
+    port: 1883
+  topic_prefix: "esp32-rover"
+  publish_interval_ms: 5000
+```
+
+**Generated `config_generated.h`**:
+```c
+#define WIFI_MODE_STA_FIRST 1
+#define WIFI_AP_SSID "ESP32-Rover"
+#define WIFI_STA_SSID "MyHomeNetwork"
+#define ENABLE_REST_API 1
+#define ENABLE_MQTT 1
+#define MQTT_BROKER_HOST "192.168.1.100"
+// ... etc
+```
+
+**Usage**:
+```bash
+python generate_config.py   # Regenerates main/config_generated.h
+idf.py build                # Compile with new settings
+```
+
+**Lesson Learned**:
+- **Separate configuration from code** - YAML is more user-friendly than C headers
+- **Auto-generate C headers** - Eliminates manual sync errors
+- **Use compile-time toggles** - Features like MQTT can be completely compiled out
+- **Include defaults** - Config generator should work even with minimal YAML
+
+---
+
+## WiFi Connectivity
+
+### Feature: STA-First with AP Fallback
+
+**Goal**: Connect to a home WiFi network when available, but provide a fallback AP mode for initial setup or when the network is unavailable.
+
+**Implementation**: Three WiFi modes controlled by compile-time flags:
+- `WIFI_MODE_AP_ONLY` - Always start as access point
+- `WIFI_MODE_STA_ONLY` - Only try station mode, fail if unavailable
+- `WIFI_MODE_STA_FIRST` - Try station first, fall back to AP on failure
+
+**Connection Flow (STA-First)**:
+```
+Boot
+  │
+  ├─► Try STA connection
+  │     │
+  │     ├─► Success ──► Run in STA mode (use home network IP)
+  │     │
+  │     └─► Timeout (10s) ──► Switch to AP mode
+  │                              │
+  │                              └─► Run in AP mode (192.168.4.1)
+```
+
+**Key Code**:
+```c
+static esp_err_t wifi_init(void)
+{
+#if WIFI_MODE_STA_FIRST
+    ESP_LOGI(TAG, "WiFi mode: STA-first with AP fallback");
+    if (wifi_try_sta_connect()) {
+        return ESP_OK;  // Connected to STA network
+    }
+    ESP_LOGW(TAG, "STA connection failed, falling back to AP mode");
+    return wifi_switch_to_ap();
+#else
+    // AP-only mode
+    return wifi_start_ap(false);
+#endif
+}
+```
+
+**Lesson Learned**:
+- **Use event groups for connection waiting** - `xEventGroupWaitBits()` with timeout
+- **Don't deinit WiFi when switching modes** - Just stop and reconfigure
+- **Create both AP and STA netifs** - Both needed for switching modes
+- **Track current mode for status reporting** - IP and SSID change dynamically
+
+### Feature: REST API with Compile-Time Toggle
+
+**Goal**: Provide a `/status` endpoint for diagnostic data, with ability to disable at compile time.
+
+**Implementation**:
+```c
+// In web_server.c
+#if ENABLE_REST_API
+static esp_err_t status_handler(httpd_req_t *req) {
+    // Return JSON with diagnostic data
+}
+#endif
+
+esp_err_t web_server_init(...) {
+#if ENABLE_REST_API
+    httpd_register_uri_handler(server, &uri_status);
+    ESP_LOGI(TAG, "REST API enabled (/status endpoint)");
+#endif
+}
+```
+
+**Lesson Learned**:
+- **Use `#if` not `#ifdef`** - Allows `ENABLE_REST_API 0` to disable
+- **Log when features are enabled/disabled** - Helps with debugging
+- **Keep stubs when disabled** - Prevents undefined symbol errors
+
+### Feature: MQTT Telemetry Service
+
+**Goal**: Publish rover status to an MQTT broker for remote monitoring.
+
+**Implementation**: Separate `mqtt_service` component with:
+- Configurable broker, credentials, topic prefix
+- Periodic publishing task
+- JSON payload matching REST API format
+- Only starts when in STA mode (requires network)
+
+**Key Code**:
+```c
+// In main.c
+#if defined(ENABLE_MQTT) && ENABLE_MQTT
+    if (wifi_is_sta_mode()) {
+        ret = init_mqtt_service();
+        if (ret != ESP_OK) {
+            ESP_LOGW(TAG, "MQTT init failed (continuing without MQTT)");
+        }
+    } else {
+        ESP_LOGI(TAG, "MQTT disabled - not in STA mode");
+    }
+#endif
+```
+
+**Lesson Learned**:
+- **MQTT requires external connectivity** - Only start when connected to a real network
+- **Use stub implementations** - When MQTT disabled, provide no-op functions
+- **Match REST API format** - Same JSON structure for consistency
+- **Don't crash on broker unavailable** - Log warning and continue
 
 ---
 
