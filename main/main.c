@@ -50,32 +50,52 @@ static TaskHandle_t lcd_task_handle = NULL;
 
 #if defined(ENABLE_BUTTONS) && ENABLE_BUTTONS
 static bool s_buttons_initialized = false;
+static volatile bool s_button_left_pressed = false;
+static volatile bool s_button_right_pressed = false;
+
+// GPIO interrupt handler for buttons - runs in ISR context
+static void IRAM_ATTR button_isr_handler(void* arg)
+{
+    // Read current button states directly (active LOW)
+    s_button_left_pressed = (gpio_get_level(BUTTON_LEFT_PIN) == 0);
+    s_button_right_pressed = (gpio_get_level(BUTTON_RIGHT_PIN) == 0);
+}
 
 static void init_buttons(void)
 {
     if (s_buttons_initialized) return;
 
-    // Configure button pins as input with pull-up (buttons are active LOW)
+    // Configure button pins as input with pull-up and interrupts on both edges
     gpio_config_t btn_conf = {
         .pin_bit_mask = (1ULL << BUTTON_LEFT_PIN) | (1ULL << BUTTON_RIGHT_PIN),
         .mode = GPIO_MODE_INPUT,
         .pull_up_en = GPIO_PULLUP_ENABLE,
         .pull_down_en = GPIO_PULLDOWN_DISABLE,
-        .intr_type = GPIO_INTR_DISABLE,
+        .intr_type = GPIO_INTR_ANYEDGE,  // Trigger on press AND release
     };
     gpio_config(&btn_conf);
+
+    // Install GPIO ISR service and add handlers
+    gpio_install_isr_service(0);
+    gpio_isr_handler_add(BUTTON_LEFT_PIN, button_isr_handler, NULL);
+    gpio_isr_handler_add(BUTTON_RIGHT_PIN, button_isr_handler, NULL);
+
+    // Read initial state
+    s_button_left_pressed = (gpio_get_level(BUTTON_LEFT_PIN) == 0);
+    s_button_right_pressed = (gpio_get_level(BUTTON_RIGHT_PIN) == 0);
+
     s_buttons_initialized = true;
-    ESP_LOGI(TAG, "Buttons initialized (GPIO %d, %d)", BUTTON_LEFT_PIN, BUTTON_RIGHT_PIN);
+    ESP_LOGI(TAG, "Buttons initialized with interrupts (GPIO %d, %d)", BUTTON_LEFT_PIN, BUTTON_RIGHT_PIN);
 }
 
 static bool read_button_left(void)
 {
-    return s_buttons_initialized && (gpio_get_level(BUTTON_LEFT_PIN) == 0);  // Active LOW
+    return s_buttons_initialized && s_button_left_pressed;
 }
 
 static bool read_button_right(void)
 {
-    return s_buttons_initialized && (gpio_get_level(BUTTON_RIGHT_PIN) == 0);  // Active LOW
+    return s_buttons_initialized && s_button_right_pressed;
 }
 #endif
 
@@ -388,7 +408,7 @@ static void status_update_task(void *pvParameters)
         // Update web server status
         web_server_update_status(&status);
 
-        vTaskDelay(pdMS_TO_TICKS(200));  // Update at 5Hz
+        vTaskDelay(pdMS_TO_TICKS(50));  // Update at 20Hz for responsive button feedback
     }
 }
 

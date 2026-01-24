@@ -322,7 +322,7 @@ static const char web_ui_html[] = R"rawliteral(
     <script>
         // Configuration
         const SEND_INTERVAL = 50;  // ms between control updates
-        const STATUS_INTERVAL = 500;  // ms between status requests
+        const STATUS_INTERVAL = 100;  // ms between status requests (10Hz for responsive buttons)
 
         // State
         let speed = 0;
