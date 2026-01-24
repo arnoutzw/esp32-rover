@@ -239,6 +239,9 @@ static esp_err_t status_handler(httpd_req_t *req)
             "\"uptime\":%lu,"
             "\"cpuFreq\":%.0f,"
             "\"tasks\":%d,"
+            "\"tasksCore0\":%d,"
+            "\"tasksCore1\":%d,"
+            "\"tasksNoAffinity\":%d,"
             "\"restApi\":%s,"
             "\"mqttEnabled\":%s,"
             "\"mqttConnected\":%s"
@@ -265,6 +268,9 @@ static esp_err_t status_handler(httpd_req_t *req)
         (unsigned long)status.uptime_secs,
         status.cpu_freq_mhz,
         status.task_count,
+        status.tasks_core0,
+        status.tasks_core1,
+        status.tasks_no_affinity,
         status.rest_api_enabled ? "true" : "false",
         status.mqtt_enabled ? "true" : "false",
         status.mqtt_connected ? "true" : "false"

@@ -288,6 +288,12 @@ static const char web_ui_html[] = R"rawliteral(
         .diag-value.error {
             color: #ff4444;
         }
+        .diag-sub {
+            font-family: monospace;
+            font-size: 0.8em;
+            color: #00aaff;
+            display: block;
+        }
         .diag-bar {
             height: 8px;
             background: #2d2d44;
@@ -460,6 +466,7 @@ static const char web_ui_html[] = R"rawliteral(
                                 <div class="diag-item">
                                     <span class="diag-label">Tasks</span>
                                     <span class="diag-value" id="diag-tasks">--</span>
+                                    <span class="diag-sub" id="diag-tasks-cores">--</span>
                                 </div>
                                 <div class="diag-item">
                                     <span class="diag-label">Battery</span>
@@ -700,6 +707,7 @@ static const char web_ui_html[] = R"rawliteral(
                         // System section
                         document.getElementById('diag-cpu').textContent = d.cpuFreq + ' MHz';
                         document.getElementById('diag-tasks').textContent = d.tasks;
+                        document.getElementById('diag-tasks-cores').textContent = 'C0:' + d.tasksCore0 + ' C1:' + d.tasksCore1;
                         document.getElementById('diag-battery').textContent = data.battery.toFixed(2) + 'V';
                         document.getElementById('diag-uptime').textContent = formatUptime(d.uptime);
 

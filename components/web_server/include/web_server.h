@@ -41,6 +41,9 @@ typedef struct {
     uint32_t uptime_secs;           // Uptime in seconds
     float cpu_freq_mhz;             // CPU frequency
     uint8_t task_count;             // Number of running tasks
+    uint8_t tasks_core0;            // Tasks running on core 0
+    uint8_t tasks_core1;            // Tasks running on core 1
+    uint8_t tasks_no_affinity;      // Tasks with no core affinity
 
     // Service status
     bool rest_api_enabled;          // REST API enabled at compile time

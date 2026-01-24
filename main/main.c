@@ -516,6 +516,47 @@ static void motor_control_task(void *pvParameters)
 }
 
 // =============================================================================
+// REQ-09: Get task counts per core
+// =============================================================================
+
+typedef struct {
+    uint8_t core0;
+    uint8_t core1;
+    uint8_t no_affinity;
+} task_core_counts_t;
+
+static void get_task_core_counts(task_core_counts_t *counts)
+{
+    counts->core0 = 0;
+    counts->core1 = 0;
+    counts->no_affinity = 0;
+
+    UBaseType_t num_tasks = uxTaskGetNumberOfTasks();
+    if (num_tasks == 0) return;
+
+    // Allocate buffer for task status array
+    TaskStatus_t *task_array = pvPortMalloc(num_tasks * sizeof(TaskStatus_t));
+    if (task_array == NULL) return;
+
+    // Get task states
+    UBaseType_t actual_count = uxTaskGetSystemState(task_array, num_tasks, NULL);
+
+    for (UBaseType_t i = 0; i < actual_count; i++) {
+        BaseType_t core = xTaskGetAffinity(task_array[i].xHandle);
+        if (core == 0) {
+            counts->core0++;
+        } else if (core == 1) {
+            counts->core1++;
+        } else {
+            // tskNO_AFFINITY means task can run on any core
+            counts->no_affinity++;
+        }
+    }
+
+    vPortFree(task_array);
+}
+
+// =============================================================================
 // Status Update Task
 // =============================================================================
 
@@ -602,6 +643,13 @@ static void status_update_task(void *pvParameters)
         status.uptime_secs = (xTaskGetTickCount() - start_ticks) / configTICK_RATE_HZ;
         status.cpu_freq_mhz = CONFIG_ESP_DEFAULT_CPU_FREQ_MHZ;
         status.task_count = uxTaskGetNumberOfTasks();
+
+        // REQ-09: Per-core task counts for web GUI
+        task_core_counts_t task_counts;
+        get_task_core_counts(&task_counts);
+        status.tasks_core0 = task_counts.core0;
+        status.tasks_core1 = task_counts.core1;
+        status.tasks_no_affinity = task_counts.no_affinity;
 
         // Service status
 #if defined(ENABLE_REST_API) && ENABLE_REST_API
@@ -852,44 +900,6 @@ static int8_t get_wifi_tx_power(void)
     int8_t power = 0;
     esp_wifi_get_max_tx_power(&power);
     return power / 4;  // Convert from 0.25dBm units to dBm
-}
-
-// REQ-09: Get task counts per core
-typedef struct {
-    uint8_t core0;
-    uint8_t core1;
-    uint8_t no_affinity;
-} task_core_counts_t;
-
-static void get_task_core_counts(task_core_counts_t *counts)
-{
-    counts->core0 = 0;
-    counts->core1 = 0;
-    counts->no_affinity = 0;
-
-    UBaseType_t num_tasks = uxTaskGetNumberOfTasks();
-    if (num_tasks == 0) return;
-
-    // Allocate buffer for task status array
-    TaskStatus_t *task_array = pvPortMalloc(num_tasks * sizeof(TaskStatus_t));
-    if (task_array == NULL) return;
-
-    // Get task states
-    UBaseType_t actual_count = uxTaskGetSystemState(task_array, num_tasks, NULL);
-
-    for (UBaseType_t i = 0; i < actual_count; i++) {
-        BaseType_t core = xTaskGetAffinity(task_array[i].xHandle);
-        if (core == 0) {
-            counts->core0++;
-        } else if (core == 1) {
-            counts->core1++;
-        } else {
-            // tskNO_AFFINITY means task can run on any core
-            counts->no_affinity++;
-        }
-    }
-
-    vPortFree(task_array);
 }
 
 static void lcd_update_task(void *pvParameters)
