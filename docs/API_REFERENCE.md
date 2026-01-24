@@ -12,6 +12,7 @@ This document provides detailed API documentation for all firmware components.
 - [Servo Control](#servo-control)
 - [Web Server](#web-server)
 - [Camera Module](#camera-module)
+- [LCD Display](#lcd-display)
 
 ---
 
@@ -23,10 +24,10 @@ The ESP32 Rover firmware is built using ESP-IDF and follows a modular component 
 
 The firmware supports two hardware targets:
 
-| Target | Board | Camera | PSRAM | Notes |
-|--------|-------|--------|-------|-------|
-| **ESP32-CAM** | AI-Thinker ESP32-CAM | Yes | Required | Full features with live video |
-| **TTGO T-Display** | LilyGO TTGO T-Display | No | Not available | Motor/servo control only |
+| Target | Board | Camera | LCD | Buttons | PSRAM | Notes |
+|--------|-------|--------|-----|---------|-------|-------|
+| **ESP32-CAM** | AI-Thinker ESP32-CAM | Yes | No | No | Required | Full features with live video |
+| **TTGO T-Display** | LilyGO TTGO T-Display | No | Yes | Yes | Not available | LCD status display + buttons |
 
 ### Self-Contained Project
 
@@ -43,7 +44,8 @@ esp32-rover-firmware/
 │   ├── as5600/          # Magnetic encoder driver
 │   ├── bldc_motor/      # BLDC motor controller (SimpleFOC-style)
 │   ├── servo_control/   # PWM servo driver
-│   ├── camera/          # Camera wrapper module
+│   ├── camera/          # Camera wrapper module (ESP32-CAM)
+│   ├── lcd_display/     # ST7789 LCD driver (TTGO)
 │   └── web_server/      # HTTP server with control UI
 ├── esp-idf/             # Embedded ESP-IDF v5.2.2
 ├── sdkconfig.defaults.esp32cam  # ESP32-CAM SDK configuration
@@ -73,7 +75,7 @@ Use the build script for easy target selection:
 # Build for ESP32-CAM (with camera)
 ./build.sh esp32cam
 
-# Build for TTGO T-Display (no camera)
+# Build for TTGO T-Display (with LCD + buttons)
 ./build.sh ttgo
 
 # Build and flash
@@ -107,13 +109,19 @@ The target is controlled by preprocessor defines in `config.h`:
 ```c
 // Define one of these (or set via -D compiler flag):
 #define ROVER_TARGET_ESP32CAM  1  // ESP32-CAM with camera
-#define ROVER_TARGET_TTGO      1  // TTGO T-Display without camera
+#define ROVER_TARGET_TTGO      1  // TTGO T-Display with LCD + buttons
 
 // Camera is automatically enabled/disabled based on target:
 #ifdef ROVER_TARGET_ESP32CAM
     #define DISABLE_CAMERA  0   // Camera enabled
 #else
     #define DISABLE_CAMERA  1   // Camera disabled
+#endif
+
+// LCD and buttons enabled for TTGO:
+#ifdef ROVER_TARGET_TTGO
+    #define ENABLE_LCD_DISPLAY  1
+    #define ENABLE_BUTTONS      1
 #endif
 ```
 
@@ -141,6 +149,14 @@ The target is controlled by preprocessor defines in `config.h`:
 | Servo | 32 | |
 | I2C SDA | 21 | Encoder |
 | I2C SCL | 22 | Encoder |
+| LCD SCLK | 18 | SPI clock |
+| LCD MOSI | 19 | SPI data |
+| LCD DC | 16 | Data/command |
+| LCD CS | 5 | Chip select |
+| LCD RST | 23 | Reset |
+| LCD BL | 4 | Backlight PWM |
+| Button L | 0 | Active LOW |
+| Button R | 35 | Active LOW |
 
 ---
 
@@ -166,16 +182,25 @@ The target is controlled by preprocessor defines in `config.h`:
         │          │   (I2C Encoder) │
         │          └─────────────────┘
         ▼
-┌───────────────┐
-│    camera     │
-│  (if enabled) │
-└───────────────┘
+┌───────────────┐  ┌─────────────────┐
+│    camera     │  │   lcd_display   │
+│  (if enabled) │  │  (TTGO only)    │
+└───────────────┘  └─────────────────┘
 ```
 
 ### Core Allocation
 
-- **Core 0**: WiFi stack, HTTP server, camera capture
+- **Core 0**: WiFi stack, HTTP server, camera capture, LCD updates, status updates
 - **Core 1**: Motor control loop (100Hz), servo updates
+
+### Task Allocation
+
+| Task | Core | Priority | Frequency | Stack |
+|------|------|----------|-----------|-------|
+| Motor control | 1 | 5 | 100 Hz | 4096 |
+| Status update | 0 | 2 | 5 Hz | 2048 |
+| LCD update | 0 | 1 | 10 Hz | 4096 |
+| Web server | 0 | - | Event-driven | - |
 
 ---
 
@@ -375,6 +400,14 @@ Set target velocity in rad/s (velocity mode only).
 
 ---
 
+#### `bldc_motor_get_velocity`
+```c
+esp_err_t bldc_motor_get_velocity(bldc_motor_handle_t handle, float *velocity);
+```
+Get current motor velocity in rad/s from encoder feedback.
+
+---
+
 #### `bldc_motor_loop`
 ```c
 esp_err_t bldc_motor_loop(bldc_motor_handle_t handle);
@@ -443,6 +476,14 @@ Set servo angle in degrees. Negative = left, Positive = right.
 
 ---
 
+#### `servo_get_angle`
+```c
+esp_err_t servo_get_angle(servo_handle_t handle, float *angle);
+```
+Get current servo angle.
+
+---
+
 #### `servo_center`
 ```c
 esp_err_t servo_center(servo_handle_t handle);
@@ -485,6 +526,8 @@ typedef struct {
     bool motor_enabled;
     bool camera_active;
     int wifi_rssi;
+    bool button_left;      // Left button state (TTGO only)
+    bool button_right;     // Right button state (TTGO only)
 } rover_status_t;
 
 typedef void (*command_callback_t)(const rover_command_t *cmd);
@@ -548,8 +591,168 @@ Get time since last command was received. Used for watchdog timeout.
     "battery": 7.4,     // Battery voltage
     "steering": 15.0,   // Current steering angle
     "motor": true,      // Motor enabled
-    "camera": false     // Camera active
+    "camera": false,    // Camera active
+    "rssi": -45,        // WiFi signal strength
+    "btnL": false,      // Left button pressed (TTGO only)
+    "btnR": true        // Right button pressed (TTGO only)
 }
+```
+
+---
+
+## Camera Module
+
+The camera module wraps the ESP32 camera driver for the OV2640 sensor.
+
+### Header File
+
+```c
+#include "camera.h"
+```
+
+### Functions
+
+#### `camera_init`
+```c
+esp_err_t camera_init(void);
+```
+Initialize the camera with configuration from `config.h`.
+
+---
+
+#### `camera_is_initialized`
+```c
+bool camera_is_initialized(void);
+```
+Check if camera was successfully initialized.
+
+---
+
+#### `camera_capture_frame`
+```c
+esp_err_t camera_capture_frame(uint8_t **data, size_t *len);
+```
+Capture a JPEG frame. Caller must call `camera_release_frame()` when done.
+
+---
+
+#### `camera_release_frame`
+```c
+void camera_release_frame(void);
+```
+Release the captured frame buffer.
+
+---
+
+## LCD Display
+
+The LCD display component provides a driver for the ST7789 135x240 TFT LCD built into the TTGO T-Display.
+
+### Header File
+
+```c
+#include "lcd_display.h"
+```
+
+### Configuration
+
+```c
+typedef struct {
+    int pin_sclk;       // SPI clock pin
+    int pin_mosi;       // SPI MOSI pin
+    int pin_dc;         // Data/Command pin
+    int pin_cs;         // Chip select pin
+    int pin_rst;        // Reset pin
+    int pin_backlight;  // Backlight control pin (-1 to disable)
+} lcd_display_config_t;
+```
+
+### Status Structure
+
+```c
+typedef struct {
+    int speed_percent;      // Speed -100 to +100
+    int steering_degrees;   // Steering angle in degrees
+    float velocity_rads;    // Actual velocity in rad/s
+    float battery_volts;    // Battery voltage
+    bool connected;         // WiFi client connected
+    bool estop;             // Emergency stop active
+    bool button_left;       // Left button pressed
+    bool button_right;      // Right button pressed
+    const char* wifi_ssid;  // WiFi SSID
+    const char* wifi_ip;    // IP address
+} lcd_rover_status_t;
+```
+
+### Functions
+
+#### `lcd_display_init`
+```c
+esp_err_t lcd_display_init(const lcd_display_config_t *config);
+```
+Initialize the LCD display with SPI at 26MHz.
+
+**Note:** SPI clock is limited to 26MHz for non-IOMUX pin compatibility.
+
+---
+
+#### `lcd_display_update`
+```c
+esp_err_t lcd_display_update(const lcd_rover_status_t *status);
+```
+Update the display with current rover status. Shows:
+- Connection status header (green/red)
+- Button indicators (L/R)
+- Speed bar (bi-directional)
+- Steering bar (bi-directional)
+- Velocity reading
+- Battery voltage with bar
+- WiFi info footer
+
+---
+
+#### `lcd_display_splash`
+```c
+esp_err_t lcd_display_splash(void);
+```
+Show startup splash screen with "ESP32 ROVER" branding.
+
+---
+
+#### `lcd_display_set_backlight`
+```c
+esp_err_t lcd_display_set_backlight(uint8_t brightness);
+```
+Set display backlight brightness (0-100%).
+
+---
+
+#### `lcd_display_clear`
+```c
+esp_err_t lcd_display_clear(void);
+```
+Clear the display to black.
+
+---
+
+### Display Layout
+
+```
+┌─────────────────────────────┐
+│ CONNECTED          [L] [R]  │  Header (20px)
+├─────────────────────────────┤
+│ !! E-STOP !!                │  E-stop banner (when active)
+├─────────────────────────────┤
+│ SPEED        +45%           │
+│ ▓▓▓▓▓▓▓▓▓▓▓▓░░░░░░░░░░░░░░ │  Speed bar
+│ STEER        +12°           │
+│ ▓▓▓▓▓▓▓▓▓▓▓▓░░░░░░░░░░░░░░ │  Steering bar
+│ VEL          3.2 r/s        │
+│ BAT          7.4V ████████  │  Battery bar
+├─────────────────────────────┤
+│ ESP32-Rover                 │  Footer (30px)
+│ 192.168.4.1                 │
+└─────────────────────────────┘
 ```
 
 ---
@@ -596,29 +799,22 @@ The `config.h` file contains all hardware-specific configuration. It automatical
 #define WATCHDOG_TIMEOUT_MS 500      // Stop if no command received
 ```
 
-#### Target-Specific Pins (TTGO T-Display)
+#### TTGO-Specific Configuration
 
 ```c
-#define MOTOR_PIN_IN1       GPIO_NUM_25
-#define MOTOR_PIN_IN2       GPIO_NUM_26
-#define MOTOR_PIN_IN3       GPIO_NUM_27
-#define MOTOR_PIN_EN        GPIO_NUM_33
-#define ENCODER_I2C_SDA     GPIO_NUM_21
-#define ENCODER_I2C_SCL     GPIO_NUM_22
-#define SERVO_PIN           GPIO_NUM_32
-```
+// LCD Display
+#define LCD_PIN_SCLK        GPIO_NUM_18
+#define LCD_PIN_MOSI        GPIO_NUM_19
+#define LCD_PIN_DC          GPIO_NUM_16
+#define LCD_PIN_CS          GPIO_NUM_5
+#define LCD_PIN_RST         GPIO_NUM_23
+#define LCD_PIN_BACKLIGHT   GPIO_NUM_4
+#define ENABLE_LCD_DISPLAY  1
 
-#### Target-Specific Pins (ESP32-CAM)
-
-```c
-#define MOTOR_PIN_IN1       GPIO_NUM_12  // Boot-sensitive
-#define MOTOR_PIN_IN2       GPIO_NUM_13
-#define MOTOR_PIN_IN3       GPIO_NUM_14
-#define MOTOR_PIN_EN        GPIO_NUM_15
-#define ENCODER_I2C_SDA     GPIO_NUM_14
-#define ENCODER_I2C_SCL     GPIO_NUM_15
-#define SERVO_PIN           GPIO_NUM_2
-// Plus camera pins (see config.h for full list)
+// Buttons
+#define BUTTON_LEFT_PIN     GPIO_NUM_0
+#define BUTTON_RIGHT_PIN    GPIO_NUM_35
+#define ENABLE_BUTTONS      1
 ```
 
 ---
@@ -632,6 +828,7 @@ All functions return `esp_err_t`:
 - `ESP_ERR_NO_MEM`: Memory allocation failed
 - `ESP_ERR_INVALID_STATE`: Invalid state for operation
 - `ESP_ERR_TIMEOUT`: I2C communication timeout
+- `ESP_ERR_NOT_SUPPORTED`: SPI clock speed not supported
 - `ESP_FAIL`: General failure
 
 Example error handling:
@@ -651,6 +848,8 @@ if (ret != ESP_OK) {
 - **Web server**: Commands are protected by mutex
 - **Motor control**: Runs on dedicated core with fixed timing
 - **Status updates**: Protected by mutex for cross-core access
+- **LCD display**: Runs on Core 0, single-threaded access
+- **Button reading**: GPIO reads are atomic
 
 ---
 
@@ -664,8 +863,8 @@ Typical memory footprint:
 | BLDC Motor | ~500 |
 | Servo | ~100 |
 | Web Server | ~8000 |
-| Web UI HTML | ~6000 |
-| **Total** | ~15KB |
+| Web UI HTML | ~7000 |
+| LCD Display | ~2000 |
+| **Total** | ~18KB |
 
-Free heap after initialization: ~270KB
-
+Free heap after initialization: ~197KB (TTGO with LCD)

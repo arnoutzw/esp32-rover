@@ -9,6 +9,7 @@ This manual explains how to use the web-based control interface for the ESP32 Ro
 - [Getting Connected](#getting-connected)
 - [Interface Overview](#interface-overview)
 - [Control Elements](#control-elements)
+- [Hardware Button Indicators](#hardware-button-indicators)
 - [Understanding the Display](#understanding-the-display)
 - [Tips for Best Performance](#tips-for-best-performance)
 - [Troubleshooting](#troubleshooting)
@@ -33,8 +34,10 @@ The ESP32 Rover firmware supports two hardware configurations:
 | Servo Steering | Yes | Yes |
 | Telemetry | Yes | Yes |
 | Web Interface | Yes | Yes |
+| LCD Display | No | Yes (built-in ST7789) |
+| Hardware Buttons | No | Yes (L/R indicators) |
 
-**Note**: When using TTGO T-Display, the camera panel will show "Camera Error" permanently - this is expected behavior since the board has no camera hardware.
+**Note**: When using TTGO T-Display, the camera panel will show "Camera Error" permanently - this is expected behavior since the board has no camera hardware. However, it has a built-in LCD display and two hardware buttons that are shown in the telemetry section.
 
 ---
 
@@ -155,6 +158,7 @@ The web interface is divided into several sections:
 │                           │ Speed: 0%   Steering: 0°  │   │
 │                           │ Velocity: 0 rad/s         │   │
 │                           │ Battery: 7.4V             │   │
+│                           │ Hardware Buttons: [L] [R] │   │
 │                           └───────────────────────────┘   │
 └─────────────────────────────────────────────────────────────┘
 ```
@@ -324,7 +328,10 @@ TRIM
 ├─────────────────┼───────────────────────┤
 │  Velocity       │  Battery              │
 │  3.2 rad/s      │  7.4V                 │
-└─────────────────┴───────────────────────┘
+├─────────────────┴───────────────────────┤
+│  Hardware Buttons                       │
+│  [L]  [R]                               │
+└─────────────────────────────────────────┘
 ```
 
 **Speed**: Current joystick speed value (-100% to +100%)
@@ -344,6 +351,78 @@ TRIM
 - Nominal 2S LiPo: 7.4V
 - Low battery warning: Below 7.0V
 - Critical: Below 6.6V (stop using immediately!)
+
+**Hardware Buttons** (TTGO T-Display only): Shows the state of the two physical buttons on the front of the TTGO T-Display board.
+- **[L]** - Left button (GPIO 0) - Lights up blue when pressed
+- **[R]** - Right button (GPIO 35) - Lights up blue when pressed
+- Gray background = not pressed
+- Blue background with glow = pressed
+
+**Note**: On ESP32-CAM builds, the hardware button indicators will always show as not pressed since that board doesn't have these buttons.
+
+---
+
+## Hardware Button Indicators
+
+The TTGO T-Display board has two physical buttons on the front panel that can be monitored via the web interface.
+
+### Button Layout on TTGO T-Display
+
+```
+┌────────────────────────────┐
+│     TTGO T-Display         │
+│  ┌──────────────────────┐  │
+│  │                      │  │
+│  │      LCD Screen      │  │
+│  │                      │  │
+│  └──────────────────────┘  │
+│                            │
+│   [L]              [R]     │
+│  GPIO 0          GPIO 35   │
+└────────────────────────────┘
+```
+
+### Web UI Button Indicators
+
+```
+Hardware Buttons
+┌─────┐  ┌─────┐
+│  L  │  │  R  │
+└─────┘  └─────┘
+  ↑         ↑
+ Gray      Gray
+(not pressed)
+
+Hardware Buttons
+┌─────┐  ┌─────┐
+│  L  │  │  R  │
+└─────┘  └─────┘
+  ↑
+ Blue
+ Glow
+(pressed)
+```
+
+### Visual States
+
+| State | Background | Text | Border | Effect |
+|-------|------------|------|--------|--------|
+| Not Pressed | Dark gray (#2d2d44) | Gray (#666) | Gray (#444) | None |
+| Pressed | Blue (#3282b8) | White | Blue | Blue glow shadow |
+
+### Use Cases
+
+The hardware buttons can be used for:
+
+1. **Testing connectivity** - Press buttons to verify WebSocket/HTTP communication
+2. **Physical feedback** - Confirm the rover is responding to web commands
+3. **Future functionality** - Can be programmed for custom actions (e.g., horn, lights)
+
+### Technical Details
+
+- **Update Rate**: Button states are polled at 5 Hz (every 200ms)
+- **Debouncing**: Hardware buttons use internal pull-up resistors
+- **Active State**: Buttons are active LOW (pressed = GPIO reads 0)
 
 ---
 
