@@ -456,14 +456,16 @@ The TTGO T-Display has a built-in diagnostic screen that shows detailed system a
 │  IP: 192.168.4.1                │
 │  MAC: C4:4F:33:6A:4E:61         │
 ├─────────────────────────────────┤
-│  -- System --                   │
-│  CPU: 240 MHz                   │
-│  Heap: 156 KB                   │
-│  Min: 142 KB                    │
-│  Batt: 3.85V                    │
-│  Up: 00:15:32                   │
+│  -- Memory --                   │
+│  RAM: 156/290K                  │
+│  ████████████░░░░░░░░░░░  54%   │
+│  Int: 140K       Lo: 120K       │
 ├─────────────────────────────────┤
-│  Release to exit                │
+│  -- System --                   │
+│  CPU: 240MHz     T: 12          │
+│  Bat: 3.85V      00:15:32       │
+├─────────────────────────────────┤
+│      Release to exit            │
 └─────────────────────────────────┘
 ```
 
@@ -478,22 +480,31 @@ The TTGO T-Display has a built-in diagnostic screen that shows detailed system a
 | **IP** | Device IP address |
 | **MAC** | Device MAC address |
 
+### Memory Section
+
+| Field | Description |
+|-------|-------------|
+| **RAM** | Used/Total RAM in KB with visual progress bar |
+| **Progress Bar** | Color-coded: green < 70%, yellow < 90%, red ≥ 90% |
+| **Int** | Free internal RAM (SRAM) |
+| **Lo** | Minimum free heap since boot (memory watermark) |
+
 ### System Section
 
 | Field | Description |
 |-------|-------------|
 | **CPU** | CPU frequency (typically 240 MHz) |
-| **Heap** | Current free heap memory |
-| **Min** | Minimum free heap since boot (helps detect memory leaks) |
-| **Batt** | Battery voltage (color-coded: green > 3.7V, yellow > 3.4V, red < 3.4V) |
-| **Up** | Uptime since last reboot (HH:MM:SS) |
+| **T** | Number of running FreeRTOS tasks |
+| **Bat** | Battery voltage (color-coded: green > 3.7V, yellow > 3.4V, red < 3.4V) |
+| **Uptime** | Time since last reboot (HH:MM:SS) |
 
 ### Use Cases for Diagnostic Mode
 
 1. **Troubleshooting WiFi issues** - Check channel, TX power, and connected clients
-2. **Memory monitoring** - Monitor heap usage for memory leaks
-3. **Battery health** - Check precise battery voltage
-4. **System verification** - Confirm CPU frequency and uptime
+2. **Memory monitoring** - Monitor heap usage, check for memory leaks via watermark
+3. **Task monitoring** - See how many FreeRTOS tasks are running
+4. **Battery health** - Check precise battery voltage
+5. **System verification** - Confirm CPU frequency and uptime
 
 ---
 

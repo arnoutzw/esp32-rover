@@ -8,6 +8,7 @@
 #include "esp_wifi.h"
 #include "esp_event.h"
 #include "esp_netif.h"
+#include "esp_heap_caps.h"
 #include "nvs_flash.h"
 #include "esp_adc/adc_oneshot.h"
 #include "esp_adc/adc_cali.h"
@@ -595,6 +596,7 @@ static int8_t get_wifi_tx_power(void)
     return power / 4;  // Convert from 0.25dBm units to dBm
 }
 
+
 static void lcd_update_task(void *pvParameters)
 {
     ESP_LOGI(TAG, "LCD update task started");
@@ -685,8 +687,12 @@ static void lcd_update_task(void *pvParameters)
                 .tx_power = get_wifi_tx_power(),
                 .free_heap = esp_get_free_heap_size(),
                 .min_free_heap = esp_get_minimum_free_heap_size(),
+                .total_heap = heap_caps_get_total_size(MALLOC_CAP_DEFAULT),
+                .free_internal = heap_caps_get_free_size(MALLOC_CAP_INTERNAL),
+                .free_psram = heap_caps_get_free_size(MALLOC_CAP_SPIRAM),
                 .uptime_secs = uptime_secs,
                 .cpu_freq_mhz = CONFIG_ESP_DEFAULT_CPU_FREQ_MHZ,
+                .task_count = uxTaskGetNumberOfTasks(),
 #if defined(ENABLE_BATTERY_ADC) && ENABLE_BATTERY_ADC
                 .battery_volts = read_battery_voltage(),
 #else

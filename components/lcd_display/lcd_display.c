@@ -656,51 +656,75 @@ esp_err_t lcd_display_diagnostics(const lcd_wifi_diag_t *diag)
     }
     y += 12;
 
+    // Memory Section
+    lcd_fill_rect(0, y, LCD_WIDTH, 10, COLOR_DARKGRAY);
+    lcd_draw_string(4, y + 2, "-- Memory --", COLOR_CYAN, COLOR_DARKGRAY, 1);
+    y += 12;
+
+    // RAM usage with percentage bar
+    uint32_t used_heap = diag->total_heap - diag->free_heap;
+    uint8_t heap_pct = (diag->total_heap > 0) ? (used_heap * 100 / diag->total_heap) : 0;
+
+    lcd_draw_string(4, y, "RAM:", COLOR_LIGHTGRAY, COLOR_BLACK, 1);
+    snprintf(buf, sizeof(buf), "%lu/%luK", (unsigned long)(used_heap / 1024),
+             (unsigned long)(diag->total_heap / 1024));
+    lcd_draw_string(34, y, buf, COLOR_WHITE, COLOR_BLACK, 1);
+    y += 10;
+
+    // RAM usage bar
+    uint16_t bar_color = (heap_pct < 70) ? COLOR_GREEN : (heap_pct < 90) ? COLOR_YELLOW : COLOR_RED;
+    lcd_fill_rect(4, y, LCD_WIDTH - 8, 6, COLOR_DARKGRAY);
+    lcd_fill_rect(4, y, (heap_pct * (LCD_WIDTH - 8)) / 100, 6, bar_color);
+    snprintf(buf, sizeof(buf), "%d%%", heap_pct);
+    lcd_draw_string(LCD_WIDTH - 24, y, buf, COLOR_WHITE, COLOR_BLACK, 1);
+    y += 8;
+
+    // Internal RAM
+    lcd_draw_string(4, y, "Int:", COLOR_LIGHTGRAY, COLOR_BLACK, 1);
+    snprintf(buf, sizeof(buf), "%luK", (unsigned long)(diag->free_internal / 1024));
+    lcd_draw_string(34, y, buf, COLOR_GREEN, COLOR_BLACK, 1);
+
+    // Min heap (watermark)
+    lcd_draw_string(70, y, "Lo:", COLOR_LIGHTGRAY, COLOR_BLACK, 1);
+    snprintf(buf, sizeof(buf), "%luK", (unsigned long)(diag->min_free_heap / 1024));
+    lcd_draw_string(94, y, buf, COLOR_YELLOW, COLOR_BLACK, 1);
+    y += 12;
+
     // System Section
     lcd_fill_rect(0, y, LCD_WIDTH, 10, COLOR_DARKGRAY);
     lcd_draw_string(4, y + 2, "-- System --", COLOR_CYAN, COLOR_DARKGRAY, 1);
     y += 12;
 
-    // CPU Frequency
+    // CPU and Tasks on same line
     lcd_draw_string(4, y, "CPU:", COLOR_LIGHTGRAY, COLOR_BLACK, 1);
-    snprintf(buf, sizeof(buf), "%.0f MHz", diag->cpu_freq_mhz);
+    snprintf(buf, sizeof(buf), "%.0fMHz", diag->cpu_freq_mhz);
     lcd_draw_string(34, y, buf, COLOR_GREEN, COLOR_BLACK, 1);
+
+    lcd_draw_string(85, y, "T:", COLOR_LIGHTGRAY, COLOR_BLACK, 1);
+    snprintf(buf, sizeof(buf), "%d", diag->task_count);
+    lcd_draw_string(100, y, buf, COLOR_CYAN, COLOR_BLACK, 1);
     y += 10;
 
-    // Free Heap
-    lcd_draw_string(4, y, "Heap:", COLOR_LIGHTGRAY, COLOR_BLACK, 1);
-    snprintf(buf, sizeof(buf), "%lu KB", (unsigned long)(diag->free_heap / 1024));
-    lcd_draw_string(40, y, buf, COLOR_GREEN, COLOR_BLACK, 1);
-    y += 10;
-
-    // Min Free Heap
-    lcd_draw_string(4, y, "Min:", COLOR_LIGHTGRAY, COLOR_BLACK, 1);
-    snprintf(buf, sizeof(buf), "%lu KB", (unsigned long)(diag->min_free_heap / 1024));
-    lcd_draw_string(34, y, buf, COLOR_YELLOW, COLOR_BLACK, 1);
-    y += 10;
-
-    // Battery
-    lcd_draw_string(4, y, "Batt:", COLOR_LIGHTGRAY, COLOR_BLACK, 1);
+    // Battery and Uptime on same line
+    lcd_draw_string(4, y, "Bat:", COLOR_LIGHTGRAY, COLOR_BLACK, 1);
     snprintf(buf, sizeof(buf), "%.2fV", diag->battery_volts);
     uint16_t bat_color = (diag->battery_volts > 3.7f) ? COLOR_GREEN :
                         (diag->battery_volts > 3.4f) ? COLOR_YELLOW : COLOR_RED;
-    lcd_draw_string(40, y, buf, bat_color, COLOR_BLACK, 1);
-    y += 10;
+    lcd_draw_string(34, y, buf, bat_color, COLOR_BLACK, 1);
 
     // Uptime
-    lcd_draw_string(4, y, "Up:", COLOR_LIGHTGRAY, COLOR_BLACK, 1);
     uint32_t secs = diag->uptime_secs;
     uint32_t mins = secs / 60;
     uint32_t hrs = mins / 60;
     secs %= 60;
     mins %= 60;
     snprintf(buf, sizeof(buf), "%02lu:%02lu:%02lu", (unsigned long)hrs, (unsigned long)mins, (unsigned long)secs);
-    lcd_draw_string(28, y, buf, COLOR_GREEN, COLOR_BLACK, 1);
-    y += 14;
+    lcd_draw_string(85, y, buf, COLOR_GREEN, COLOR_BLACK, 1);
+    y += 12;
 
     // Footer with exit instruction
-    lcd_fill_rect(0, LCD_HEIGHT - 20, LCD_WIDTH, 20, COLOR_DARKGRAY);
-    lcd_draw_string(8, LCD_HEIGHT - 14, "Release to exit", COLOR_WHITE, COLOR_DARKGRAY, 1);
+    lcd_fill_rect(0, LCD_HEIGHT - 14, LCD_WIDTH, 14, COLOR_DARKGRAY);
+    lcd_draw_string(12, LCD_HEIGHT - 10, "Release to exit", COLOR_WHITE, COLOR_DARKGRAY, 1);
 
     return ESP_OK;
 }

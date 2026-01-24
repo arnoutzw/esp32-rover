@@ -58,9 +58,13 @@ typedef struct {
     int8_t tx_power;            /**< TX power in dBm */
     uint32_t free_heap;         /**< Free heap memory */
     uint32_t min_free_heap;     /**< Minimum free heap since boot */
+    uint32_t total_heap;        /**< Total heap memory */
+    uint32_t free_internal;     /**< Free internal RAM */
+    uint32_t free_psram;        /**< Free PSRAM (if available) */
     uint32_t uptime_secs;       /**< Uptime in seconds */
     float battery_volts;        /**< Battery voltage */
     float cpu_freq_mhz;         /**< CPU frequency */
+    uint8_t task_count;         /**< Number of running tasks */
 } lcd_wifi_diag_t;
 
 /**
