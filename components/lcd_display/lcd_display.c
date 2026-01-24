@@ -347,7 +347,7 @@ esp_err_t lcd_display_init(const lcd_display_config_t *config)
         ledc_channel_config_t ledc_channel = {
             .gpio_num = config->pin_backlight,
             .speed_mode = LEDC_LOW_SPEED_MODE,
-            .channel = LEDC_CHANNEL_1,
+            .channel = LEDC_CHANNEL_5,  // Use channel 5 to avoid conflict with BLDC motor (0,1,2)
             .timer_sel = LEDC_TIMER_1,
             .duty = 255,
             .hpoint = 0,
@@ -593,8 +593,8 @@ esp_err_t lcd_display_set_backlight(uint8_t brightness)
 {
     if (s_pin_backlight >= 0) {
         uint32_t duty = (brightness * 255) / 100;
-        ledc_set_duty(LEDC_LOW_SPEED_MODE, LEDC_CHANNEL_1, duty);
-        ledc_update_duty(LEDC_LOW_SPEED_MODE, LEDC_CHANNEL_1);
+        ledc_set_duty(LEDC_LOW_SPEED_MODE, LEDC_CHANNEL_5, duty);
+        ledc_update_duty(LEDC_LOW_SPEED_MODE, LEDC_CHANNEL_5);
     }
     return ESP_OK;
 }
