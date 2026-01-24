@@ -9,6 +9,9 @@
 #include "esp_event.h"
 #include "esp_netif.h"
 #include "nvs_flash.h"
+#include "esp_adc/adc_oneshot.h"
+#include "esp_adc/adc_cali.h"
+#include "esp_adc/adc_cali_scheme.h"
 
 #include "config.h"
 #include "as5600.h"
@@ -72,6 +75,73 @@ static bool read_button_left(void)
 static bool read_button_right(void)
 {
     return s_buttons_initialized && (gpio_get_level(BUTTON_RIGHT_PIN) == 0);  // Active LOW
+}
+#endif
+
+// =============================================================================
+// Battery ADC Support
+// =============================================================================
+
+#if defined(ENABLE_BATTERY_ADC) && ENABLE_BATTERY_ADC
+static adc_oneshot_unit_handle_t s_adc_handle = NULL;
+static adc_cali_handle_t s_adc_cali_handle = NULL;
+static bool s_battery_adc_initialized = false;
+
+static void init_battery_adc(void)
+{
+    if (s_battery_adc_initialized) return;
+
+    // Configure ADC unit
+    adc_oneshot_unit_init_cfg_t init_config = {
+        .unit_id = ADC_UNIT_1,
+    };
+    ESP_ERROR_CHECK(adc_oneshot_new_unit(&init_config, &s_adc_handle));
+
+    // Configure ADC channel
+    adc_oneshot_chan_cfg_t chan_config = {
+        .bitwidth = ADC_BITWIDTH_12,
+        .atten = ADC_ATTEN_DB_12,  // Full scale ~3.3V (with attenuation)
+    };
+    ESP_ERROR_CHECK(adc_oneshot_config_channel(s_adc_handle, BATTERY_ADC_CHANNEL, &chan_config));
+
+    // Create calibration handle for more accurate readings (ESP32 uses line fitting)
+    adc_cali_line_fitting_config_t cali_config = {
+        .unit_id = ADC_UNIT_1,
+        .atten = ADC_ATTEN_DB_12,
+        .bitwidth = ADC_BITWIDTH_12,
+    };
+    if (adc_cali_create_scheme_line_fitting(&cali_config, &s_adc_cali_handle) != ESP_OK) {
+        ESP_LOGW(TAG, "ADC calibration scheme not available, using raw values");
+        s_adc_cali_handle = NULL;
+    }
+
+    s_battery_adc_initialized = true;
+    ESP_LOGI(TAG, "Battery ADC initialized (GPIO %d, channel %d)", BATTERY_ADC_PIN, BATTERY_ADC_CHANNEL);
+}
+
+static float read_battery_voltage(void)
+{
+    if (!s_battery_adc_initialized || !s_adc_handle) {
+        return 0.0f;
+    }
+
+    int raw_value = 0;
+    ESP_ERROR_CHECK(adc_oneshot_read(s_adc_handle, BATTERY_ADC_CHANNEL, &raw_value));
+
+    float voltage_mv;
+    if (s_adc_cali_handle) {
+        int calibrated_mv = 0;
+        adc_cali_raw_to_voltage(s_adc_cali_handle, raw_value, &calibrated_mv);
+        voltage_mv = (float)calibrated_mv;
+    } else {
+        // Rough conversion without calibration (3.3V / 4095)
+        voltage_mv = (raw_value / 4095.0f) * 3300.0f;
+    }
+
+    // Apply voltage divider ratio to get actual battery voltage
+    float battery_voltage = (voltage_mv / 1000.0f) * BATTERY_DIVIDER_RATIO;
+
+    return battery_voltage;
 }
 #endif
 
@@ -295,8 +365,12 @@ static void status_update_task(void *pvParameters)
         status.camera_active = false;
 #endif
 
-        // Battery voltage (placeholder - implement ADC reading if needed)
-        status.battery_voltage = 7.4f;
+        // Battery voltage
+#if defined(ENABLE_BATTERY_ADC) && ENABLE_BATTERY_ADC
+        status.battery_voltage = read_battery_voltage();
+#else
+        status.battery_voltage = 0.0f;  // No battery ADC available
+#endif
 
         // WiFi RSSI
         wifi_ap_record_t ap_info;
@@ -472,6 +546,10 @@ static esp_err_t init_lcd_display(void)
     init_buttons();
 #endif
 
+#if defined(ENABLE_BATTERY_ADC) && ENABLE_BATTERY_ADC
+    init_battery_adc();
+#endif
+
     lcd_display_config_t config = {
         .pin_sclk = LCD_PIN_SCLK,
         .pin_mosi = LCD_PIN_MOSI,
@@ -523,8 +601,12 @@ static void lcd_update_task(void *pvParameters)
         // Check if client connected (command age < 1 second means active)
         lcd_status.connected = (web_server_get_command_age_ms() < 1000);
 
-        // Battery voltage (placeholder)
-        lcd_status.battery_volts = 7.4f;
+        // Battery voltage
+#if defined(ENABLE_BATTERY_ADC) && ENABLE_BATTERY_ADC
+        lcd_status.battery_volts = read_battery_voltage();
+#else
+        lcd_status.battery_volts = 0.0f;
+#endif
 
 #if defined(ENABLE_BUTTONS) && ENABLE_BUTTONS
         // Read button states
@@ -535,7 +617,7 @@ static void lcd_update_task(void *pvParameters)
         // Update display
         lcd_display_update(&lcd_status);
 
-        vTaskDelay(pdMS_TO_TICKS(100));  // Update at 10Hz
+        vTaskDelay(pdMS_TO_TICKS(50));  // Update at 20Hz for responsive buttons
     }
 }
 #endif

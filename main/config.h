@@ -138,6 +138,13 @@
 #define BUTTON_RIGHT_PIN    GPIO_NUM_35  // Right button (active LOW)
 #define ENABLE_BUTTONS      1            // Enable button support
 
+// Battery ADC Configuration (TTGO T-Display internal battery)
+// GPIO 34 is connected to battery through a 100K/100K voltage divider (2:1 ratio)
+#define BATTERY_ADC_PIN     GPIO_NUM_34
+#define BATTERY_ADC_CHANNEL ADC_CHANNEL_6   // GPIO 34 = ADC1 channel 6
+#define BATTERY_DIVIDER_RATIO 2.0f          // Voltage divider ratio
+#define ENABLE_BATTERY_ADC  1               // Enable battery ADC reading
+
 // Camera pins not defined for TTGO (no camera)
 
 #endif // Target selection

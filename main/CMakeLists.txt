@@ -9,6 +9,7 @@ idf_component_register(
         esp_http_server
         nvs_flash
         esp_psram
+        esp_adc
         as5600
         bldc_motor
         servo_control

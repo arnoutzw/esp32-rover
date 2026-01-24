@@ -347,10 +347,11 @@ TRIM
 - Shows real wheel speed, not commanded speed
 - Useful for verifying motor is responding
 
-**Battery**: Battery voltage reading
-- Nominal 2S LiPo: 7.4V
-- Low battery warning: Below 7.0V
-- Critical: Below 6.6V (stop using immediately!)
+**Battery**: Battery voltage reading (TTGO T-Display reads internal single-cell Li-ion)
+- Full charge: 4.2V
+- Nominal: 3.7V
+- Low battery warning: Below 3.4V
+- Critical: Below 3.0V (stop using immediately!)
 
 **Hardware Buttons** (TTGO T-Display only): Shows the state of the two physical buttons on the front of the TTGO T-Display board.
 - **[L]** - Left button (GPIO 0) - Lights up blue when pressed
@@ -420,9 +421,10 @@ The hardware buttons can be used for:
 
 ### Technical Details
 
-- **Update Rate**: Button states are polled at 5 Hz (every 200ms)
+- **Update Rate**: Button states are polled at 20 Hz (every 50ms) for responsive feedback
 - **Debouncing**: Hardware buttons use internal pull-up resistors
 - **Active State**: Buttons are active LOW (pressed = GPIO reads 0)
+- **LCD Optimization**: Button indicators only redraw when state changes to minimize latency
 
 ---
 

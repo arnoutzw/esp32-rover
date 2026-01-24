@@ -53,6 +53,10 @@ static spi_device_handle_t s_spi = NULL;
 static int s_pin_dc = -1;
 static int s_pin_backlight = -1;
 static uint16_t s_framebuffer[LCD_WIDTH * 20]; // Partial framebuffer for text rows
+static bool s_first_update = true; // Track first update to clear splash
+static bool s_wifi_info_drawn = false; // Track if WiFi info has been drawn
+static int8_t s_prev_button_left = -1; // Previous button states (-1 = not yet drawn)
+static int8_t s_prev_button_right = -1;
 
 // Basic 5x7 font (ASCII 32-127)
 static const uint8_t font5x7[] = {
@@ -434,33 +438,28 @@ esp_err_t lcd_display_update(const lcd_rover_status_t *status)
         return ESP_ERR_INVALID_ARG;
     }
 
-    char buf[32];
-
-    // Header bar
-    uint16_t header_color = status->connected ? COLOR_GREEN : COLOR_RED;
-    lcd_fill_rect(0, 0, LCD_WIDTH, 20, header_color);
-    lcd_draw_string(4, 6, status->connected ? "CONNECTED" : "WAITING", COLOR_WHITE, header_color, 1);
-
-    // Button indicators in header (right side)
-    // Left button indicator
-    uint16_t btn_l_color = status->button_left ? COLOR_WHITE : COLOR_DARKGRAY;
-    lcd_fill_rect(LCD_WIDTH - 30, 4, 12, 12, btn_l_color);
-    lcd_draw_string(LCD_WIDTH - 28, 6, "L", status->button_left ? header_color : COLOR_LIGHTGRAY, btn_l_color, 1);
-
-    // Right button indicator
-    uint16_t btn_r_color = status->button_right ? COLOR_WHITE : COLOR_DARKGRAY;
-    lcd_fill_rect(LCD_WIDTH - 15, 4, 12, 12, btn_r_color);
-    lcd_draw_string(LCD_WIDTH - 13, 6, "R", status->button_right ? header_color : COLOR_LIGHTGRAY, btn_r_color, 1);
-
-    // E-STOP indicator
-    if (status->estop) {
-        lcd_fill_rect(0, 22, LCD_WIDTH, 20, COLOR_RED);
-        lcd_draw_string(20, 28, "!! E-STOP !!", COLOR_WHITE, COLOR_RED, 1);
-    } else {
-        lcd_fill_rect(0, 22, LCD_WIDTH, 20, COLOR_BLACK);
+    // Clear screen on first update to remove splash
+    if (s_first_update) {
+        lcd_display_clear();
+        s_first_update = false;
     }
 
-    int y = 45;
+    char buf[32];
+
+    // Compact header bar (status only)
+    uint16_t header_color = status->connected ? COLOR_GREEN : COLOR_RED;
+    lcd_fill_rect(0, 0, LCD_WIDTH, 16, header_color);
+    lcd_draw_string(4, 4, status->connected ? "OK" : "..", COLOR_WHITE, header_color, 1);
+
+    // E-STOP indicator (compact)
+    if (status->estop) {
+        lcd_fill_rect(0, 18, LCD_WIDTH, 14, COLOR_RED);
+        lcd_draw_string(25, 21, "!! E-STOP !!", COLOR_WHITE, COLOR_RED, 1);
+    } else {
+        lcd_fill_rect(0, 18, LCD_WIDTH, 14, COLOR_BLACK);
+    }
+
+    int y = 34;
 
     // Speed section
     lcd_draw_string(4, y, "SPEED", COLOR_LIGHTGRAY, COLOR_BLACK, 1);
@@ -491,28 +490,54 @@ esp_err_t lcd_display_update(const lcd_rover_status_t *status)
     lcd_draw_string(50, y, buf, COLOR_YELLOW, COLOR_BLACK, 1);
     y += 16;
 
-    // Battery
+    // Battery (single cell Li-ion: 3.0V min, 4.2V max)
     lcd_draw_string(4, y, "BAT", COLOR_LIGHTGRAY, COLOR_BLACK, 1);
-    snprintf(buf, sizeof(buf), "%4.1fV", status->battery_volts);
-    uint16_t bat_color = (status->battery_volts > 7.0f) ? COLOR_GREEN :
-                        (status->battery_volts > 6.6f) ? COLOR_YELLOW : COLOR_RED;
+    snprintf(buf, sizeof(buf), "%4.2fV", status->battery_volts);
+    uint16_t bat_color = (status->battery_volts > 3.7f) ? COLOR_GREEN :
+                        (status->battery_volts > 3.4f) ? COLOR_YELLOW : COLOR_RED;
     lcd_draw_string(50, y, buf, bat_color, COLOR_BLACK, 1);
 
-    // Battery bar
-    int bat_pct = (int)((status->battery_volts - 6.0f) / (8.4f - 6.0f) * 100);
+    // Battery bar (3.0V = 0%, 4.2V = 100%)
+    int bat_pct = (int)((status->battery_volts - 3.0f) / (4.2f - 3.0f) * 100);
     if (bat_pct < 0) bat_pct = 0;
     if (bat_pct > 100) bat_pct = 100;
     lcd_fill_rect(95, y, 36, 10, COLOR_DARKGRAY);
     lcd_fill_rect(96, y + 1, (bat_pct * 34) / 100, 8, bat_color);
-    y += 18;
+    y += 16;
 
-    // WiFi info at bottom
-    lcd_fill_rect(0, LCD_HEIGHT - 30, LCD_WIDTH, 30, COLOR_DARKGRAY);
-    if (status->wifi_ssid) {
-        lcd_draw_string(4, LCD_HEIGHT - 26, status->wifi_ssid, COLOR_WHITE, COLOR_DARKGRAY, 1);
+    // Button indicators (each half screen width) - only redraw on change
+    int btn_width = LCD_WIDTH / 2;
+    int btn_height = 20;
+
+    // Left button - only redraw if state changed (-1 means first draw)
+    if ((int8_t)status->button_left != s_prev_button_left) {
+        uint16_t btn_l_bg = status->button_left ? COLOR_CYAN : COLOR_DARKGRAY;
+        uint16_t btn_l_fg = status->button_left ? COLOR_BLACK : COLOR_LIGHTGRAY;
+        lcd_fill_rect(0, y, btn_width - 1, btn_height, btn_l_bg);
+        lcd_draw_string(btn_width / 2 - 6, y + 6, "L", btn_l_fg, btn_l_bg, 1);
+        s_prev_button_left = (int8_t)status->button_left;
     }
-    if (status->wifi_ip) {
-        lcd_draw_string(4, LCD_HEIGHT - 14, status->wifi_ip, COLOR_CYAN, COLOR_DARKGRAY, 1);
+
+    // Right button - only redraw if state changed (-1 means first draw)
+    if ((int8_t)status->button_right != s_prev_button_right) {
+        uint16_t btn_r_bg = status->button_right ? COLOR_CYAN : COLOR_DARKGRAY;
+        uint16_t btn_r_fg = status->button_right ? COLOR_BLACK : COLOR_LIGHTGRAY;
+        lcd_fill_rect(btn_width + 1, y, btn_width - 1, btn_height, btn_r_bg);
+        lcd_draw_string(btn_width + btn_width / 2 - 6, y + 6, "R", btn_r_fg, btn_r_bg, 1);
+        s_prev_button_right = (int8_t)status->button_right;
+    }
+    y += btn_height + 4;
+
+    // WiFi info at bottom (only draw once since it doesn't change)
+    if (!s_wifi_info_drawn) {
+        lcd_fill_rect(0, LCD_HEIGHT - 30, LCD_WIDTH, 30, COLOR_DARKGRAY);
+        if (status->wifi_ssid) {
+            lcd_draw_string(4, LCD_HEIGHT - 26, status->wifi_ssid, COLOR_WHITE, COLOR_DARKGRAY, 1);
+        }
+        if (status->wifi_ip) {
+            lcd_draw_string(4, LCD_HEIGHT - 14, status->wifi_ip, COLOR_CYAN, COLOR_DARKGRAY, 1);
+        }
+        s_wifi_info_drawn = true;
     }
 
     return ESP_OK;
