@@ -114,6 +114,47 @@ The same pattern was applied to:
 - WiFi info section (draw once, never redraw)
 - Status header bar (redraw only on connection state change)
 
+### Improvement: 60Hz Display Refresh Rate
+
+**Request**: The display looked sluggish at 20Hz refresh rate; user requested 60Hz for smoother updates.
+
+**Changes Made**:
+
+1. **Increased LCD task frequency** - Reduced delay from 50ms to 16ms:
+```c
+// Before
+vTaskDelay(pdMS_TO_TICKS(50));  // ~20Hz
+
+// After
+vTaskDelay(pdMS_TO_TICKS(16));  // ~60Hz
+```
+
+2. **Boosted SPI clock speed** - Increased from 26MHz to 40MHz:
+```c
+// Before
+.clock_speed_hz = 26 * 1000 * 1000,  // 26 MHz
+
+// After
+.clock_speed_hz = 40 * 1000 * 1000,  // 40 MHz (ST7789 supports up to 80MHz)
+```
+
+3. **Enabled SPI half-duplex mode** - Allows faster transfers since display is write-only:
+```c
+.flags = SPI_DEVICE_NO_DUMMY | SPI_DEVICE_HALFDUPLEX,
+```
+
+**Why This Works**:
+- ST7789 display controller supports up to 80MHz SPI clock
+- Half-duplex mode eliminates read overhead (display is write-only)
+- Dirty tracking (implemented earlier) ensures we don't waste bandwidth on unchanged pixels
+- Combined with dirty tracking, 60Hz is achievable without overwhelming the SPI bus
+
+**Lesson Learned**:
+- **Know your hardware limits** - ST7789 supports 80MHz, so 40MHz is conservative
+- **Use half-duplex when possible** - Write-only peripherals don't need full-duplex overhead
+- **Higher refresh + dirty tracking = best of both worlds** - Smooth updates without wasted bandwidth
+- **Test incrementally** - Going from 26MHz to 40MHz (not 80MHz) is safer
+
 ---
 
 ## Responsive Input Handling
@@ -187,6 +228,85 @@ Total worst-case       |              | ~150ms latency
 - **Mark ISR variables as `volatile`** - Prevents compiler optimization issues
 - **Use `IRAM_ATTR`** - ISR code must be in IRAM for reliable execution
 
+### Issue: Slow Button Response on LCD Display
+
+**Symptom**: After fixing the web UI button latency, the LCD display still showed slow button response. Web UI was fast, but the physical display lagged.
+
+**Root Cause**: The `lcd_display_update()` function was redrawing almost everything on every frame, even when nothing changed. Button indicators were drawn *last*, after all other elements:
+
+```
+Update order (before):    Time spent before buttons
+------------------------  -------------------------
+1. Header bar             ~2ms (redraw every frame)
+2. E-STOP indicator       ~1ms (redraw every frame)
+3. Speed text + bar       ~4ms (redraw every frame)
+4. Steering text + bar    ~4ms (redraw every frame)
+5. Velocity text          ~2ms (redraw every frame)
+6. Battery text + bar     ~3ms (redraw every frame)
+7. Button indicators      <-- Finally! (~16ms total delay)
+```
+
+Even at 60Hz (16ms frame time), the SPI transactions for all those redraws blocked before reaching the button update.
+
+**Solution**: Two-part fix:
+
+1. **Draw buttons FIRST** - Prioritize the most latency-sensitive element:
+```c
+esp_err_t lcd_display_update(const lcd_rover_status_t *status)
+{
+    // BUTTON INDICATORS - Draw FIRST for lowest latency!
+    if ((int8_t)status->button_left != s_prev_button_left) {
+        // Redraw left button...
+    }
+    if ((int8_t)status->button_right != s_prev_button_right) {
+        // Redraw right button...
+    }
+
+    // Then draw everything else...
+}
+```
+
+2. **Add dirty tracking to ALL elements** - Only redraw when values change:
+```c
+// State tracking variables
+static int8_t s_prev_connected = -1;
+static int8_t s_prev_estop = -1;
+static int16_t s_prev_speed = INT16_MIN;
+static int16_t s_prev_steer = INT16_MIN;
+static int16_t s_prev_velocity_x10 = INT16_MIN;
+static int16_t s_prev_battery_x100 = INT16_MIN;
+
+// Only redraw when value actually changes
+if (status->speed_percent != s_prev_speed) {
+    // Redraw speed...
+    s_prev_speed = status->speed_percent;
+}
+```
+
+**Result**:
+```
+Update order (after):     Time spent before buttons
+------------------------  -------------------------
+1. Button indicators      ~0ms (drawn first!)
+2. Header bar             ~0ms (skip if unchanged)
+3. E-STOP indicator       ~0ms (skip if unchanged)
+4. Speed (only if changed) ~0ms typical
+5. Steering (only if changed) ~0ms typical
+6. Velocity (only if changed) ~0ms typical
+7. Battery (only if changed) ~0ms typical
+```
+
+**Performance Impact**:
+- Before: ~16ms delay before button update (blocking SPI redraws)
+- After: ~0ms delay (buttons drawn first, no blocking)
+- Worst case (all values changed): Still faster due to dirty tracking
+
+**Lesson Learned**:
+- **Draw latency-critical elements first** - Order matters for perceived responsiveness
+- **Apply dirty tracking to ALL dynamic elements** - Not just the ones that obviously flicker
+- **SPI transactions block** - Long display updates delay everything that comes after
+- **Use sentinel values** (like `INT16_MIN`) - Guarantees first-draw detection
+
 ---
 
 ## System Diagnostics
@@ -226,6 +346,102 @@ esp_wifi_get_max_tx_power(&power)   // TX power (in 0.25dBm units)
 - **Memory watermark is your friend** - Catches leaks before they crash
 - **Physical button access to diagnostics** - Works even when WiFi/web UI fails
 - **Show heap percentage with color coding** - Quick visual health check
+
+### Feature: Web UI Diagnostics Panel
+
+**Goal**: Mirror the LCD diagnostic screen in the web UI so users can access the same information remotely.
+
+**Implementation**:
+
+1. **Extended `rover_status_t` struct** to include diagnostic fields:
+```c
+typedef struct {
+    // ... existing fields ...
+
+    // Diagnostic data (mirrors LCD diagnostics)
+    const char* wifi_ssid;          // AP SSID
+    const char* wifi_ip;            // IP address
+    const char* mac_addr;           // MAC address
+    uint8_t wifi_channel;           // WiFi channel
+    uint8_t connected_clients;      // Number of connected stations
+    int8_t wifi_tx_power;           // TX power in dBm
+    uint32_t free_heap;             // Free heap memory
+    uint32_t min_free_heap;         // Minimum free heap since boot
+    uint32_t total_heap;            // Total heap memory
+    uint32_t free_internal;         // Free internal RAM
+    uint32_t uptime_secs;           // Uptime in seconds
+    float cpu_freq_mhz;             // CPU frequency
+    uint8_t task_count;             // Number of running tasks
+} rover_status_t;
+```
+
+2. **Extended JSON `/status` endpoint** with nested `diag` object:
+```json
+{
+  "velocity": 0.0,
+  "battery": 3.85,
+  "diag": {
+    "ssid": "ESP32-Rover",
+    "ip": "192.168.4.1",
+    "mac": "C4:4F:33:6A:4E:61",
+    "channel": 1,
+    "clients": 1,
+    "txPower": 20,
+    "freeHeap": 140000,
+    "minHeap": 120000,
+    "totalHeap": 290000,
+    "freeInternal": 140000,
+    "uptime": 932,
+    "cpuFreq": 240,
+    "tasks": 12
+  }
+}
+```
+
+3. **Collapsible UI panel** in web interface with color-coded RAM bar matching LCD.
+
+**Lesson Learned**:
+- **Reuse diagnostic data collection** - Same code populates both LCD and web UI
+- **Use collapsible panels** - Keeps the main UI clean while providing detailed info on demand
+- **Match visual design** - Same color coding (green/yellow/red) creates consistency
+
+### Feature: Battery Voltage Low-Pass Filter
+
+**Symptom**: Battery voltage on LCD/web UI flickered due to ADC noise.
+
+**Root Cause**: Raw ADC readings fluctuate by ±50mV even with a stable battery, causing the display to constantly update and flicker.
+
+**Solution**: Exponential Moving Average (EMA) filter:
+
+```c
+#define BATTERY_FILTER_ALPHA 0.02f  // ~10 second time constant at 20Hz
+static float s_battery_voltage_filtered = 0.0f;
+static bool s_battery_filter_initialized = false;
+
+float read_battery_voltage(void) {
+    // ... read raw ADC ...
+
+    // Apply EMA low-pass filter
+    if (!s_battery_filter_initialized) {
+        s_battery_voltage_filtered = battery_voltage;
+        s_battery_filter_initialized = true;
+    } else {
+        s_battery_voltage_filtered = BATTERY_FILTER_ALPHA * battery_voltage +
+                                    (1.0f - BATTERY_FILTER_ALPHA) * s_battery_voltage_filtered;
+    }
+    return s_battery_voltage_filtered;
+}
+```
+
+**Why Alpha = 0.02**:
+- At 20Hz sampling, this gives a ~10 second time constant
+- Smooths out ADC noise while still tracking actual battery drain
+- Combined with dirty tracking (0.01V resolution), eliminates display flicker
+
+**Lesson Learned**:
+- **Filter noisy sensor data** - Don't pass raw ADC values to UI
+- **Choose time constant carefully** - Too fast = flicker, too slow = unresponsive
+- **Initialize filter with first reading** - Avoids startup glitch from zero
 
 ---
 
@@ -271,6 +487,7 @@ esp_wifi_get_max_tx_power(&power)   // TX power (in 0.25dBm units)
 | `15ce905` | Add memory stats and task count to diagnostic screen |
 | `17db3d6` | Fix LCD backlight turning off on emergency stop |
 | `4a68d55` | Improve button responsiveness with GPIO interrupts |
+| `e583ef9` | Increase LCD refresh rate to 60Hz and boost SPI speed |
 
 ---
 

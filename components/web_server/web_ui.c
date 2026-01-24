@@ -225,6 +225,83 @@ static const char web_ui_html[] = R"rawliteral(
             border-color: #3282b8;
             box-shadow: 0 0 10px rgba(50, 130, 184, 0.5);
         }
+        .diagnostics {
+            background: #16213e;
+            border-radius: 10px;
+            padding: 15px;
+            margin-top: 10px;
+        }
+        .diag-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 10px;
+            cursor: pointer;
+        }
+        .diag-header h3 {
+            font-size: 0.9em;
+            color: #888;
+            margin: 0;
+        }
+        .diag-toggle {
+            color: #3282b8;
+            font-size: 0.8em;
+        }
+        .diag-content {
+            display: none;
+        }
+        .diag-content.expanded {
+            display: block;
+        }
+        .diag-section {
+            margin-bottom: 12px;
+        }
+        .diag-section-title {
+            font-size: 0.75em;
+            color: #3282b8;
+            text-transform: uppercase;
+            padding: 4px 8px;
+            background: #2d2d44;
+            border-radius: 4px;
+            margin-bottom: 6px;
+        }
+        .diag-grid {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 6px;
+        }
+        .diag-item {
+            display: flex;
+            justify-content: space-between;
+            font-size: 0.85em;
+        }
+        .diag-label {
+            color: #888;
+        }
+        .diag-value {
+            font-family: monospace;
+            color: #44ff44;
+        }
+        .diag-value.warn {
+            color: #ffaa00;
+        }
+        .diag-value.error {
+            color: #ff4444;
+        }
+        .diag-bar {
+            height: 8px;
+            background: #2d2d44;
+            border-radius: 4px;
+            overflow: hidden;
+            margin-top: 4px;
+        }
+        .diag-bar-fill {
+            height: 100%;
+            transition: width 0.3s;
+        }
+        .diag-full-row {
+            grid-column: span 2;
+        }
         @media (max-width: 768px) {
             .main-content {
                 flex-direction: column;
@@ -312,6 +389,87 @@ static const char web_ui_html[] = R"rawliteral(
                         <div class="button-indicators">
                             <span class="hw-button" id="btn-left">L</span>
                             <span class="hw-button" id="btn-right">R</span>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="diagnostics">
+                    <div class="diag-header" onclick="toggleDiagnostics()">
+                        <h3>DIAGNOSTICS</h3>
+                        <span class="diag-toggle" id="diag-toggle">+ Show</span>
+                    </div>
+                    <div class="diag-content" id="diag-content">
+                        <div class="diag-section">
+                            <div class="diag-section-title">WiFi</div>
+                            <div class="diag-grid">
+                                <div class="diag-item">
+                                    <span class="diag-label">SSID</span>
+                                    <span class="diag-value" id="diag-ssid">--</span>
+                                </div>
+                                <div class="diag-item">
+                                    <span class="diag-label">Channel</span>
+                                    <span class="diag-value" id="diag-channel">--</span>
+                                </div>
+                                <div class="diag-item">
+                                    <span class="diag-label">TX Power</span>
+                                    <span class="diag-value" id="diag-txpower">--</span>
+                                </div>
+                                <div class="diag-item">
+                                    <span class="diag-label">Clients</span>
+                                    <span class="diag-value" id="diag-clients">--</span>
+                                </div>
+                                <div class="diag-item diag-full-row">
+                                    <span class="diag-label">IP</span>
+                                    <span class="diag-value" id="diag-ip">--</span>
+                                </div>
+                                <div class="diag-item diag-full-row">
+                                    <span class="diag-label">MAC</span>
+                                    <span class="diag-value" id="diag-mac">--</span>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="diag-section">
+                            <div class="diag-section-title">Memory</div>
+                            <div class="diag-grid">
+                                <div class="diag-item diag-full-row">
+                                    <span class="diag-label">RAM Used</span>
+                                    <span class="diag-value" id="diag-ram">--</span>
+                                </div>
+                                <div class="diag-full-row">
+                                    <div class="diag-bar">
+                                        <div class="diag-bar-fill" id="diag-ram-bar" style="width:0%;background:#44ff44;"></div>
+                                    </div>
+                                </div>
+                                <div class="diag-item">
+                                    <span class="diag-label">Internal</span>
+                                    <span class="diag-value" id="diag-internal">--</span>
+                                </div>
+                                <div class="diag-item">
+                                    <span class="diag-label">Watermark</span>
+                                    <span class="diag-value" id="diag-watermark">--</span>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="diag-section">
+                            <div class="diag-section-title">System</div>
+                            <div class="diag-grid">
+                                <div class="diag-item">
+                                    <span class="diag-label">CPU</span>
+                                    <span class="diag-value" id="diag-cpu">--</span>
+                                </div>
+                                <div class="diag-item">
+                                    <span class="diag-label">Tasks</span>
+                                    <span class="diag-value" id="diag-tasks">--</span>
+                                </div>
+                                <div class="diag-item">
+                                    <span class="diag-label">Battery</span>
+                                    <span class="diag-value" id="diag-battery">--</span>
+                                </div>
+                                <div class="diag-item">
+                                    <span class="diag-label">Uptime</span>
+                                    <span class="diag-value" id="diag-uptime">--</span>
+                                </div>
+                            </div>
                         </div>
                     </div>
                 </div>
@@ -466,6 +624,29 @@ static const char web_ui_html[] = R"rawliteral(
             }
         }
 
+        // Toggle diagnostics panel
+        function toggleDiagnostics() {
+            const content = document.getElementById('diag-content');
+            const toggle = document.getElementById('diag-toggle');
+            const expanded = content.classList.toggle('expanded');
+            toggle.textContent = expanded ? '- Hide' : '+ Show';
+        }
+
+        // Format uptime as HH:MM:SS
+        function formatUptime(secs) {
+            const hrs = Math.floor(secs / 3600);
+            const mins = Math.floor((secs % 3600) / 60);
+            const s = secs % 60;
+            return String(hrs).padStart(2, '0') + ':' +
+                   String(mins).padStart(2, '0') + ':' +
+                   String(s).padStart(2, '0');
+        }
+
+        // Format bytes as KB
+        function formatKB(bytes) {
+            return Math.round(bytes / 1024) + 'K';
+        }
+
         // Fetch status
         async function fetchStatus() {
             try {
@@ -479,6 +660,37 @@ static const char web_ui_html[] = R"rawliteral(
                     // Update button indicators
                     document.getElementById('btn-left').classList.toggle('pressed', data.btnL);
                     document.getElementById('btn-right').classList.toggle('pressed', data.btnR);
+
+                    // Update diagnostics if available
+                    if (data.diag) {
+                        const d = data.diag;
+                        // WiFi section
+                        document.getElementById('diag-ssid').textContent = d.ssid || '--';
+                        document.getElementById('diag-channel').textContent = d.channel;
+                        document.getElementById('diag-txpower').textContent = d.txPower + ' dBm';
+                        document.getElementById('diag-clients').textContent = d.clients;
+                        document.getElementById('diag-ip').textContent = d.ip || '--';
+                        document.getElementById('diag-mac').textContent = d.mac || '--';
+
+                        // Memory section
+                        const usedHeap = d.totalHeap - d.freeHeap;
+                        const heapPct = d.totalHeap > 0 ? Math.round(usedHeap * 100 / d.totalHeap) : 0;
+                        document.getElementById('diag-ram').textContent =
+                            formatKB(usedHeap) + ' / ' + formatKB(d.totalHeap);
+                        const ramBar = document.getElementById('diag-ram-bar');
+                        ramBar.style.width = heapPct + '%';
+                        ramBar.style.background = heapPct < 70 ? '#44ff44' :
+                                                  heapPct < 90 ? '#ffaa00' : '#ff4444';
+                        document.getElementById('diag-internal').textContent = formatKB(d.freeInternal);
+                        document.getElementById('diag-watermark').textContent = formatKB(d.minHeap);
+
+                        // System section
+                        document.getElementById('diag-cpu').textContent = d.cpuFreq + ' MHz';
+                        document.getElementById('diag-tasks').textContent = d.tasks;
+                        document.getElementById('diag-battery').textContent = data.battery.toFixed(2) + 'V';
+                        document.getElementById('diag-uptime').textContent = formatUptime(d.uptime);
+                    }
+
                     setConnected(true);
                 }
             } catch (e) {

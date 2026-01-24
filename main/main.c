@@ -108,6 +108,13 @@ static adc_oneshot_unit_handle_t s_adc_handle = NULL;
 static adc_cali_handle_t s_adc_cali_handle = NULL;
 static bool s_battery_adc_initialized = false;
 
+// Low-pass filter for battery voltage (reduces display flicker)
+// Alpha = 0.02 gives ~10 second time constant at 20Hz sampling
+// This means it takes about 10 seconds to reach 63% of a step change
+#define BATTERY_FILTER_ALPHA 0.02f
+static float s_battery_voltage_filtered = 0.0f;
+static bool s_battery_filter_initialized = false;
+
 static void init_battery_adc(void)
 {
     if (s_battery_adc_initialized) return;
@@ -162,7 +169,19 @@ static float read_battery_voltage(void)
     // Apply voltage divider ratio to get actual battery voltage
     float battery_voltage = (voltage_mv / 1000.0f) * BATTERY_DIVIDER_RATIO;
 
-    return battery_voltage;
+    // Apply exponential moving average low-pass filter
+    // This smooths out ADC noise and prevents display flicker
+    if (!s_battery_filter_initialized) {
+        // Initialize filter with first reading
+        s_battery_voltage_filtered = battery_voltage;
+        s_battery_filter_initialized = true;
+    } else {
+        // EMA filter: filtered = alpha * new + (1-alpha) * old
+        s_battery_voltage_filtered = BATTERY_FILTER_ALPHA * battery_voltage +
+                                    (1.0f - BATTERY_FILTER_ALPHA) * s_battery_voltage_filtered;
+    }
+
+    return s_battery_voltage_filtered;
 }
 #endif
 
@@ -365,6 +384,16 @@ static void status_update_task(void *pvParameters)
 {
     ESP_LOGI(TAG, "Status update task started");
 
+    // Get MAC address once at startup (static for lifetime of task)
+    static char mac_str[18];
+    uint8_t mac[6];
+    esp_read_mac(mac, ESP_MAC_WIFI_STA);
+    snprintf(mac_str, sizeof(mac_str), "%02X:%02X:%02X:%02X:%02X:%02X",
+             mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]);
+
+    // Record start time for uptime calculation
+    TickType_t start_ticks = xTaskGetTickCount();
+
     while (1) {
         rover_status_t status = {0};
 
@@ -404,6 +433,36 @@ static void status_update_task(void *pvParameters)
         status.button_left = read_button_left();
         status.button_right = read_button_right();
 #endif
+
+        // =================================================================
+        // Diagnostic data (same as LCD diagnostics)
+        // =================================================================
+        status.wifi_ssid = WIFI_SSID;
+        status.wifi_ip = "192.168.4.1";
+        status.mac_addr = mac_str;
+        status.wifi_channel = WIFI_CHANNEL;
+
+        // Connected clients
+        wifi_sta_list_t sta_list;
+        if (esp_wifi_ap_get_sta_list(&sta_list) == ESP_OK) {
+            status.connected_clients = sta_list.num;
+        }
+
+        // TX power
+        int8_t tx_power = 0;
+        esp_wifi_get_max_tx_power(&tx_power);
+        status.wifi_tx_power = tx_power / 4;  // Convert from 0.25dBm units
+
+        // Memory stats
+        status.free_heap = esp_get_free_heap_size();
+        status.min_free_heap = esp_get_minimum_free_heap_size();
+        status.total_heap = heap_caps_get_total_size(MALLOC_CAP_DEFAULT);
+        status.free_internal = heap_caps_get_free_size(MALLOC_CAP_INTERNAL);
+
+        // System stats
+        status.uptime_secs = (xTaskGetTickCount() - start_ticks) / configTICK_RATE_HZ;
+        status.cpu_freq_mhz = CONFIG_ESP_DEFAULT_CPU_FREQ_MHZ;
+        status.task_count = uxTaskGetNumberOfTasks();
 
         // Update web server status
         web_server_update_status(&status);

@@ -192,10 +192,10 @@ static esp_err_t control_handler(httpd_req_t *req)
     return ESP_OK;
 }
 
-// Status handler - return current status
+// Status handler - return current status with full diagnostics
 static esp_err_t status_handler(httpd_req_t *req)
 {
-    char response[320];
+    char response[768];
 
     rover_status_t status = {0};
     if (state_mutex && xSemaphoreTake(state_mutex, pdMS_TO_TICKS(10)) == pdTRUE) {
@@ -203,8 +203,33 @@ static esp_err_t status_handler(httpd_req_t *req)
         xSemaphoreGive(state_mutex);
     }
 
+    // Build JSON with all diagnostic data
     snprintf(response, sizeof(response),
-        "{\"velocity\":%.2f,\"battery\":%.2f,\"steering\":%.1f,\"motor\":%s,\"camera\":%s,\"rssi\":%d,\"btnL\":%s,\"btnR\":%s}",
+        "{"
+        "\"velocity\":%.2f,"
+        "\"battery\":%.2f,"
+        "\"steering\":%.1f,"
+        "\"motor\":%s,"
+        "\"camera\":%s,"
+        "\"rssi\":%d,"
+        "\"btnL\":%s,"
+        "\"btnR\":%s,"
+        "\"diag\":{"
+            "\"ssid\":\"%s\","
+            "\"ip\":\"%s\","
+            "\"mac\":\"%s\","
+            "\"channel\":%d,"
+            "\"clients\":%d,"
+            "\"txPower\":%d,"
+            "\"freeHeap\":%lu,"
+            "\"minHeap\":%lu,"
+            "\"totalHeap\":%lu,"
+            "\"freeInternal\":%lu,"
+            "\"uptime\":%lu,"
+            "\"cpuFreq\":%.0f,"
+            "\"tasks\":%d"
+        "}"
+        "}",
         status.motor_velocity,
         status.battery_voltage,
         status.steering_angle,
@@ -212,7 +237,20 @@ static esp_err_t status_handler(httpd_req_t *req)
         status.camera_active ? "true" : "false",
         status.wifi_rssi,
         status.button_left ? "true" : "false",
-        status.button_right ? "true" : "false"
+        status.button_right ? "true" : "false",
+        status.wifi_ssid ? status.wifi_ssid : "",
+        status.wifi_ip ? status.wifi_ip : "",
+        status.mac_addr ? status.mac_addr : "",
+        status.wifi_channel,
+        status.connected_clients,
+        status.wifi_tx_power,
+        (unsigned long)status.free_heap,
+        (unsigned long)status.min_free_heap,
+        (unsigned long)status.total_heap,
+        (unsigned long)status.free_internal,
+        (unsigned long)status.uptime_secs,
+        status.cpu_freq_mhz,
+        status.task_count
     );
 
     httpd_resp_set_type(req, "application/json");

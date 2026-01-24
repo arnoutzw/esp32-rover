@@ -26,6 +26,21 @@ typedef struct {
     int wifi_rssi;
     bool button_left;
     bool button_right;
+
+    // Diagnostic data (mirrors LCD diagnostics)
+    const char* wifi_ssid;          // AP SSID
+    const char* wifi_ip;            // IP address
+    const char* mac_addr;           // MAC address
+    uint8_t wifi_channel;           // WiFi channel
+    uint8_t connected_clients;      // Number of connected stations
+    int8_t wifi_tx_power;           // TX power in dBm
+    uint32_t free_heap;             // Free heap memory
+    uint32_t min_free_heap;         // Minimum free heap since boot
+    uint32_t total_heap;            // Total heap memory
+    uint32_t free_internal;         // Free internal RAM
+    uint32_t uptime_secs;           // Uptime in seconds
+    float cpu_freq_mhz;             // CPU frequency
+    uint8_t task_count;             // Number of running tasks
 } rover_status_t;
 
 // Command callback type

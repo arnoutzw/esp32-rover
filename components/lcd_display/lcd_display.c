@@ -12,6 +12,8 @@
 #include "freertos/task.h"
 #include <string.h>
 #include <stdio.h>
+#include <stdint.h>
+#include <limits.h>
 
 static const char *TAG = "LCD_DISPLAY";
 
@@ -58,6 +60,14 @@ static bool s_wifi_info_drawn = false; // Track if WiFi info has been drawn
 static int8_t s_prev_button_left = -1; // Previous button states (-1 = not yet drawn)
 static int8_t s_prev_button_right = -1;
 static char s_prev_uptime_str[9] = ""; // Previous uptime string "HH:MM:SS" for digit-by-digit update
+
+// Dirty tracking for all dynamic display elements (reduces SPI traffic, improves button latency)
+static int8_t s_prev_connected = -1;     // Connection status (-1 = not yet drawn)
+static int8_t s_prev_estop = -1;         // E-stop state
+static int16_t s_prev_speed = INT16_MIN; // Speed percent
+static int16_t s_prev_steer = INT16_MIN; // Steering degrees
+static int16_t s_prev_velocity_x10 = INT16_MIN; // Velocity * 10 (for 0.1 precision)
+static int16_t s_prev_battery_x100 = INT16_MIN; // Battery * 100 (for 0.01V precision)
 
 // Basic 5x7 font (ASCII 32-127)
 static const uint8_t font5x7[] = {
@@ -446,67 +456,12 @@ esp_err_t lcd_display_update(const lcd_rover_status_t *status)
     }
 
     char buf[32];
+    int y;
 
-    // Compact header bar (status only)
-    uint16_t header_color = status->connected ? COLOR_GREEN : COLOR_RED;
-    lcd_fill_rect(0, 0, LCD_WIDTH, 16, header_color);
-    lcd_draw_string(4, 4, status->connected ? "OK" : "..", COLOR_WHITE, header_color, 1);
-
-    // E-STOP indicator (compact)
-    if (status->estop) {
-        lcd_fill_rect(0, 18, LCD_WIDTH, 14, COLOR_RED);
-        lcd_draw_string(25, 21, "!! E-STOP !!", COLOR_WHITE, COLOR_RED, 1);
-    } else {
-        lcd_fill_rect(0, 18, LCD_WIDTH, 14, COLOR_BLACK);
-    }
-
-    int y = 34;
-
-    // Speed section
-    lcd_draw_string(4, y, "SPEED", COLOR_LIGHTGRAY, COLOR_BLACK, 1);
-    snprintf(buf, sizeof(buf), "%+4d%%", status->speed_percent);
-    uint16_t speed_color = (status->speed_percent == 0) ? COLOR_WHITE :
-                          (status->speed_percent > 0) ? COLOR_GREEN : COLOR_ORANGE;
-    lcd_draw_string(70, y, buf, speed_color, COLOR_BLACK, 1);
-    y += 12;
-
-    // Speed bar
-    lcd_draw_bar(4, y, LCD_WIDTH - 8, 12, status->speed_percent, -100, 100, COLOR_GREEN, COLOR_DARKGRAY);
-    y += 20;
-
-    // Steering section
-    lcd_draw_string(4, y, "STEER", COLOR_LIGHTGRAY, COLOR_BLACK, 1);
-    snprintf(buf, sizeof(buf), "%+4d", status->steering_degrees);
-    lcd_draw_string(70, y, buf, COLOR_CYAN, COLOR_BLACK, 1);
-    lcd_draw_char(106, y, 0x7E, COLOR_CYAN, COLOR_BLACK, 1); // degree symbol approximation
-    y += 12;
-
-    // Steering bar
-    lcd_draw_bar(4, y, LCD_WIDTH - 8, 12, status->steering_degrees, -45, 45, COLOR_CYAN, COLOR_DARKGRAY);
-    y += 20;
-
-    // Velocity (actual)
-    lcd_draw_string(4, y, "VEL", COLOR_LIGHTGRAY, COLOR_BLACK, 1);
-    snprintf(buf, sizeof(buf), "%5.1f r/s", status->velocity_rads);
-    lcd_draw_string(50, y, buf, COLOR_YELLOW, COLOR_BLACK, 1);
-    y += 16;
-
-    // Battery (single cell Li-ion: 3.0V min, 4.2V max)
-    lcd_draw_string(4, y, "BAT", COLOR_LIGHTGRAY, COLOR_BLACK, 1);
-    snprintf(buf, sizeof(buf), "%4.2fV", status->battery_volts);
-    uint16_t bat_color = (status->battery_volts > 3.7f) ? COLOR_GREEN :
-                        (status->battery_volts > 3.4f) ? COLOR_YELLOW : COLOR_RED;
-    lcd_draw_string(50, y, buf, bat_color, COLOR_BLACK, 1);
-
-    // Battery bar (3.0V = 0%, 4.2V = 100%)
-    int bat_pct = (int)((status->battery_volts - 3.0f) / (4.2f - 3.0f) * 100);
-    if (bat_pct < 0) bat_pct = 0;
-    if (bat_pct > 100) bat_pct = 100;
-    lcd_fill_rect(95, y, 36, 10, COLOR_DARKGRAY);
-    lcd_fill_rect(96, y + 1, (bat_pct * 34) / 100, 8, bat_color);
-    y += 16;
-
-    // Button indicators (each half screen width) - only redraw on change
+    // =========================================================================
+    // BUTTON INDICATORS - Draw FIRST for lowest latency!
+    // =========================================================================
+    y = 132;  // Fixed position for buttons (calculated from layout)
     int btn_width = LCD_WIDTH / 2;
     int btn_height = 20;
 
@@ -527,9 +482,119 @@ esp_err_t lcd_display_update(const lcd_rover_status_t *status)
         lcd_draw_string(btn_width + btn_width / 2 - 6, y + 6, "R", btn_r_fg, btn_r_bg, 1);
         s_prev_button_right = (int8_t)status->button_right;
     }
-    y += btn_height + 4;
 
-    // Info section at bottom (WiFi/MAC drawn once, uptime updated)
+    // =========================================================================
+    // HEADER BAR - Only redraw on connection state change
+    // =========================================================================
+    if ((int8_t)status->connected != s_prev_connected) {
+        uint16_t header_color = status->connected ? COLOR_GREEN : COLOR_RED;
+        lcd_fill_rect(0, 0, LCD_WIDTH, 16, header_color);
+        lcd_draw_string(4, 4, status->connected ? "OK" : "..", COLOR_WHITE, header_color, 1);
+        s_prev_connected = (int8_t)status->connected;
+    }
+
+    // =========================================================================
+    // E-STOP INDICATOR - Only redraw on state change
+    // =========================================================================
+    if ((int8_t)status->estop != s_prev_estop) {
+        if (status->estop) {
+            lcd_fill_rect(0, 18, LCD_WIDTH, 14, COLOR_RED);
+            lcd_draw_string(25, 21, "!! E-STOP !!", COLOR_WHITE, COLOR_RED, 1);
+        } else {
+            lcd_fill_rect(0, 18, LCD_WIDTH, 14, COLOR_BLACK);
+        }
+        s_prev_estop = (int8_t)status->estop;
+    }
+
+    y = 34;
+
+    // =========================================================================
+    // SPEED SECTION - Only redraw on value change
+    // =========================================================================
+    if (status->speed_percent != s_prev_speed) {
+        // Label (draw once on first change from INT16_MIN)
+        if (s_prev_speed == INT16_MIN) {
+            lcd_draw_string(4, y, "SPEED", COLOR_LIGHTGRAY, COLOR_BLACK, 1);
+        }
+        // Value
+        snprintf(buf, sizeof(buf), "%+4d%%", status->speed_percent);
+        uint16_t speed_color = (status->speed_percent == 0) ? COLOR_WHITE :
+                              (status->speed_percent > 0) ? COLOR_GREEN : COLOR_ORANGE;
+        lcd_fill_rect(70, y, 60, 10, COLOR_BLACK);  // Clear old value
+        lcd_draw_string(70, y, buf, speed_color, COLOR_BLACK, 1);
+
+        // Speed bar
+        lcd_draw_bar(4, y + 12, LCD_WIDTH - 8, 12, status->speed_percent, -100, 100, COLOR_GREEN, COLOR_DARKGRAY);
+
+        s_prev_speed = status->speed_percent;
+    }
+    y += 32;
+
+    // =========================================================================
+    // STEERING SECTION - Only redraw on value change
+    // =========================================================================
+    if (status->steering_degrees != s_prev_steer) {
+        // Label (draw once on first change)
+        if (s_prev_steer == INT16_MIN) {
+            lcd_draw_string(4, y, "STEER", COLOR_LIGHTGRAY, COLOR_BLACK, 1);
+            lcd_draw_char(106, y, 0x7E, COLOR_CYAN, COLOR_BLACK, 1); // degree symbol
+        }
+        // Value
+        snprintf(buf, sizeof(buf), "%+4d", status->steering_degrees);
+        lcd_fill_rect(70, y, 35, 10, COLOR_BLACK);  // Clear old value
+        lcd_draw_string(70, y, buf, COLOR_CYAN, COLOR_BLACK, 1);
+
+        // Steering bar
+        lcd_draw_bar(4, y + 12, LCD_WIDTH - 8, 12, status->steering_degrees, -45, 45, COLOR_CYAN, COLOR_DARKGRAY);
+
+        s_prev_steer = status->steering_degrees;
+    }
+    y += 32;
+
+    // =========================================================================
+    // VELOCITY SECTION - Only redraw on value change (0.1 precision)
+    // =========================================================================
+    int16_t vel_x10 = (int16_t)(status->velocity_rads * 10);
+    if (vel_x10 != s_prev_velocity_x10) {
+        // Label (draw once)
+        if (s_prev_velocity_x10 == INT16_MIN) {
+            lcd_draw_string(4, y, "VEL", COLOR_LIGHTGRAY, COLOR_BLACK, 1);
+        }
+        snprintf(buf, sizeof(buf), "%5.1f r/s", status->velocity_rads);
+        lcd_fill_rect(50, y, 80, 10, COLOR_BLACK);  // Clear old value
+        lcd_draw_string(50, y, buf, COLOR_YELLOW, COLOR_BLACK, 1);
+        s_prev_velocity_x10 = vel_x10;
+    }
+    y += 16;
+
+    // =========================================================================
+    // BATTERY SECTION - Only redraw on value change (0.01V precision)
+    // =========================================================================
+    int16_t bat_x100 = (int16_t)(status->battery_volts * 100);
+    if (bat_x100 != s_prev_battery_x100) {
+        // Label (draw once)
+        if (s_prev_battery_x100 == INT16_MIN) {
+            lcd_draw_string(4, y, "BAT", COLOR_LIGHTGRAY, COLOR_BLACK, 1);
+        }
+        snprintf(buf, sizeof(buf), "%4.2fV", status->battery_volts);
+        uint16_t bat_color = (status->battery_volts > 3.7f) ? COLOR_GREEN :
+                            (status->battery_volts > 3.4f) ? COLOR_YELLOW : COLOR_RED;
+        lcd_fill_rect(50, y, 45, 10, COLOR_BLACK);  // Clear old value
+        lcd_draw_string(50, y, buf, bat_color, COLOR_BLACK, 1);
+
+        // Battery bar (3.0V = 0%, 4.2V = 100%)
+        int bat_pct = (int)((status->battery_volts - 3.0f) / (4.2f - 3.0f) * 100);
+        if (bat_pct < 0) bat_pct = 0;
+        if (bat_pct > 100) bat_pct = 100;
+        lcd_fill_rect(95, y, 36, 10, COLOR_DARKGRAY);
+        lcd_fill_rect(96, y + 1, (bat_pct * 34) / 100, 8, bat_color);
+
+        s_prev_battery_x100 = bat_x100;
+    }
+
+    // =========================================================================
+    // INFO SECTION (WiFi/MAC drawn once, uptime updated per-character)
+    // =========================================================================
     int info_y = LCD_HEIGHT - 42;  // Taller section for more info
 
     if (!s_wifi_info_drawn) {
@@ -737,4 +802,12 @@ void lcd_display_reset_state(void)
     s_prev_button_left = -1;
     s_prev_button_right = -1;
     memset(s_prev_uptime_str, 0, sizeof(s_prev_uptime_str));
+
+    // Reset new dirty tracking state
+    s_prev_connected = -1;
+    s_prev_estop = -1;
+    s_prev_speed = INT16_MIN;
+    s_prev_steer = INT16_MIN;
+    s_prev_velocity_x10 = INT16_MIN;
+    s_prev_battery_x100 = INT16_MIN;
 }
