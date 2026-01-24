@@ -45,6 +45,8 @@ static esp_err_t led_post_handler(httpd_req_t *req);
 static esp_err_t logs_get_handler(httpd_req_t *req);
 static esp_err_t logs_stream_handler(httpd_req_t *req);
 static esp_err_t logs_delete_handler(httpd_req_t *req);
+static esp_err_t camera_get_handler(httpd_req_t *req);
+static esp_err_t camera_post_handler(httpd_req_t *req);
 
 // URI handlers
 static const httpd_uri_t uri_root = {
@@ -113,6 +115,21 @@ static const httpd_uri_t uri_logs_delete = {
     .user_ctx = NULL
 };
 
+// REQ-34: Camera stream control endpoints
+static const httpd_uri_t uri_camera_get = {
+    .uri = "/camera",
+    .method = HTTP_GET,
+    .handler = camera_get_handler,
+    .user_ctx = NULL
+};
+
+static const httpd_uri_t uri_camera_post = {
+    .uri = "/camera",
+    .method = HTTP_POST,
+    .handler = camera_post_handler,
+    .user_ctx = NULL
+};
+
 // Root handler - serve HTML UI
 static esp_err_t root_handler(httpd_req_t *req)
 {
@@ -135,14 +152,33 @@ static void stream_task(void *pvParameters)
     httpd_req_t *req = data->req;
     char part_buf[128];
     esp_err_t res = ESP_OK;
+    int paused_counter = 0;
 
     ESP_LOGI(TAG, "Stream task started on socket %d", data->socket_fd);
 
     while (true) {
+        // REQ-34: Check if streaming is enabled
+        if (!camera_stream_is_enabled()) {
+            // Wait while disabled, checking periodically
+            vTaskDelay(pdMS_TO_TICKS(500));
+            paused_counter++;
+            // Log occasionally when paused
+            if (paused_counter == 1) {
+                ESP_LOGI(TAG, "Camera stream paused by user");
+            }
+            continue;
+        }
+
+        if (paused_counter > 0) {
+            ESP_LOGI(TAG, "Camera stream resumed");
+            paused_counter = 0;
+        }
+
         camera_fb_t *fb = camera_capture_frame();
         if (!fb) {
-            ESP_LOGE(TAG, "Camera capture failed");
-            break;
+            // Stream is disabled or capture failed, wait and retry
+            vTaskDelay(pdMS_TO_TICKS(100));
+            continue;
         }
 
         size_t hlen = snprintf(part_buf, sizeof(part_buf), STREAM_PART, fb->len);
@@ -661,6 +697,67 @@ static esp_err_t logs_stream_handler(httpd_req_t *req)
     return ESP_OK;
 }
 
+// =============================================================================
+// REQ-34: Camera Stream Control Handlers
+// =============================================================================
+
+// GET /camera - Return camera stream state
+static esp_err_t camera_get_handler(httpd_req_t *req)
+{
+    bool enabled = camera_stream_is_enabled();
+    char response[48];
+    snprintf(response, sizeof(response), "{\"enabled\":%s}", enabled ? "true" : "false");
+
+    httpd_resp_set_type(req, "application/json");
+    httpd_resp_set_hdr(req, "Access-Control-Allow-Origin", "*");
+    return httpd_resp_sendstr(req, response);
+}
+
+// POST /camera - Set camera stream state
+static esp_err_t camera_post_handler(httpd_req_t *req)
+{
+    char buf[64];
+    int ret, remaining = req->content_len;
+
+    if (remaining > sizeof(buf) - 1) {
+        httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "Content too large");
+        return ESP_FAIL;
+    }
+
+    ret = httpd_req_recv(req, buf, remaining);
+    if (ret <= 0) {
+        if (ret == HTTPD_SOCK_ERR_TIMEOUT) {
+            httpd_resp_send_408(req);
+        }
+        return ESP_FAIL;
+    }
+    buf[ret] = '\0';
+
+    // Parse JSON
+    cJSON *root = cJSON_Parse(buf);
+    if (!root) {
+        httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "Invalid JSON");
+        return ESP_FAIL;
+    }
+
+    cJSON *enabled = cJSON_GetObjectItem(root, "enabled");
+    if (enabled && cJSON_IsBool(enabled)) {
+        camera_stream_set_enabled(cJSON_IsTrue(enabled));
+        ESP_LOGI(TAG, "Camera stream set to %s", cJSON_IsTrue(enabled) ? "enabled" : "disabled");
+    }
+
+    cJSON_Delete(root);
+
+    // Return current state
+    bool state = camera_stream_is_enabled();
+    char response[48];
+    snprintf(response, sizeof(response), "{\"enabled\":%s}", state ? "true" : "false");
+
+    httpd_resp_set_type(req, "application/json");
+    httpd_resp_set_hdr(req, "Access-Control-Allow-Origin", "*");
+    return httpd_resp_sendstr(req, response);
+}
+
 esp_err_t web_server_init(const web_server_config_t *config)
 {
     if (server) {
@@ -717,6 +814,11 @@ esp_err_t web_server_init(const web_server_config_t *config)
     httpd_register_uri_handler(server, &uri_logs_stream);
     httpd_register_uri_handler(server, &uri_logs_delete);
     ESP_LOGI(TAG, "Log endpoints enabled (/logs, /logs/stream)");
+
+    // REQ-34: Register camera stream control endpoints
+    httpd_register_uri_handler(server, &uri_camera_get);
+    httpd_register_uri_handler(server, &uri_camera_post);
+    ESP_LOGI(TAG, "Camera control endpoint enabled (/camera)");
 
     ESP_LOGI(TAG, "Web server started");
     return ESP_OK;

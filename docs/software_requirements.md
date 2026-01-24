@@ -1178,6 +1178,7 @@ curl -X POST -H "X-OTA-Password: rover1234" \
 | Element | ESP32-CAM | TTGO T-Display |
 |---------|-----------|----------------|
 | Camera stream | Visible | Hidden |
+| Camera toggle button (REQ-34) | Visible | Hidden |
 | Flash LED button | Visible | Hidden |
 | Hardware buttons (L/R) | Hidden | Visible |
 | Page title | "ESP32-CAM Rover" | "TTGO Rover" |
@@ -1216,7 +1217,7 @@ if (target === 'ttgo') {
 
 ---
 
-### REQ-34: Camera Stream Toggle Button [NOT IMPLEMENTED]
+### REQ-34: Camera Stream Toggle Button [IMPLEMENTED]
 
 **Requirement**: The web interface for ESP32-CAM shall have a button to terminate (and restart) the camera stream. The intention is to save resources on the ESP32-CAM when the camera feed is not needed.
 
@@ -1226,16 +1227,16 @@ if (target === 'ttgo') {
 - Users may not always need live video feed
 - Allows better resource management during other operations
 
-**Proposed Implementation**:
-- Add "Camera: ON/OFF" toggle button in web UI (only visible on ESP32-CAM target)
+**Implementation**:
+- "CAM ON/OFF" toggle button in web UI (only visible on ESP32-CAM target)
 - Button state reflects current camera stream status
 - When OFF:
-  - Camera stream endpoint returns placeholder image or 503 status
-  - Camera frame buffer released
-  - Stream task stopped
+  - `camera_capture_frame()` returns NULL
+  - Stream task waits instead of sending frames
+  - Camera placeholder shows "Camera Paused"
 - When ON:
   - Camera stream resumes normal operation
-- State persists until user changes it or device reboots
+- State persists until user changes it or device reboots (default: enabled)
 
 **API**:
 - `POST /camera` with JSON body `{"enabled": true/false}`
@@ -1246,12 +1247,13 @@ if (target === 'ttgo') {
 - Green when streaming, gray when stopped
 - Label: "CAM ON" / "CAM OFF"
 
-**Files** (to be created/modified):
-- `components/web_server/web_server.c` - Camera control endpoints
-- `components/web_server/web_ui.c` - Camera toggle button UI
-- `components/camera/camera.c` - Stream enable/disable API
+**Files**:
+- `components/camera/include/camera.h` - `camera_stream_set_enabled()`, `camera_stream_is_enabled()` API
+- `components/camera/camera.c` - Stream enable/disable state and functions
+- `components/web_server/web_server.c` - `/camera` GET and POST endpoints
+- `components/web_server/web_ui.c` - Camera toggle button UI and JavaScript
 
-**Status**: NOT IMPLEMENTED
+**Status**: Implemented
 
 ---
 

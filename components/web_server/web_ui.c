@@ -202,6 +202,25 @@ static const char web_ui_html[] = R"rawliteral(
         .btn-led.on:hover {
             background: #e0b720;
         }
+        /* REQ-34: Camera toggle button */
+        .btn-cam {
+            background: #44ff44;
+            color: #1a1a2e;
+            padding: 10px 20px;
+            border: 2px solid #44ff44;
+            font-weight: bold;
+        }
+        .btn-cam.off {
+            background: #2d2d44;
+            color: #888;
+            border-color: #444;
+        }
+        .btn-cam:hover {
+            background: #3ae03a;
+        }
+        .btn-cam.off:hover {
+            background: #444;
+        }
         .telemetry {
             display: grid;
             grid-template-columns: repeat(2, 1fr);
@@ -446,7 +465,10 @@ static const char web_ui_html[] = R"rawliteral(
                 </div>
 
                 <div class="controls-row">
-                    <div class="control-box">
+                    <div class="control-box" id="cam-toggle-box">
+                        <button class="btn btn-cam" id="btn-cam">CAM ON</button>
+                    </div>
+                    <div class="control-box" id="led-box">
                         <button class="btn btn-led" id="btn-led">FLASH LED</button>
                     </div>
                     <div class="control-box">
@@ -783,7 +805,8 @@ static const char web_ui_html[] = R"rawliteral(
             currentTarget = target;
 
             const cameraPanel = document.querySelector('.camera-panel');
-            const flashLedBtn = document.getElementById('btn-led');
+            const flashLedBox = document.getElementById('led-box');
+            const camToggleBox = document.getElementById('cam-toggle-box');
             const hwButtonsRow = document.querySelector('.telemetry-item:has(.button-indicators)');
 
             // Update title based on target
@@ -793,15 +816,17 @@ static const char web_ui_html[] = R"rawliteral(
             }
 
             if (target === 'ttgo') {
-                // TTGO: Hide camera panel and flash LED, show hardware buttons
+                // TTGO: Hide camera panel, flash LED, and camera toggle, show hardware buttons
                 if (cameraPanel) cameraPanel.style.display = 'none';
-                if (flashLedBtn) flashLedBtn.parentElement.style.display = 'none';
+                if (flashLedBox) flashLedBox.style.display = 'none';
+                if (camToggleBox) camToggleBox.style.display = 'none';
                 // Hardware buttons remain visible (default)
             } else {
-                // ESP32-CAM: Show camera and flash LED, hide hardware buttons
+                // ESP32-CAM: Show camera, flash LED, and camera toggle, hide hardware buttons
                 // Camera and flash LED remain visible (default)
                 if (hwButtonsRow) hwButtonsRow.style.display = 'none';
-                // Initialize camera only for ESP32-CAM
+                // Initialize camera controls
+                initCameraState();
                 initCamera();
             }
         }
@@ -967,6 +992,60 @@ static const char web_ui_html[] = R"rawliteral(
 
         // Initial LED state fetch
         fetchLEDState();
+
+        // =============================================================================
+        // REQ-34: Camera Stream Toggle
+        // =============================================================================
+        let cameraEnabled = true;
+
+        async function toggleCamera() {
+            try {
+                const response = await fetch('/camera', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ enabled: !cameraEnabled })
+                });
+                if (response.ok) {
+                    const data = await response.json();
+                    cameraEnabled = data.enabled;
+                    updateCameraButton();
+                    // Update camera stream display
+                    if (cameraEnabled) {
+                        initCamera();
+                    } else {
+                        cameraStream.style.display = 'none';
+                        cameraPlaceholder.style.display = 'block';
+                        cameraPlaceholder.textContent = 'Camera Paused';
+                    }
+                }
+            } catch (e) {
+                // Silently fail
+            }
+        }
+
+        async function fetchCameraState() {
+            try {
+                const response = await fetch('/camera');
+                if (response.ok) {
+                    const data = await response.json();
+                    cameraEnabled = data.enabled;
+                    updateCameraButton();
+                }
+            } catch (e) {
+                // Silently fail
+            }
+        }
+
+        function updateCameraButton() {
+            const btn = document.getElementById('btn-cam');
+            btn.classList.toggle('off', !cameraEnabled);
+            btn.textContent = cameraEnabled ? 'CAM ON' : 'CAM OFF';
+        }
+
+        function initCameraState() {
+            document.getElementById('btn-cam').addEventListener('click', toggleCamera);
+            fetchCameraState();
+        }
 
         // =============================================================================
         // REQ-31: Log Streaming

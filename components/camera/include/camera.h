@@ -103,6 +103,25 @@ bool camera_is_initialized(void);
 framesize_t camera_get_frame_size(void);
 
 // =============================================================================
+// REQ-34: Camera Stream Control
+// =============================================================================
+
+/**
+ * @brief Enable or disable camera streaming
+ * @param enabled true to enable streaming, false to disable
+ *
+ * When disabled, camera_capture_frame() will return NULL.
+ * This allows freeing resources during OTA updates or when stream is not needed.
+ */
+void camera_stream_set_enabled(bool enabled);
+
+/**
+ * @brief Check if camera streaming is enabled
+ * @return true if streaming is enabled
+ */
+bool camera_stream_is_enabled(void);
+
+// =============================================================================
 // Flash LED Control (ESP32-CAM GPIO 4)
 // =============================================================================
 

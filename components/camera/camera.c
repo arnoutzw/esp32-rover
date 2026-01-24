@@ -13,6 +13,9 @@ static const char *TAG = "CAMERA";
 static bool camera_initialized = false;
 static framesize_t current_frame_size = FRAMESIZE_VGA;
 
+// REQ-34: Camera stream enable/disable state
+static bool camera_stream_enabled = true;
+
 esp_err_t camera_module_init(const camera_config_params_t *config)
 {
     if (!config) {
@@ -111,6 +114,11 @@ camera_fb_t* camera_capture_frame(void)
 {
     if (!camera_initialized) {
         ESP_LOGE(TAG, "Camera not initialized");
+        return NULL;
+    }
+
+    // REQ-34: Return NULL if streaming is disabled
+    if (!camera_stream_enabled) {
         return NULL;
     }
 
@@ -295,4 +303,21 @@ void flash_led_blink(int count, int on_ms, int off_ms)
     // Restore previous state
     gpio_set_level(FLASH_LED_GPIO, previous_state ? 1 : 0);
     flash_led_state = previous_state;
+}
+
+// =============================================================================
+// REQ-34: Camera Stream Control
+// =============================================================================
+
+void camera_stream_set_enabled(bool enabled)
+{
+    if (camera_stream_enabled != enabled) {
+        camera_stream_enabled = enabled;
+        ESP_LOGI(TAG, "Camera stream %s", enabled ? "enabled" : "disabled");
+    }
+}
+
+bool camera_stream_is_enabled(void)
+{
+    return camera_stream_enabled;
 }
