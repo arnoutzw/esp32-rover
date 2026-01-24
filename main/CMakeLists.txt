@@ -20,6 +20,7 @@ idf_component_register(
         log_buffer
         lwip
         app_update
+        resource_guard
 )
 
 # Allow target selection via environment variable or CMake variable

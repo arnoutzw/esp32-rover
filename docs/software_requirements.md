@@ -1275,4 +1275,116 @@ if (target === 'ttgo') {
 
 ---
 
+### REQ-36: Resource Consumption Guards and Unit Tests [IMPLEMENTED]
+
+**Requirement**: The firmware shall include unit tests and runtime guards to protect against resource exhaustion (heap, stack, tasks) that could cause system crashes.
+
+**Rationale**:
+- ESP32 has limited RAM (~320KB internal DRAM + 4MB PSRAM if available)
+- Memory exhaustion causes hard crashes without useful error messages
+- Stack overflows corrupt memory silently before crashing
+- Task leaks gradually consume heap until system fails
+- OTA updates require sufficient free heap to succeed
+
+**Implementation**:
+
+1. **Resource Guard Component** (`components/resource_guard/`):
+   - Runtime checks for heap, internal RAM, stack watermarks
+   - Configurable thresholds via preprocessor defines
+   - Safe allocation check: `resource_guard_can_alloc(size)`
+   - Comprehensive status logging: `resource_guard_log_status()`
+
+2. **Resource Thresholds** (based on ESP-IDF recommendations):
+   | Resource | Minimum Threshold | Rationale |
+   |----------|------------------|-----------|
+   | Free Heap | 32 KB | Below this, allocations may fail |
+   | Internal DRAM | 16 KB | Critical for DMA, WiFi buffers |
+   | Stack Watermark | 512 bytes | Minimum safe stack remaining |
+   | Max Tasks | 32 | Prevent task proliferation |
+
+3. **Unit Tests** (`test/test_resource_guard.c`):
+   - Heap above minimum threshold after boot
+   - Internal DRAM above minimum threshold
+   - Heap watermark (min free since boot) safe
+   - Heap fragmentation acceptable
+   - Safe allocation prediction works
+   - Allocation cycle doesn't leak memory
+   - Task stack watermarks safe
+   - Task create/delete cycle doesn't leak
+   - System stable after memory pressure
+
+**API**:
+```c
+// Check all resources, returns ESP_OK if all pass
+esp_err_t resource_guard_check_all(resource_check_result_t *result);
+
+// Check if allocation of size bytes is safe
+bool resource_guard_can_alloc(size_t size);
+
+// Check task stack watermark
+bool resource_guard_check_stack(void *task_handle, task_stack_result_t *result);
+
+// Log current resource status
+void resource_guard_log_status(void);
+```
+
+**Unity Test Macros**:
+```c
+TEST_ASSERT_RESOURCE_OK()        // Assert all resources OK
+TEST_ASSERT_HEAP_OK()            // Assert heap only
+TEST_ASSERT_CAN_ALLOC(size)      // Assert allocation is safe
+TEST_ASSERT_STACK_OK(handle)     // Assert task stack OK
+```
+
+**Running Tests**:
+```bash
+# Build test application
+cd test && idf.py build
+
+# Flash and monitor
+idf.py -p /dev/ttyUSB0 flash monitor
+```
+
+**Files**:
+- `components/resource_guard/CMakeLists.txt` - Component build config
+- `components/resource_guard/include/resource_guard.h` - Public API
+- `components/resource_guard/resource_guard.c` - Implementation
+- `test/test_resource_guard.c` - Unit tests
+- `test/CMakeLists.txt` - Test application build
+- `test/main/CMakeLists.txt` - Test main component
+
+**ESP-IDF Documentation References**:
+- [Heap Memory](https://docs.espressif.com/projects/esp-idf/en/latest/esp32/api-reference/system/mem_alloc.html)
+- [Heap Debugging](https://docs.espressif.com/projects/esp-idf/en/latest/esp32/api-reference/system/heap_debug.html)
+- [FreeRTOS Tasks](https://docs.espressif.com/projects/esp-idf/en/latest/esp32/api-reference/system/freertos.html)
+- [Unit Testing](https://docs.espressif.com/projects/esp-idf/en/latest/esp32/api-guides/unit-tests.html)
+
+**Status**: Implemented
+
+---
+
+### REQ-37: Watchdog Timer [NOT IMPLEMENTED]
+
+**Requirement**: Add a watchdog timer that checks if the web GUI and camera stream (if active) are still responsive. If not responsive, reboot the rover.
+
+**Proposed Implementation**:
+- Use ESP-IDF Task Watchdog Timer (TWDT)
+- Register web server and camera stream tasks with TWDT
+- Tasks must "feed" the watchdog periodically
+- Timeout triggers automatic reboot
+- Configurable timeout (default: 30 seconds)
+
+**API**:
+```c
+// Initialize watchdog monitoring
+esp_err_t rover_watchdog_init(uint32_t timeout_sec);
+
+// Feed watchdog from task (call periodically)
+void rover_watchdog_feed(const char *task_name);
+```
+
+**Status**: NOT IMPLEMENTED
+
+---
+
 (Add new requirements here as they are defined)

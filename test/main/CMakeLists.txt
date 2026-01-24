@@ -1,0 +1,14 @@
+idf_component_register(
+    SRCS
+        "../test_resource_guard.c"
+    INCLUDE_DIRS
+        "."
+    REQUIRES
+        unity
+        freertos
+        esp_system
+        heap
+        resource_guard
+    PRIV_REQUIRES
+        esp_timer
+)
