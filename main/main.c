@@ -28,6 +28,10 @@
 #include "mdns.h"
 
 #include "config.h"
+
+#if defined(ENABLE_TASK_WATCHDOG) && ENABLE_TASK_WATCHDOG
+#include "esp_task_wdt.h"
+#endif
 #include "as5600.h"
 #include "bldc_motor.h"
 #include "servo_control.h"
@@ -736,6 +740,14 @@ static void motor_control_task(void *pvParameters)
 {
     ESP_LOGI(TAG, "Motor control task started on core %d", xPortGetCoreID());
 
+#if defined(ENABLE_TASK_WATCHDOG) && ENABLE_TASK_WATCHDOG
+    // REQ-37: Subscribe to task watchdog
+    esp_err_t wdt_err = esp_task_wdt_add(NULL);
+    if (wdt_err != ESP_OK) {
+        ESP_LOGW(TAG, "Failed to add motor_ctrl to watchdog: %s", esp_err_to_name(wdt_err));
+    }
+#endif
+
     TickType_t last_wake_time = xTaskGetTickCount();
     const TickType_t loop_period = pdMS_TO_TICKS(1000 / CONTROL_LOOP_FREQ);
 
@@ -772,6 +784,11 @@ static void motor_control_task(void *pvParameters)
             float steering_angle = (cmd.steering / 100.0f) * STEERING_MAX_ANGLE;
             servo_set_angle(servo_handle, steering_angle);
         }
+
+#if defined(ENABLE_TASK_WATCHDOG) && ENABLE_TASK_WATCHDOG
+        // REQ-37: Feed task watchdog
+        esp_task_wdt_reset();
+#endif
 
         // Maintain loop timing
         vTaskDelayUntil(&last_wake_time, loop_period);
@@ -826,6 +843,14 @@ static void get_task_core_counts(task_core_counts_t *counts)
 static void status_update_task(void *pvParameters)
 {
     ESP_LOGI(TAG, "Status update task started");
+
+#if defined(ENABLE_TASK_WATCHDOG) && ENABLE_TASK_WATCHDOG
+    // REQ-37: Subscribe to task watchdog
+    esp_err_t wdt_err = esp_task_wdt_add(NULL);
+    if (wdt_err != ESP_OK) {
+        ESP_LOGW(TAG, "Failed to add status to watchdog: %s", esp_err_to_name(wdt_err));
+    }
+#endif
 
     // Get MAC address once at startup (static for lifetime of task)
     static char mac_str[18];
@@ -939,6 +964,11 @@ static void status_update_task(void *pvParameters)
 #if defined(ENABLE_MQTT) && ENABLE_MQTT
         // Update MQTT service status
         mqtt_service_update_status(&status);
+#endif
+
+#if defined(ENABLE_TASK_WATCHDOG) && ENABLE_TASK_WATCHDOG
+        // REQ-37: Feed task watchdog
+        esp_task_wdt_reset();
 #endif
 
         vTaskDelay(pdMS_TO_TICKS(50));  // Update at 20Hz for responsive button feedback
@@ -1473,6 +1503,22 @@ void app_main(void)
     // REQ-31: Initialize log buffer FIRST to capture all boot logs
     log_buffer_init();
 
+#if defined(ENABLE_TASK_WATCHDOG) && ENABLE_TASK_WATCHDOG
+    // REQ-37: Initialize task watchdog timer
+    esp_task_wdt_config_t wdt_config = {
+        .timeout_ms = TASK_WDT_TIMEOUT_SEC * 1000,
+        .idle_core_mask = 0,  // Don't monitor idle tasks
+        .trigger_panic = TASK_WDT_PANIC_ON_TIMEOUT,
+    };
+    esp_err_t wdt_err = esp_task_wdt_init(&wdt_config);
+    if (wdt_err == ESP_OK) {
+        ESP_LOGI(TAG, "Task watchdog initialized (timeout: %ds, panic: %s)",
+                 TASK_WDT_TIMEOUT_SEC, TASK_WDT_PANIC_ON_TIMEOUT ? "yes" : "no");
+    } else {
+        ESP_LOGW(TAG, "Task watchdog init failed: %s", esp_err_to_name(wdt_err));
+    }
+#endif
+
     ESP_LOGI(TAG, "ESP32-CAM Rover starting...");
 
 #if defined(ROVER_TARGET_TTGO) && defined(ENABLE_DEEP_SLEEP) && ENABLE_DEEP_SLEEP
@@ -1550,6 +1596,7 @@ void app_main(void)
     }
 
     // Initialize hardware components
+#if !ENABLE_JTAG_DEBUG
     ret = init_encoder();
     if (ret != ESP_OK) {
         ESP_LOGW(TAG, "Encoder init failed: %s (continuing without encoder)", esp_err_to_name(ret));
@@ -1567,6 +1614,16 @@ void app_main(void)
         ESP_LOGE(TAG, "Servo init failed: %s", esp_err_to_name(ret));
         // Continue - steering will be disabled
     }
+#else
+    // REQ-38: JTAG Debug Mode - skip motor/encoder/servo init to free GPIO 12-15
+    ESP_LOGW(TAG, "==============================================");
+    ESP_LOGW(TAG, "JTAG DEBUG MODE - Motor control DISABLED");
+    ESP_LOGW(TAG, "GPIO 12-15 available for JTAG debugging");
+    ESP_LOGW(TAG, "==============================================");
+    encoder_handle = NULL;
+    motor_handle = NULL;
+    servo_handle = NULL;
+#endif
 
 #if !DISABLE_CAMERA
     ret = init_camera();
@@ -1620,6 +1677,7 @@ void app_main(void)
     }
 #endif
 
+#if !ENABLE_JTAG_DEBUG
     // Create motor control task on Core 1
     xTaskCreatePinnedToCore(
         motor_control_task,
@@ -1630,6 +1688,10 @@ void app_main(void)
         &motor_task_handle,
         1   // Core 1
     );
+#else
+    motor_task_handle = NULL;
+    ESP_LOGW(TAG, "Motor control task SKIPPED - JTAG debug mode");
+#endif
 
     // Create status update task on Core 0
     xTaskCreatePinnedToCore(

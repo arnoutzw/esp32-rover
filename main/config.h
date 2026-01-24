@@ -34,6 +34,16 @@
 #endif
 
 // -----------------------------------------------------------------------------
+// REQ-38: JTAG Debug Mode
+// -----------------------------------------------------------------------------
+// When enabled, motor control is disabled to free GPIO 12-15 for JTAG debugging.
+// Set via CMake: JTAG_DEBUG=1 ROVER_TARGET=esp32cam idf.py build
+// Only useful for ESP32-CAM target (TTGO uses different motor pins).
+#ifndef ENABLE_JTAG_DEBUG
+#define ENABLE_JTAG_DEBUG   0
+#endif
+
+// -----------------------------------------------------------------------------
 // WiFi Configuration (defaults - overridden by config_generated.h if present)
 // -----------------------------------------------------------------------------
 #ifndef WIFI_MODE_AP_ONLY

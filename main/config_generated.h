@@ -75,6 +75,11 @@
 #define OTA_HOSTNAME MDNS_HOSTNAME
 #define OTA_PASSWORD "rover1234"
 
+// Task Watchdog Configuration (REQ-37)
+#define ENABLE_TASK_WATCHDOG 1
+#define TASK_WDT_TIMEOUT_SEC 30
+#define TASK_WDT_PANIC_ON_TIMEOUT 1
+
 // Debug Options
 #define CFG_DEBUG_MOTOR 0
 #define CFG_DEBUG_ENCODER 0

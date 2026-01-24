@@ -10,6 +10,7 @@ idf_component_register(
         nvs_flash
         esp_psram
         esp_adc
+        esp_system
         as5600
         bldc_motor
         servo_control
@@ -40,4 +41,16 @@ else()
     # Default to TTGO if not specified
     target_compile_definitions(${COMPONENT_LIB} PUBLIC ROVER_TARGET_TTGO=1)
     message(STATUS "No target specified, defaulting to TTGO T-Display")
+endif()
+
+# REQ-38: JTAG Debug Mode - disables motor control to free GPIO 12-15 for JTAG
+# Usage: JTAG_DEBUG=1 ROVER_TARGET=esp32cam idf.py build
+# Or: idf.py build -DROVER_TARGET=esp32cam -DJTAG_DEBUG=1
+if(DEFINED ENV{JTAG_DEBUG})
+    set(JTAG_DEBUG $ENV{JTAG_DEBUG})
+endif()
+
+if(JTAG_DEBUG)
+    target_compile_definitions(${COMPONENT_LIB} PUBLIC ENABLE_JTAG_DEBUG=1)
+    message(STATUS "JTAG debug mode ENABLED - motor control DISABLED (GPIO 12-15 available for JTAG)")
 endif()

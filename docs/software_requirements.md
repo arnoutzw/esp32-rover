@@ -6,10 +6,13 @@
 2. [Build & Configuration](#build--configuration) (REQ-01 to REQ-04)
 3. [Hardware & Drivers](#hardware--drivers) (REQ-05 to REQ-11)
 4. [Networking & Connectivity](#networking--connectivity) (REQ-12 to REQ-16)
-5. [User Interface](#user-interface) (REQ-17 to REQ-22)
-6. [Control & Safety](#control--safety) (REQ-23 to REQ-28)
-7. [Testing & Quality](#testing--quality) (REQ-29)
-8. [Future Requirements](#future-requirements) (REQ-30+)
+5. [User Interface](#user-interface) (REQ-17 to REQ-23)
+6. [Control & Safety](#control--safety) (REQ-24 to REQ-28)
+7. [Power Management](#power-management) (REQ-30)
+8. [Diagnostics & Logging](#diagnostics--logging) (REQ-31, REQ-35, REQ-36)
+9. [Testing & Quality](#testing--quality) (REQ-29)
+10. [System Reliability](#system-reliability) (REQ-37, REQ-38)
+11. [Future Requirements](#future-requirements)
 
 ---
 
@@ -889,44 +892,7 @@ control:
 
 ---
 
-## Testing & Quality
-
-### REQ-29: Unit Tests [IMPLEMENTED]
-
-**Requirement**: All requirements shall have unit tests.
-
-**Implementation**:
-
-**Test Framework**: Custom minimal Unity-compatible framework for host-based testing
-
-**Test Files**:
-- `test/test_config.c` - Tests for configuration (15 tests)
-- `test/test_diag_state_machine.c` - Tests for diagnostic mode (12 tests)
-- `test/test_runner.c` - Main test runner
-- `test/unity.h` - Minimal test framework
-- `test/Makefile` - Build system
-
-**Running Tests**:
-```bash
-cd test
-make test
-```
-
-**Test Coverage**:
-| Category | Tests | Description |
-|----------|-------|-------------|
-| Config | 5 | Target, WiFi AP, motor, servo, control config |
-| WiFi | 3 | WiFi mode flags, STA settings, timeout |
-| REST API | 2 | REST API flag, cache interval |
-| MQTT | 4 | MQTT flag, broker settings, publish interval, QoS |
-| Services | 1 | Service status flags availability |
-| Diagnostics | 12 | State machine transitions, entry/exit logic |
-
-**Total**: 27 tests
-
----
-
-## Implemented Features
+## Power Management
 
 ### REQ-30: Deep Sleep Power Save Mode [IMPLEMENTED]
 
@@ -977,6 +943,8 @@ power:
 **Status**: Implemented and tested
 
 ---
+
+## Diagnostics & Logging
 
 ### REQ-31: Serial Log Capture and Web Display [IMPLEMENTED]
 
@@ -1113,6 +1081,151 @@ void log_buffer_iterator_destroy(log_buffer_iterator_t *iter);
 - `components/web_server/web_ui.c` - Logs panel in diagnostics with SSE streaming
 
 ---
+
+### REQ-35: Log Download Button [IMPLEMENTED]
+
+**Requirement**: The web interface shall have a button to download the buffered logs as a text file.
+
+**Implementation**:
+- "Download" button in the System Logs section of diagnostics panel
+- Button triggers browser download via `/logs?download=1`
+- Server adds `Content-Disposition: attachment; filename="esp32_logs.txt"` header
+- Also includes "Clear" button to clear the log buffer
+
+**Files**:
+- `components/web_server/web_server.c` - `download` query param handling in `/logs` endpoint
+- `components/web_server/web_ui.c` - Download and Clear buttons in logs panel
+
+**Status**: Implemented (as part of REQ-31)
+
+---
+
+### REQ-36: Resource Consumption Guards and Unit Tests [IMPLEMENTED]
+
+**Requirement**: The firmware shall include unit tests and runtime guards to protect against resource exhaustion (heap, stack, tasks) that could cause system crashes.
+
+**Rationale**:
+- ESP32 has limited RAM (~320KB internal DRAM + 4MB PSRAM if available)
+- Memory exhaustion causes hard crashes without useful error messages
+- Stack overflows corrupt memory silently before crashing
+- Task leaks gradually consume heap until system fails
+- OTA updates require sufficient free heap to succeed
+
+**Implementation**:
+
+1. **Resource Guard Component** (`components/resource_guard/`):
+   - Runtime checks for heap, internal RAM, stack watermarks
+   - Configurable thresholds via preprocessor defines
+   - Safe allocation check: `resource_guard_can_alloc(size)`
+   - Comprehensive status logging: `resource_guard_log_status()`
+
+2. **Resource Thresholds** (based on ESP-IDF recommendations):
+   | Resource | Minimum Threshold | Rationale |
+   |----------|------------------|-----------|
+   | Free Heap | 32 KB | Below this, allocations may fail |
+   | Internal DRAM | 16 KB | Critical for DMA, WiFi buffers |
+   | Stack Watermark | 512 bytes | Minimum safe stack remaining |
+   | Max Tasks | 32 | Prevent task proliferation |
+
+3. **Unit Tests** (`test/test_resource_guard.c`):
+   - Heap above minimum threshold after boot
+   - Internal DRAM above minimum threshold
+   - Heap watermark (min free since boot) safe
+   - Heap fragmentation acceptable
+   - Safe allocation prediction works
+   - Allocation cycle doesn't leak memory
+   - Task stack watermarks safe
+   - Task create/delete cycle doesn't leak
+   - System stable after memory pressure
+
+**API**:
+```c
+// Check all resources, returns ESP_OK if all pass
+esp_err_t resource_guard_check_all(resource_check_result_t *result);
+
+// Check if allocation of size bytes is safe
+bool resource_guard_can_alloc(size_t size);
+
+// Check task stack watermark
+bool resource_guard_check_stack(void *task_handle, task_stack_result_t *result);
+
+// Log current resource status
+void resource_guard_log_status(void);
+```
+
+**Unity Test Macros**:
+```c
+TEST_ASSERT_RESOURCE_OK()        // Assert all resources OK
+TEST_ASSERT_HEAP_OK()            // Assert heap only
+TEST_ASSERT_CAN_ALLOC(size)      // Assert allocation is safe
+TEST_ASSERT_STACK_OK(handle)     // Assert task stack OK
+```
+
+**Running Tests**:
+```bash
+# Build test application
+cd test && idf.py build
+
+# Flash and monitor
+idf.py -p /dev/ttyUSB0 flash monitor
+```
+
+**Files**:
+- `components/resource_guard/CMakeLists.txt` - Component build config
+- `components/resource_guard/include/resource_guard.h` - Public API
+- `components/resource_guard/resource_guard.c` - Implementation
+- `test/test_resource_guard.c` - Unit tests
+- `test/CMakeLists.txt` - Test application build
+- `test/main/CMakeLists.txt` - Test main component
+
+**ESP-IDF Documentation References**:
+- [Heap Memory](https://docs.espressif.com/projects/esp-idf/en/latest/esp32/api-reference/system/mem_alloc.html)
+- [Heap Debugging](https://docs.espressif.com/projects/esp-idf/en/latest/esp32/api-reference/system/heap_debug.html)
+- [FreeRTOS Tasks](https://docs.espressif.com/projects/esp-idf/en/latest/esp32/api-reference/system/freertos.html)
+- [Unit Testing](https://docs.espressif.com/projects/esp-idf/en/latest/esp32/api-guides/unit-tests.html)
+
+**Status**: Implemented
+
+---
+
+## Testing & Quality
+
+### REQ-29: Unit Tests [IMPLEMENTED]
+
+**Requirement**: All requirements shall have unit tests.
+
+**Implementation**:
+
+**Test Framework**: Custom minimal Unity-compatible framework for host-based testing
+
+**Test Files**:
+- `test/test_config.c` - Tests for configuration (15 tests)
+- `test/test_diag_state_machine.c` - Tests for diagnostic mode (12 tests)
+- `test/test_runner.c` - Main test runner
+- `test/unity.h` - Minimal test framework
+- `test/Makefile` - Build system
+
+**Running Tests**:
+```bash
+cd test
+make test
+```
+
+**Test Coverage**:
+| Category | Tests | Description |
+|----------|-------|-------------|
+| Config | 5 | Target, WiFi AP, motor, servo, control config |
+| WiFi | 3 | WiFi mode flags, STA settings, timeout |
+| REST API | 2 | REST API flag, cache interval |
+| MQTT | 4 | MQTT flag, broker settings, publish interval, QoS |
+| Services | 1 | Service status flags availability |
+| Diagnostics | 12 | State machine transitions, entry/exit logic |
+
+**Total**: 27 tests
+
+---
+
+## Networking (continued)
 
 ### REQ-32: mDNS Hostname [IMPLEMENTED]
 
@@ -1257,134 +1370,177 @@ if (target === 'ttgo') {
 
 ---
 
-### REQ-35: Log Download Button [IMPLEMENTED]
+## System Reliability
 
-**Requirement**: The web interface shall have a button to download the buffered logs as a text file.
+### REQ-37: Task Watchdog Timer [IMPLEMENTED]
 
-**Implementation**:
-- "Download" button in the System Logs section of diagnostics panel
-- Button triggers browser download via `/logs?download=1`
-- Server adds `Content-Disposition: attachment; filename="esp32_logs.txt"` header
-- Also includes "Clear" button to clear the log buffer
-
-**Files**:
-- `components/web_server/web_server.c` - `download` query param handling in `/logs` endpoint
-- `components/web_server/web_ui.c` - Download and Clear buttons in logs panel
-
-**Status**: Implemented (as part of REQ-31)
-
----
-
-### REQ-36: Resource Consumption Guards and Unit Tests [IMPLEMENTED]
-
-**Requirement**: The firmware shall include unit tests and runtime guards to protect against resource exhaustion (heap, stack, tasks) that could cause system crashes.
+**Requirement**: Add a watchdog timer that monitors critical tasks (motor control, status update) and triggers an automatic reboot if any task becomes unresponsive.
 
 **Rationale**:
-- ESP32 has limited RAM (~320KB internal DRAM + 4MB PSRAM if available)
-- Memory exhaustion causes hard crashes without useful error messages
-- Stack overflows corrupt memory silently before crashing
-- Task leaks gradually consume heap until system fails
-- OTA updates require sufficient free heap to succeed
+- ESP32 tasks can hang due to deadlocks, infinite loops, or resource exhaustion
+- Camera stream may freeze under high load or memory pressure
+- Web server may become unresponsive during network issues
+- Unresponsive rover is a safety hazard (runaway motor, no control)
+- Automatic recovery preferred over manual intervention
 
 **Implementation**:
 
-1. **Resource Guard Component** (`components/resource_guard/`):
-   - Runtime checks for heap, internal RAM, stack watermarks
-   - Configurable thresholds via preprocessor defines
-   - Safe allocation check: `resource_guard_can_alloc(size)`
-   - Comprehensive status logging: `resource_guard_log_status()`
+1. **Task Watchdog Configuration** (`rover_config.yaml`):
+   ```yaml
+   task_watchdog:
+     enabled: true
+     timeout_sec: 30
+     panic_on_timeout: true  # false = just log, true = reboot
+   ```
 
-2. **Resource Thresholds** (based on ESP-IDF recommendations):
-   | Resource | Minimum Threshold | Rationale |
-   |----------|------------------|-----------|
-   | Free Heap | 32 KB | Below this, allocations may fail |
-   | Internal DRAM | 16 KB | Critical for DMA, WiFi buffers |
-   | Stack Watermark | 512 bytes | Minimum safe stack remaining |
-   | Max Tasks | 32 | Prevent task proliferation |
+2. **Generated Defines** (`config_generated.h`):
+   ```c
+   #define ENABLE_TASK_WATCHDOG 1
+   #define TASK_WDT_TIMEOUT_SEC 30
+   #define TASK_WDT_PANIC_ON_TIMEOUT 1
+   ```
 
-3. **Unit Tests** (`test/test_resource_guard.c`):
-   - Heap above minimum threshold after boot
-   - Internal DRAM above minimum threshold
-   - Heap watermark (min free since boot) safe
-   - Heap fragmentation acceptable
-   - Safe allocation prediction works
-   - Allocation cycle doesn't leak memory
-   - Task stack watermarks safe
-   - Task create/delete cycle doesn't leak
-   - System stable after memory pressure
+3. **Tasks Monitored**:
+   | Task | Feed Interval | Description |
+   |------|---------------|-------------|
+   | `motor_ctrl` | 10ms (100Hz loop) | Motor FOC control loop |
+   | `status` | 50ms (20Hz loop) | Status update and button polling |
 
-**API**:
+4. **Feed Points**:
+   - Motor control: Feed at end of each FOC loop iteration
+   - Status task: Feed after each status update cycle
+
+5. **Timeout Behavior**:
+   - Uses ESP-IDF Task Watchdog Timer (TWDT) API
+   - If `panic_on_timeout = true`: System reboots via panic handler
+   - If `panic_on_timeout = false`: Log warning, continue monitoring
+
+**API** (ESP-IDF native):
 ```c
-// Check all resources, returns ESP_OK if all pass
-esp_err_t resource_guard_check_all(resource_check_result_t *result);
+// Initialize TWDT in app_main()
+esp_task_wdt_config_t wdt_config = {
+    .timeout_ms = TASK_WDT_TIMEOUT_SEC * 1000,
+    .idle_core_mask = 0,
+    .trigger_panic = TASK_WDT_PANIC_ON_TIMEOUT,
+};
+esp_task_wdt_init(&wdt_config);
 
-// Check if allocation of size bytes is safe
-bool resource_guard_can_alloc(size_t size);
+// Subscribe task (at start of task function)
+esp_task_wdt_add(NULL);
 
-// Check task stack watermark
-bool resource_guard_check_stack(void *task_handle, task_stack_result_t *result);
-
-// Log current resource status
-void resource_guard_log_status(void);
-```
-
-**Unity Test Macros**:
-```c
-TEST_ASSERT_RESOURCE_OK()        // Assert all resources OK
-TEST_ASSERT_HEAP_OK()            // Assert heap only
-TEST_ASSERT_CAN_ALLOC(size)      // Assert allocation is safe
-TEST_ASSERT_STACK_OK(handle)     // Assert task stack OK
-```
-
-**Running Tests**:
-```bash
-# Build test application
-cd test && idf.py build
-
-# Flash and monitor
-idf.py -p /dev/ttyUSB0 flash monitor
+// Feed watchdog (in main loop)
+esp_task_wdt_reset();
 ```
 
 **Files**:
-- `components/resource_guard/CMakeLists.txt` - Component build config
-- `components/resource_guard/include/resource_guard.h` - Public API
-- `components/resource_guard/resource_guard.c` - Implementation
-- `test/test_resource_guard.c` - Unit tests
-- `test/CMakeLists.txt` - Test application build
-- `test/main/CMakeLists.txt` - Test main component
+- `rover_config.yaml` - `task_watchdog:` configuration section
+- `generate_config.py` - Generates watchdog defines
+- `main/config_generated.h` - `ENABLE_TASK_WATCHDOG`, `TASK_WDT_TIMEOUT_SEC`, `TASK_WDT_PANIC_ON_TIMEOUT`
+- `main/main.c` - TWDT initialization in `app_main()`, subscription and feed in `motor_control_task()` and `status_update_task()`
+- `main/CMakeLists.txt` - Added `esp_system` to REQUIRES for `esp_task_wdt.h`
 
-**ESP-IDF Documentation References**:
-- [Heap Memory](https://docs.espressif.com/projects/esp-idf/en/latest/esp32/api-reference/system/mem_alloc.html)
-- [Heap Debugging](https://docs.espressif.com/projects/esp-idf/en/latest/esp32/api-reference/system/heap_debug.html)
-- [FreeRTOS Tasks](https://docs.espressif.com/projects/esp-idf/en/latest/esp32/api-reference/system/freertos.html)
-- [Unit Testing](https://docs.espressif.com/projects/esp-idf/en/latest/esp32/api-guides/unit-tests.html)
+**ESP-IDF Documentation**:
+- [Task Watchdog Timer](https://docs.espressif.com/projects/esp-idf/en/latest/esp32/api-reference/system/wdts.html)
 
-**Status**: Implemented
+**Status**: IMPLEMENTED
 
 ---
 
-### REQ-37: Watchdog Timer [NOT IMPLEMENTED]
+### REQ-38: JTAG Debugging Mode [IMPLEMENTED]
 
-**Requirement**: Add a watchdog timer that checks if the web GUI and camera stream (if active) are still responsive. If not responsive, reboot the rover.
+**Requirement**: Create a build flag that disables motor control GPIO pins and makes them available for JTAG debugging. This allows hardware debugging without disconnecting motor wires.
 
-**Proposed Implementation**:
-- Use ESP-IDF Task Watchdog Timer (TWDT)
-- Register web server and camera stream tasks with TWDT
-- Tasks must "feed" the watchdog periodically
-- Timeout triggers automatic reboot
-- Configurable timeout (default: 30 seconds)
+**Rationale**:
+- ESP32 JTAG uses GPIO 12, 13, 14, 15 - same pins as motor control on ESP32-CAM
+- Physical disconnection of motor wires is inconvenient for debugging
+- Build-time flag provides clean separation of debug vs production builds
+- Enables use of OpenOCD, GDB, and hardware breakpoints
 
-**API**:
-```c
-// Initialize watchdog monitoring
-esp_err_t rover_watchdog_init(uint32_t timeout_sec);
+**JTAG Pin Requirements**:
+| Signal | GPIO | Normal Function (ESP32-CAM) |
+|--------|------|------------------------------|
+| TDI | GPIO 12 | Motor IN1 (Phase A) |
+| TCK | GPIO 13 | Motor IN2 (Phase B) |
+| TMS | GPIO 14 | Motor IN3 (Phase C) / I2C SDA |
+| TDO | GPIO 15 | Motor EN / I2C SCL |
 
-// Feed watchdog from task (call periodically)
-void rover_watchdog_feed(const char *task_name);
+**Implementation**:
+
+1. **Build-Time Flag**:
+   - Set via environment variable: `JTAG_DEBUG=1`
+   - Or via CMake: `idf.py build -DJTAG_DEBUG=1`
+   - Defines `ENABLE_JTAG_DEBUG=1` when enabled
+
+2. **CMake Integration** (`main/CMakeLists.txt`):
+   ```cmake
+   # REQ-38: JTAG Debug Mode - disables motor control to free GPIO 12-15 for JTAG
+   if(DEFINED ENV{JTAG_DEBUG})
+       set(JTAG_DEBUG $ENV{JTAG_DEBUG})
+   endif()
+
+   if(JTAG_DEBUG)
+       target_compile_definitions(${COMPONENT_LIB} PUBLIC ENABLE_JTAG_DEBUG=1)
+       message(STATUS "JTAG debug mode ENABLED - motor control DISABLED (GPIO 12-15 available for JTAG)")
+   endif()
+   ```
+
+3. **Default Define** (`main/config.h`):
+   ```c
+   // REQ-38: JTAG Debug Mode
+   #ifndef ENABLE_JTAG_DEBUG
+   #define ENABLE_JTAG_DEBUG   0
+   #endif
+   ```
+
+4. **Conditional Compilation** (`main/main.c`):
+   - When JTAG_DEBUG enabled:
+     - Encoder initialization skipped
+     - Motor initialization skipped
+     - Servo initialization skipped
+     - Motor control task not created
+     - Handles set to NULL for safe status reporting
+   - Log message: "JTAG DEBUG MODE - Motor control DISABLED (GPIO 12-15 available for JTAG)"
+
+**Usage**:
+```bash
+# Build for ESP32-CAM with JTAG debug mode
+JTAG_DEBUG=1 ROVER_TARGET=esp32cam idf.py build
+
+# Or via CMake
+idf.py build -DROVER_TARGET=esp32cam -DJTAG_DEBUG=1
+
+# Flash and start OpenOCD
+idf.py -p /dev/cu.usbserial-110 flash
+openocd -f interface/ftdi/esp32_devkitj_v1.cfg -f target/esp32.cfg
+
+# Connect GDB
+xtensa-esp32-elf-gdb -ex "target remote :3333" build/esp32-rover.elf
 ```
 
-**Status**: NOT IMPLEMENTED
+**JTAG Adapter Connections** (for reference):
+| ESP32-CAM | JTAG Adapter |
+|-----------|--------------|
+| GPIO 12 | TDI |
+| GPIO 13 | TCK |
+| GPIO 14 | TMS |
+| GPIO 15 | TDO |
+| GND | GND |
+| 3V3 | VCC (reference only) |
+
+**Files**:
+- `main/CMakeLists.txt` - JTAG_DEBUG environment variable and CMake variable handling
+- `main/config.h` - Default `ENABLE_JTAG_DEBUG` define (0)
+- `main/main.c` - Conditional compilation for motor/encoder/servo init and motor task creation
+
+**Notes**:
+- Only applicable to ESP32-CAM target (TTGO uses different motor pins)
+- GPIO 12 boot state: External pull-down recommended for reliable boot
+- JTAG debugging requires USB-to-JTAG adapter (ESP-PROG, FT2232H, etc.)
+
+**Status**: IMPLEMENTED
 
 ---
+
+## Future Requirements
 
 (Add new requirements here as they are defined)

@@ -26,6 +26,7 @@ typedef struct {
     size_t count;          // Number of entries
     size_t bytes_used;
     size_t bytes_dropped;
+    uint32_t write_seq;    // Monotonic sequence number for stream tracking
     bool initialized;
     SemaphoreHandle_t mutex;
     vprintf_like_t original_vprintf;
@@ -149,6 +150,7 @@ static void add_log_entry(uint32_t timestamp, uint8_t level,
     state.head = (state.head + entry_size) % state.size;
     state.count++;
     state.bytes_used += entry_size;
+    state.write_seq++;  // Increment sequence number for each new entry
 
     xSemaphoreGive(state.mutex);
 }
@@ -252,6 +254,7 @@ esp_err_t log_buffer_init(void) {
     state.count = 0;
     state.bytes_used = 0;
     state.bytes_dropped = 0;
+    state.write_seq = 0;
 
     // Create mutex
     state.mutex = xSemaphoreCreateMutex();
@@ -404,12 +407,13 @@ void log_buffer_clear(void) {
 size_t log_buffer_get_read_position(void) {
     if (!state.initialized) return 0;
 
-    size_t pos = 0;
+    size_t seq = 0;
     if (xSemaphoreTake(state.mutex, pdMS_TO_TICKS(100)) == pdTRUE) {
-        pos = state.head;  // Start from current head (newest position)
+        // Return the current write sequence - caller will start from next entry
+        seq = state.write_seq;
         xSemaphoreGive(state.mutex);
     }
-    return pos;
+    return seq;
 }
 
 bool log_buffer_read_next(size_t *position, char *json_out, size_t max_len, uint8_t min_level) {
@@ -421,26 +425,36 @@ bool log_buffer_read_next(size_t *position, char *json_out, size_t max_len, uint
         return false;
     }
 
-    // Check if there's a new entry after our position
-    if (*position == state.head) {
+    // Position is a sequence number - check if there are newer entries
+    uint32_t read_seq = (uint32_t)*position;
+
+    // Check if there are any new entries
+    if (read_seq >= state.write_seq) {
         xSemaphoreGive(state.mutex);
         return false;  // No new entries
     }
 
-    // Find the next entry after position
-    // We iterate from tail to find entries that are newer than position
+    // Calculate which entry to read (0 = oldest in buffer)
+    // The oldest entry has sequence: write_seq - count
+    uint32_t oldest_seq = state.write_seq - state.count;
+
+    // If our position is too old (entries have been discarded), start from oldest
+    if (read_seq < oldest_seq) {
+        read_seq = oldest_seq;
+    }
+
+    // Calculate offset from tail (how many entries to skip)
+    uint32_t skip_count = read_seq - oldest_seq;
+
+    // Navigate to the entry we want to read
     size_t pos = state.tail;
-    size_t entries_checked = 0;
-    bool found = false;
-    log_entry_header_t found_header;
     char tag_buf[64];
     char msg_buf[LOG_ENTRY_MAX_SIZE];
+    log_entry_header_t header;
+    bool found = false;
 
-    while (entries_checked < state.count) {
-        size_t entry_start = pos;
-
+    for (uint32_t i = 0; i < state.count; i++) {
         // Read header
-        log_entry_header_t header;
         ring_read(pos, &header, sizeof(header));
         pos = (pos + sizeof(header)) % state.size;
 
@@ -458,33 +472,29 @@ bool log_buffer_read_next(size_t *position, char *json_out, size_t max_len, uint
         msg_buf[msg_len] = '\0';
         pos = (pos + header.msg_len) % state.size;
 
-        entries_checked++;
-
-        // Check if this entry is after our position
-        // Simple check: if position is between tail and this entry's end
-        if (entry_start == *position || (entries_checked == 1 && *position == state.tail)) {
-            // Skip entries we've already seen
-            *position = pos;
+        // Skip entries we've already read
+        if (i < skip_count) {
             continue;
         }
+
+        // Update position to next entry's sequence
+        *position = oldest_seq + i + 1;
 
         // Check level filter
         if (header.level > min_level) {
-            *position = pos;
             continue;
         }
 
-        // Found a matching entry
+        // Found a matching entry - format as JSON
         found = true;
-        found_header = header;
 
         // Escape JSON strings
         char escaped_tag[128];
         char escaped_msg[LOG_ENTRY_MAX_SIZE];
         size_t ti = 0, mi = 0;
 
-        for (size_t i = 0; tag_buf[i] && ti < sizeof(escaped_tag) - 2; i++) {
-            char c = tag_buf[i];
+        for (size_t j = 0; tag_buf[j] && ti < sizeof(escaped_tag) - 2; j++) {
+            char c = tag_buf[j];
             if (c == '"' || c == '\\') {
                 escaped_tag[ti++] = '\\';
             }
@@ -492,8 +502,8 @@ bool log_buffer_read_next(size_t *position, char *json_out, size_t max_len, uint
         }
         escaped_tag[ti] = '\0';
 
-        for (size_t i = 0; msg_buf[i] && mi < sizeof(escaped_msg) - 2; i++) {
-            char c = msg_buf[i];
+        for (size_t j = 0; msg_buf[j] && mi < sizeof(escaped_msg) - 2; j++) {
+            char c = msg_buf[j];
             if (c == '"' || c == '\\') {
                 escaped_msg[mi++] = '\\';
             } else if (c == '\n') {
@@ -509,11 +519,10 @@ bool log_buffer_read_next(size_t *position, char *json_out, size_t max_len, uint
 
         snprintf(json_out, max_len,
                  "{\"t\":%lu,\"l\":\"%c\",\"tag\":\"%s\",\"msg\":\"%s\"}",
-                 (unsigned long)found_header.timestamp_ms,
-                 level_to_char(found_header.level),
+                 (unsigned long)header.timestamp_ms,
+                 level_to_char(header.level),
                  escaped_tag, escaped_msg);
 
-        *position = pos;
         break;
     }
 

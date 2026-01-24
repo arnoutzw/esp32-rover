@@ -138,6 +138,18 @@ power:
   sleep_button_hold_time_ms: 5000
 
 # -----------------------------------------------------------------------------
+# Task Watchdog Timer (REQ-37)
+# -----------------------------------------------------------------------------
+# Monitors critical tasks and triggers reboot if any task becomes unresponsive
+task_watchdog:
+  # Enable task watchdog monitoring
+  enabled: true
+  # Timeout in seconds before watchdog triggers
+  timeout_sec: 30
+  # true = reboot on timeout, false = log warning only
+  panic_on_timeout: true
+
+# -----------------------------------------------------------------------------
 # Debug Options
 # -----------------------------------------------------------------------------
 debug:

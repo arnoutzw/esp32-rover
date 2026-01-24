@@ -180,6 +180,14 @@ def generate_header(config: dict, secrets: dict) -> str:
     lines.append(f'#define OTA_PASSWORD "{secrets.get("ota_password", "rover1234")}"')
     lines.append("")
 
+    # Task watchdog configuration (REQ-37)
+    task_wdt = config.get("task_watchdog", {})
+    lines.append("// Task Watchdog Configuration (REQ-37)")
+    lines.append(f'#define ENABLE_TASK_WATCHDOG {1 if task_wdt.get("enabled", True) else 0}')
+    lines.append(f'#define TASK_WDT_TIMEOUT_SEC {task_wdt.get("timeout_sec", 30)}')
+    lines.append(f'#define TASK_WDT_PANIC_ON_TIMEOUT {1 if task_wdt.get("panic_on_timeout", True) else 0}')
+    lines.append("")
+
     # Debug options
     debug = config.get("debug", {})
     lines.append("// Debug Options")
