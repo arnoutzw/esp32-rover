@@ -9,7 +9,7 @@
 5. [User Interface](#user-interface) (REQ-17 to REQ-22)
 6. [Control & Safety](#control--safety) (REQ-23 to REQ-28)
 7. [Testing & Quality](#testing--quality) (REQ-29)
-8. [Future Requirements](#future-requirements)
+8. [Future Requirements](#future-requirements) (REQ-30+)
 
 ---
 
@@ -928,4 +928,49 @@ make test
 
 ## Future Requirements
 
-(Add new requirements here as they are defined)
+### REQ-30: Deep Sleep Power Save Mode [NOT IMPLEMENTED]
+
+**Requirement**: To save power and extend battery life, implement a deep sleep function that activates by holding the left button for 5 seconds. The function shall turn off the LCD backlight, disable all radios (WiFi/Bluetooth), and put the ESP32 into deep sleep mode.
+
+**Proposed Implementation**:
+- Long-press detection on left button (GPIO 0 on TTGO, not available on ESP32-CAM)
+- Hold time: 5 seconds to activate
+- Sequence before sleep:
+  1. Display "Entering Sleep..." on LCD
+  2. Disable motor and servo
+  3. Turn off LCD backlight
+  4. Disconnect WiFi
+  5. Disable Bluetooth (if enabled)
+  6. Enter deep sleep mode
+
+**Wake-up Method**:
+- Press left button (GPIO 0 configured as RTC wake source)
+- Or: External reset button
+
+**Power Consumption**:
+- Active mode: ~180mA (typical)
+- Deep sleep: ~10µA (ESP32 spec)
+
+**Configuration** (proposed):
+```yaml
+power:
+  deep_sleep_enabled: true
+  sleep_button_hold_time_ms: 5000
+  wake_button_gpio: 0
+```
+
+**Notes**:
+- Only applicable to TTGO T-Display target (has accessible buttons)
+- ESP32-CAM lacks user buttons, would need external wake source
+- RTC GPIO must be used for wake-up (GPIO 0, 2, 4, 12-15, 25-27, 32-39)
+
+**Files** (proposed):
+- `main/main.c` - Sleep detection and power-down sequence
+- `main/config.h` - Deep sleep GPIO configuration
+- `rover_config.yaml` - Power management settings
+
+**Status**: Not implemented - awaiting development
+
+---
+
+(Add new requirements here as they are defined) 
