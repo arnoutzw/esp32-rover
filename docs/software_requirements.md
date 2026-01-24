@@ -184,18 +184,21 @@ curl -X POST -H "X-OTA-Password: rover1234" \
 
 **Implementation**:
 - FreeRTOS task pinning to specific cores
-- Core 0: WiFi, networking, web server
-- Core 1: Motor control, encoder reading, LCD updates
+- Core 0: WiFi, networking, web server, status updates, LCD
+- Core 1: Motor control (dedicated for real-time performance)
 - Task priority configuration for real-time requirements
 
-**Task Distribution**:
-| Task | Core | Priority | Description |
-|------|------|----------|-------------|
-| WiFi | 0 | High | Network stack |
-| Web Server | 0 | Medium | HTTP handling |
-| Motor Control | 1 | High | FOC loop |
-| LCD Update | 1 | Low | Display refresh |
-| MQTT | 0 | Low | Telemetry publish |
+**Task Allocation**:
+| Task | Core | Priority | Frequency | Description |
+|------|------|----------|-----------|-------------|
+| Motor Control | 1 | 5 (High) | 100 Hz | FOC loop, servo control |
+| Status Update | 0 | 2 (Medium) | 20 Hz | Button polling, status collection |
+| LCD Update | 0 | 1 (Low) | ~60 Hz | Display refresh, diagnostics |
+| Web Server | 0 | - | Event-driven | HTTP request handling |
+| WiFi | 0 | High | - | Network stack (ESP-IDF managed) |
+| MQTT | 0 | 2 | 1 Hz | Telemetry publish (if enabled) |
+
+*Source: `main/main.c` lines 1456-1488*
 
 **Monitoring**:
 - Task count per core displayed in diagnostics
