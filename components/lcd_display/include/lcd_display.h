@@ -42,7 +42,26 @@ typedef struct {
     bool button_right;      /**< Right button pressed */
     const char* wifi_ssid;  /**< WiFi SSID */
     const char* wifi_ip;    /**< IP address */
+    const char* mac_addr;   /**< MAC address string */
+    uint32_t uptime_secs;   /**< Uptime in seconds */
 } lcd_rover_status_t;
+
+/**
+ * @brief WiFi diagnostics for diagnostic screen
+ */
+typedef struct {
+    const char* ssid;           /**< AP SSID */
+    const char* ip_addr;        /**< IP address */
+    const char* mac_addr;       /**< MAC address */
+    uint8_t channel;            /**< WiFi channel */
+    uint8_t connected_stations; /**< Number of connected stations */
+    int8_t tx_power;            /**< TX power in dBm */
+    uint32_t free_heap;         /**< Free heap memory */
+    uint32_t min_free_heap;     /**< Minimum free heap since boot */
+    uint32_t uptime_secs;       /**< Uptime in seconds */
+    float battery_volts;        /**< Battery voltage */
+    float cpu_freq_mhz;         /**< CPU frequency */
+} lcd_wifi_diag_t;
 
 /**
  * @brief Initialize the LCD display
@@ -81,6 +100,19 @@ esp_err_t lcd_display_set_backlight(uint8_t brightness);
  * @return ESP_OK on success
  */
 esp_err_t lcd_display_clear(void);
+
+/**
+ * @brief Show diagnostic screen with WiFi info
+ *
+ * @param diag WiFi diagnostic data
+ * @return ESP_OK on success
+ */
+esp_err_t lcd_display_diagnostics(const lcd_wifi_diag_t *diag);
+
+/**
+ * @brief Reset display state (call when exiting diagnostic mode)
+ */
+void lcd_display_reset_state(void);
 
 #ifdef __cplusplus
 }

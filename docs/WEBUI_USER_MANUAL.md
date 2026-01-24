@@ -10,6 +10,7 @@ This manual explains how to use the web-based control interface for the ESP32 Ro
 - [Interface Overview](#interface-overview)
 - [Control Elements](#control-elements)
 - [Hardware Button Indicators](#hardware-button-indicators)
+- [Diagnostic Mode](#diagnostic-mode-ttgo-t-display-only)
 - [Understanding the Display](#understanding-the-display)
 - [Tips for Best Performance](#tips-for-best-performance)
 - [Troubleshooting](#troubleshooting)
@@ -417,7 +418,7 @@ The hardware buttons can be used for:
 
 1. **Testing connectivity** - Press buttons to verify WebSocket/HTTP communication
 2. **Physical feedback** - Confirm the rover is responding to web commands
-3. **Future functionality** - Can be programmed for custom actions (e.g., horn, lights)
+3. **Diagnostic Mode** - Hold both buttons for 3 seconds to enter diagnostic screen
 
 ### Technical Details
 
@@ -425,6 +426,74 @@ The hardware buttons can be used for:
 - **Debouncing**: Hardware buttons use internal pull-up resistors
 - **Active State**: Buttons are active LOW (pressed = GPIO reads 0)
 - **LCD Optimization**: Button indicators only redraw when state changes to minimize latency
+
+---
+
+## Diagnostic Mode (TTGO T-Display Only)
+
+The TTGO T-Display has a built-in diagnostic screen that shows detailed system and WiFi information.
+
+### Entering Diagnostic Mode
+
+1. **Hold both front buttons (L + R) simultaneously**
+2. **Keep holding for 3 seconds**
+3. The screen will switch to the diagnostic display
+
+### Exiting Diagnostic Mode
+
+- **Release both buttons** to return to the normal rover status display
+
+### Diagnostic Information Displayed
+
+```
+┌─────────────────────────────────┐
+│      DIAGNOSTICS                │
+├─────────────────────────────────┤
+│  -- WiFi --                     │
+│  SSID: ESP32-Rover              │
+│  Chan: 1      TX: 20dBm         │
+│  Clients: 1                     │
+│  IP: 192.168.4.1                │
+│  MAC: C4:4F:33:6A:4E:61         │
+├─────────────────────────────────┤
+│  -- System --                   │
+│  CPU: 240 MHz                   │
+│  Heap: 156 KB                   │
+│  Min: 142 KB                    │
+│  Batt: 3.85V                    │
+│  Up: 00:15:32                   │
+├─────────────────────────────────┤
+│  Release to exit                │
+└─────────────────────────────────┘
+```
+
+### WiFi Section
+
+| Field | Description |
+|-------|-------------|
+| **SSID** | Access point name |
+| **Chan** | WiFi channel (1-13) |
+| **TX** | Transmit power in dBm |
+| **Clients** | Number of connected stations |
+| **IP** | Device IP address |
+| **MAC** | Device MAC address |
+
+### System Section
+
+| Field | Description |
+|-------|-------------|
+| **CPU** | CPU frequency (typically 240 MHz) |
+| **Heap** | Current free heap memory |
+| **Min** | Minimum free heap since boot (helps detect memory leaks) |
+| **Batt** | Battery voltage (color-coded: green > 3.7V, yellow > 3.4V, red < 3.4V) |
+| **Up** | Uptime since last reboot (HH:MM:SS) |
+
+### Use Cases for Diagnostic Mode
+
+1. **Troubleshooting WiFi issues** - Check channel, TX power, and connected clients
+2. **Memory monitoring** - Monitor heap usage for memory leaks
+3. **Battery health** - Check precise battery voltage
+4. **System verification** - Confirm CPU frequency and uptime
 
 ---
 

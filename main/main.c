@@ -571,51 +571,164 @@ static esp_err_t init_lcd_display(void)
     return ESP_OK;
 }
 
+// Diagnostic mode state
+typedef enum {
+    DIAG_MODE_OFF,
+    DIAG_MODE_ENTERING,  // Both buttons held, counting down
+    DIAG_MODE_ON,        // Diagnostic screen shown
+    DIAG_MODE_EXITING    // Buttons released, returning to normal
+} diag_mode_t;
+
+static uint8_t get_connected_station_count(void)
+{
+    wifi_sta_list_t sta_list;
+    if (esp_wifi_ap_get_sta_list(&sta_list) == ESP_OK) {
+        return sta_list.num;
+    }
+    return 0;
+}
+
+static int8_t get_wifi_tx_power(void)
+{
+    int8_t power = 0;
+    esp_wifi_get_max_tx_power(&power);
+    return power / 4;  // Convert from 0.25dBm units to dBm
+}
+
 static void lcd_update_task(void *pvParameters)
 {
     ESP_LOGI(TAG, "LCD update task started");
 
+    // Get MAC address once at startup
+    static char mac_str[18];
+    uint8_t mac[6];
+    esp_read_mac(mac, ESP_MAC_WIFI_STA);
+    snprintf(mac_str, sizeof(mac_str), "%02X:%02X:%02X:%02X:%02X:%02X",
+             mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]);
+
+    // Record start time for uptime calculation
+    TickType_t start_ticks = xTaskGetTickCount();
+
+    // Diagnostic mode tracking
+    diag_mode_t diag_mode = DIAG_MODE_OFF;
+    TickType_t both_buttons_start = 0;
+    const TickType_t DIAG_HOLD_TIME = pdMS_TO_TICKS(3000);  // 3 seconds
+
     lcd_rover_status_t lcd_status = {
         .wifi_ssid = WIFI_SSID,
         .wifi_ip = "192.168.4.1",
+        .mac_addr = mac_str,
     };
 
     while (1) {
-        // Get current command
-        rover_command_t cmd = {0};
-        if (command_mutex && xSemaphoreTake(command_mutex, pdMS_TO_TICKS(10)) == pdTRUE) {
-            cmd = current_command;
-            xSemaphoreGive(command_mutex);
-        }
-
-        // Update LCD status struct
-        lcd_status.speed_percent = (int)cmd.speed;
-        lcd_status.steering_degrees = (int)((cmd.steering / 100.0f) * STEERING_MAX_ANGLE);
-        lcd_status.estop = cmd.emergency_stop;
-
-        // Get motor velocity
-        if (motor_handle) {
-            bldc_motor_get_velocity(motor_handle, &lcd_status.velocity_rads);
-        }
-
-        // Check if client connected (command age < 1 second means active)
-        lcd_status.connected = (web_server_get_command_age_ms() < 1000);
-
-        // Battery voltage
-#if defined(ENABLE_BATTERY_ADC) && ENABLE_BATTERY_ADC
-        lcd_status.battery_volts = read_battery_voltage();
-#else
-        lcd_status.battery_volts = 0.0f;
-#endif
+        bool btn_left = false;
+        bool btn_right = false;
 
 #if defined(ENABLE_BUTTONS) && ENABLE_BUTTONS
         // Read button states
-        lcd_status.button_left = read_button_left();
-        lcd_status.button_right = read_button_right();
+        btn_left = read_button_left();
+        btn_right = read_button_right();
 #endif
 
-        // Update display
-        lcd_display_update(&lcd_status);
+        // Calculate uptime
+        uint32_t uptime_secs = (xTaskGetTickCount() - start_ticks) / configTICK_RATE_HZ;
+
+        // Diagnostic mode state machine
+        bool both_pressed = btn_left && btn_right;
+
+        switch (diag_mode) {
+            case DIAG_MODE_OFF:
+                if (both_pressed) {
+                    // Start counting for diagnostic mode entry
+                    both_buttons_start = xTaskGetTickCount();
+                    diag_mode = DIAG_MODE_ENTERING;
+                    ESP_LOGI(TAG, "Diagnostic mode: hold buttons for 3 seconds...");
+                }
+                break;
+
+            case DIAG_MODE_ENTERING:
+                if (!both_pressed) {
+                    // Released too early
+                    diag_mode = DIAG_MODE_OFF;
+                } else if ((xTaskGetTickCount() - both_buttons_start) >= DIAG_HOLD_TIME) {
+                    // Held long enough, enter diagnostic mode
+                    diag_mode = DIAG_MODE_ON;
+                    lcd_display_clear();
+                    ESP_LOGI(TAG, "Entering diagnostic mode");
+                }
+                break;
+
+            case DIAG_MODE_ON:
+                if (!both_pressed) {
+                    // Buttons released, exit diagnostic mode
+                    diag_mode = DIAG_MODE_EXITING;
+                }
+                break;
+
+            case DIAG_MODE_EXITING:
+                // Return to normal mode
+                diag_mode = DIAG_MODE_OFF;
+                lcd_display_reset_state();
+                lcd_display_clear();
+                ESP_LOGI(TAG, "Exiting diagnostic mode");
+                break;
+        }
+
+        if (diag_mode == DIAG_MODE_ON) {
+            // Show diagnostic screen
+            lcd_wifi_diag_t diag = {
+                .ssid = WIFI_SSID,
+                .ip_addr = "192.168.4.1",
+                .mac_addr = mac_str,
+                .channel = WIFI_CHANNEL,
+                .connected_stations = get_connected_station_count(),
+                .tx_power = get_wifi_tx_power(),
+                .free_heap = esp_get_free_heap_size(),
+                .min_free_heap = esp_get_minimum_free_heap_size(),
+                .uptime_secs = uptime_secs,
+                .cpu_freq_mhz = CONFIG_ESP_DEFAULT_CPU_FREQ_MHZ,
+#if defined(ENABLE_BATTERY_ADC) && ENABLE_BATTERY_ADC
+                .battery_volts = read_battery_voltage(),
+#else
+                .battery_volts = 0.0f,
+#endif
+            };
+            lcd_display_diagnostics(&diag);
+        } else if (diag_mode == DIAG_MODE_OFF) {
+            // Normal operation - update rover status display
+            rover_command_t cmd = {0};
+            if (command_mutex && xSemaphoreTake(command_mutex, pdMS_TO_TICKS(10)) == pdTRUE) {
+                cmd = current_command;
+                xSemaphoreGive(command_mutex);
+            }
+
+            // Update LCD status struct
+            lcd_status.speed_percent = (int)cmd.speed;
+            lcd_status.steering_degrees = (int)((cmd.steering / 100.0f) * STEERING_MAX_ANGLE);
+            lcd_status.estop = cmd.emergency_stop;
+
+            // Get motor velocity
+            if (motor_handle) {
+                bldc_motor_get_velocity(motor_handle, &lcd_status.velocity_rads);
+            }
+
+            // Check if client connected (command age < 1 second means active)
+            lcd_status.connected = (web_server_get_command_age_ms() < 1000);
+
+            // Battery voltage
+#if defined(ENABLE_BATTERY_ADC) && ENABLE_BATTERY_ADC
+            lcd_status.battery_volts = read_battery_voltage();
+#else
+            lcd_status.battery_volts = 0.0f;
+#endif
+
+            lcd_status.button_left = btn_left;
+            lcd_status.button_right = btn_right;
+            lcd_status.uptime_secs = uptime_secs;
+
+            // Update display
+            lcd_display_update(&lcd_status);
+        }
 
         vTaskDelay(pdMS_TO_TICKS(50));  // Update at 20Hz for responsive buttons
     }

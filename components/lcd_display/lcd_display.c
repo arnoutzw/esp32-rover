@@ -57,6 +57,7 @@ static bool s_first_update = true; // Track first update to clear splash
 static bool s_wifi_info_drawn = false; // Track if WiFi info has been drawn
 static int8_t s_prev_button_left = -1; // Previous button states (-1 = not yet drawn)
 static int8_t s_prev_button_right = -1;
+static char s_prev_uptime_str[9] = ""; // Previous uptime string "HH:MM:SS" for digit-by-digit update
 
 // Basic 5x7 font (ASCII 32-127)
 static const uint8_t font5x7[] = {
@@ -528,16 +529,61 @@ esp_err_t lcd_display_update(const lcd_rover_status_t *status)
     }
     y += btn_height + 4;
 
-    // WiFi info at bottom (only draw once since it doesn't change)
+    // Info section at bottom (WiFi/MAC drawn once, uptime updated)
+    int info_y = LCD_HEIGHT - 42;  // Taller section for more info
+
     if (!s_wifi_info_drawn) {
-        lcd_fill_rect(0, LCD_HEIGHT - 30, LCD_WIDTH, 30, COLOR_DARKGRAY);
+        lcd_fill_rect(0, info_y, LCD_WIDTH, 42, COLOR_DARKGRAY);
+        // SSID and IP on first line
         if (status->wifi_ssid) {
-            lcd_draw_string(4, LCD_HEIGHT - 26, status->wifi_ssid, COLOR_WHITE, COLOR_DARKGRAY, 1);
+            lcd_draw_string(4, info_y + 2, status->wifi_ssid, COLOR_WHITE, COLOR_DARKGRAY, 1);
         }
         if (status->wifi_ip) {
-            lcd_draw_string(4, LCD_HEIGHT - 14, status->wifi_ip, COLOR_CYAN, COLOR_DARKGRAY, 1);
+            lcd_draw_string(4, info_y + 12, status->wifi_ip, COLOR_CYAN, COLOR_DARKGRAY, 1);
+        }
+        // MAC address on second line
+        if (status->mac_addr) {
+            lcd_draw_string(4, info_y + 22, status->mac_addr, COLOR_YELLOW, COLOR_DARKGRAY, 1);
         }
         s_wifi_info_drawn = true;
+    }
+
+    // Uptime (only redraw digits that changed)
+    {
+        uint32_t secs = status->uptime_secs;
+        uint32_t mins = secs / 60;
+        uint32_t hrs = mins / 60;
+        secs %= 60;
+        mins %= 60;
+        if (hrs > 99) hrs = 99;  // Cap at 99 hours for display
+
+        // Format as HH:MM:SS (always exactly 8 characters)
+        char uptime_str[9];
+        uptime_str[0] = '0' + (hrs / 10);
+        uptime_str[1] = '0' + (hrs % 10);
+        uptime_str[2] = ':';
+        uptime_str[3] = '0' + (mins / 10);
+        uptime_str[4] = '0' + (mins % 10);
+        uptime_str[5] = ':';
+        uptime_str[6] = '0' + (secs / 10);
+        uptime_str[7] = '0' + (secs % 10);
+        uptime_str[8] = '\0';
+
+        // Compare character by character and only redraw changed digits
+        int uptime_x = 4;
+        int uptime_y = info_y + 32;
+        int char_width = 6; // 5 pixel font + 1 pixel spacing
+
+        for (int i = 0; i < 8; i++) {
+            if (s_prev_uptime_str[i] != uptime_str[i]) {
+                // This character changed, redraw it
+                lcd_draw_char(uptime_x + i * char_width, uptime_y, uptime_str[i],
+                             COLOR_GREEN, COLOR_DARKGRAY, 1);
+            }
+        }
+
+        // Update previous string
+        memcpy(s_prev_uptime_str, uptime_str, 9);
     }
 
     return ESP_OK;
@@ -551,4 +597,120 @@ esp_err_t lcd_display_set_backlight(uint8_t brightness)
         ledc_update_duty(LEDC_LOW_SPEED_MODE, LEDC_CHANNEL_1);
     }
     return ESP_OK;
+}
+
+esp_err_t lcd_display_diagnostics(const lcd_wifi_diag_t *diag)
+{
+    if (!diag) {
+        return ESP_ERR_INVALID_ARG;
+    }
+
+    char buf[32];
+    int y = 0;
+
+    // Header
+    lcd_fill_rect(0, y, LCD_WIDTH, 16, COLOR_MAGENTA);
+    lcd_draw_string(20, y + 4, "DIAGNOSTICS", COLOR_WHITE, COLOR_MAGENTA, 1);
+    y += 18;
+
+    // WiFi Section
+    lcd_fill_rect(0, y, LCD_WIDTH, 10, COLOR_DARKGRAY);
+    lcd_draw_string(4, y + 2, "-- WiFi --", COLOR_CYAN, COLOR_DARKGRAY, 1);
+    y += 12;
+
+    // SSID
+    lcd_draw_string(4, y, "SSID:", COLOR_LIGHTGRAY, COLOR_BLACK, 1);
+    if (diag->ssid) {
+        lcd_draw_string(40, y, diag->ssid, COLOR_WHITE, COLOR_BLACK, 1);
+    }
+    y += 10;
+
+    // Channel
+    lcd_draw_string(4, y, "Chan:", COLOR_LIGHTGRAY, COLOR_BLACK, 1);
+    snprintf(buf, sizeof(buf), "%d", diag->channel);
+    lcd_draw_string(40, y, buf, COLOR_GREEN, COLOR_BLACK, 1);
+
+    // TX Power
+    lcd_draw_string(70, y, "TX:", COLOR_LIGHTGRAY, COLOR_BLACK, 1);
+    snprintf(buf, sizeof(buf), "%ddBm", diag->tx_power);
+    lcd_draw_string(94, y, buf, COLOR_GREEN, COLOR_BLACK, 1);
+    y += 10;
+
+    // Connected stations
+    lcd_draw_string(4, y, "Clients:", COLOR_LIGHTGRAY, COLOR_BLACK, 1);
+    snprintf(buf, sizeof(buf), "%d", diag->connected_stations);
+    lcd_draw_string(58, y, buf, COLOR_YELLOW, COLOR_BLACK, 1);
+    y += 10;
+
+    // IP Address
+    lcd_draw_string(4, y, "IP:", COLOR_LIGHTGRAY, COLOR_BLACK, 1);
+    if (diag->ip_addr) {
+        lcd_draw_string(28, y, diag->ip_addr, COLOR_CYAN, COLOR_BLACK, 1);
+    }
+    y += 10;
+
+    // MAC Address
+    lcd_draw_string(4, y, "MAC:", COLOR_LIGHTGRAY, COLOR_BLACK, 1);
+    if (diag->mac_addr) {
+        lcd_draw_string(34, y, diag->mac_addr, COLOR_YELLOW, COLOR_BLACK, 1);
+    }
+    y += 12;
+
+    // System Section
+    lcd_fill_rect(0, y, LCD_WIDTH, 10, COLOR_DARKGRAY);
+    lcd_draw_string(4, y + 2, "-- System --", COLOR_CYAN, COLOR_DARKGRAY, 1);
+    y += 12;
+
+    // CPU Frequency
+    lcd_draw_string(4, y, "CPU:", COLOR_LIGHTGRAY, COLOR_BLACK, 1);
+    snprintf(buf, sizeof(buf), "%.0f MHz", diag->cpu_freq_mhz);
+    lcd_draw_string(34, y, buf, COLOR_GREEN, COLOR_BLACK, 1);
+    y += 10;
+
+    // Free Heap
+    lcd_draw_string(4, y, "Heap:", COLOR_LIGHTGRAY, COLOR_BLACK, 1);
+    snprintf(buf, sizeof(buf), "%lu KB", (unsigned long)(diag->free_heap / 1024));
+    lcd_draw_string(40, y, buf, COLOR_GREEN, COLOR_BLACK, 1);
+    y += 10;
+
+    // Min Free Heap
+    lcd_draw_string(4, y, "Min:", COLOR_LIGHTGRAY, COLOR_BLACK, 1);
+    snprintf(buf, sizeof(buf), "%lu KB", (unsigned long)(diag->min_free_heap / 1024));
+    lcd_draw_string(34, y, buf, COLOR_YELLOW, COLOR_BLACK, 1);
+    y += 10;
+
+    // Battery
+    lcd_draw_string(4, y, "Batt:", COLOR_LIGHTGRAY, COLOR_BLACK, 1);
+    snprintf(buf, sizeof(buf), "%.2fV", diag->battery_volts);
+    uint16_t bat_color = (diag->battery_volts > 3.7f) ? COLOR_GREEN :
+                        (diag->battery_volts > 3.4f) ? COLOR_YELLOW : COLOR_RED;
+    lcd_draw_string(40, y, buf, bat_color, COLOR_BLACK, 1);
+    y += 10;
+
+    // Uptime
+    lcd_draw_string(4, y, "Up:", COLOR_LIGHTGRAY, COLOR_BLACK, 1);
+    uint32_t secs = diag->uptime_secs;
+    uint32_t mins = secs / 60;
+    uint32_t hrs = mins / 60;
+    secs %= 60;
+    mins %= 60;
+    snprintf(buf, sizeof(buf), "%02lu:%02lu:%02lu", (unsigned long)hrs, (unsigned long)mins, (unsigned long)secs);
+    lcd_draw_string(28, y, buf, COLOR_GREEN, COLOR_BLACK, 1);
+    y += 14;
+
+    // Footer with exit instruction
+    lcd_fill_rect(0, LCD_HEIGHT - 20, LCD_WIDTH, 20, COLOR_DARKGRAY);
+    lcd_draw_string(8, LCD_HEIGHT - 14, "Release to exit", COLOR_WHITE, COLOR_DARKGRAY, 1);
+
+    return ESP_OK;
+}
+
+void lcd_display_reset_state(void)
+{
+    // Reset all tracking state so next update redraws everything
+    s_first_update = true;
+    s_wifi_info_drawn = false;
+    s_prev_button_left = -1;
+    s_prev_button_right = -1;
+    memset(s_prev_uptime_str, 0, sizeof(s_prev_uptime_str));
 }
