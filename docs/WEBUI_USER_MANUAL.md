@@ -692,3 +692,17 @@ To change these, edit `main/config.h` and reflash.
 3. Verify hardware connections
 4. Check GitHub issues for known problems
 
+---
+
+## Developer Resources
+
+For firmware developers and contributors:
+
+- **[DEVELOPMENT_LESSONS.md](DEVELOPMENT_LESSONS.md)** - Lessons learned from bugfixes and feature development, including:
+  - Hardware resource conflict prevention (LEDC channels, GPIO)
+  - Display optimization techniques
+  - Responsive input handling with GPIO interrupts
+  - System diagnostics implementation
+
+- **[API_REFERENCE.md](API_REFERENCE.md)** - Component API documentation
+
