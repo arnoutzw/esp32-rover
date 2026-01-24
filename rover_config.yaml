@@ -32,7 +32,7 @@ wifi:
     ssid: "KPNCCD9C6"
     password: "Xtvd6fh3FncT2cd8"
     # Timeout in seconds before falling back to AP mode (sta_first mode only)
-    connect_timeout: 10
+    connect_timeout: 30
 
 # -----------------------------------------------------------------------------
 # REST API Configuration

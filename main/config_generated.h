@@ -20,7 +20,7 @@
 // WiFi STA Settings
 #define WIFI_STA_SSID "KPNCCD9C6"
 #define WIFI_STA_PASSWORD "Xtvd6fh3FncT2cd8"
-#define WIFI_STA_CONNECT_TIMEOUT_S 10
+#define WIFI_STA_CONNECT_TIMEOUT_S 30
 
 // REST API Configuration
 #define ENABLE_REST_API 1
