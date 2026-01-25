@@ -408,14 +408,15 @@ run_command() {
     esac
 }
 
-# Check for dirty working directory
+# Check for dirty working directory (modified/staged files only, ignore untracked)
 check_clean_workdir() {
     cd "$PROJECT_ROOT"
-    if [ -n "$(git status --porcelain)" ]; then
+    # Use -uno to ignore untracked files (binary archives are intentionally untracked)
+    if [ -n "$(git status --porcelain -uno)" ]; then
         echo -e "${RED}Error: Working directory is dirty!${NC}"
         echo ""
         echo "Uncommitted changes detected:"
-        git status --short
+        git status --short -uno
         echo ""
         echo -e "${YELLOW}Please commit and push your changes before building:${NC}"
         echo "  git add -A && git commit -m 'Description of changes'"
