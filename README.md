@@ -2,10 +2,6 @@
 
 A WiFi-controlled rover using ESP32 with SimpleFOC BLDC motor control and servo steering.
 
-<p align="center">
-  <img src="docs/images/rover_top_view.svg" alt="Rover Top View" width="400"/>
-</p>
-
 ## Features
 
 - **WiFi Control**: AP mode, STA mode, or STA-first with AP fallback

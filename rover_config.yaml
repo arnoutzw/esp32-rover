@@ -150,6 +150,19 @@ task_watchdog:
   panic_on_timeout: true
 
 # -----------------------------------------------------------------------------
+# Status LED Indicator (REQ-39) - ESP32-CAM only
+# -----------------------------------------------------------------------------
+# On-board red LED (GPIO 33) indicates WiFi status
+# Uses inverted logic: LOW = LED on, HIGH = LED off
+status_led:
+  # Enable status LED indicator
+  enabled: true
+  # Blink period for STA connected mode (1Hz = 1000ms)
+  sta_blink_period_ms: 1000
+  # Blink period for AP mode (2Hz = 500ms)
+  ap_blink_period_ms: 500
+
+# -----------------------------------------------------------------------------
 # Debug Options
 # -----------------------------------------------------------------------------
 debug:

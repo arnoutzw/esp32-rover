@@ -101,6 +101,42 @@ size_t log_buffer_get_read_position(void);
  */
 bool log_buffer_read_next(size_t *position, char *json_out, size_t max_len, uint8_t min_level);
 
+// =============================================================================
+// SD Card Storage (REQ-31 update)
+// =============================================================================
+
+/**
+ * @brief Enable SD card storage for logs
+ *
+ * When enabled, logs are written to SD card in addition to RAM buffer.
+ * If SD card write fails, falls back to RAM-only gracefully.
+ *
+ * @param file_path     Full path to log file (e.g., "/sdcard/rover_logs.txt")
+ * @return ESP_OK on success, ESP_FAIL if file cannot be opened
+ */
+esp_err_t log_buffer_enable_sd_storage(const char *file_path);
+
+/**
+ * @brief Disable SD card storage
+ *
+ * Logs will only be stored in RAM buffer after this call.
+ */
+void log_buffer_disable_sd_storage(void);
+
+/**
+ * @brief Check if SD card storage is active
+ *
+ * @return true if SD card storage is enabled and working
+ */
+bool log_buffer_is_sd_active(void);
+
+/**
+ * @brief Flush pending logs to SD card
+ *
+ * Forces immediate write of buffered logs to SD card.
+ */
+void log_buffer_flush_sd(void);
+
 #ifdef __cplusplus
 }
 #endif

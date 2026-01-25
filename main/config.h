@@ -142,6 +142,13 @@
 #define CAM_FRAME_SIZE      FRAMESIZE_QVGA // 320x240 (lower resolution, less noise)
 #define CAM_JPEG_QUALITY    12           // 0-63, lower is better quality
 
+// REQ-39: Status LED (on-board red LED next to RST button)
+// Uses inverted logic: LOW = LED on, HIGH = LED off
+#define STATUS_LED_GPIO     GPIO_NUM_33
+
+// Flash LED (on-board white LED)
+#define FLASH_LED_GPIO      GPIO_NUM_4
+
 #else // ROVER_TARGET_TTGO
 // -----------------------------------------------------------------------------
 // TTGO T-Display Pin Configuration

@@ -22,6 +22,8 @@ idf_component_register(
         lwip
         app_update
         resource_guard
+        status_led
+        sd_card
 )
 
 # Allow target selection via environment variable or CMake variable
@@ -53,4 +55,19 @@ endif()
 if(JTAG_DEBUG)
     target_compile_definitions(${COMPONENT_LIB} PUBLIC ENABLE_JTAG_DEBUG=1)
     message(STATUS "JTAG debug mode ENABLED - motor control DISABLED (GPIO 12-15 available for JTAG)")
+endif()
+
+# REQ-40: SD Card Debug Mode - enables SD card in 1-bit mode, disables motor control
+# SD card shares pins with motor, so they are mutually exclusive
+# Usage: SD_CARD_DEBUG=1 ROVER_TARGET=esp32cam idf.py build
+# Or: idf.py build -DROVER_TARGET=esp32cam -DSD_CARD_DEBUG=1
+if(DEFINED ENV{SD_CARD_DEBUG})
+    set(SD_CARD_DEBUG $ENV{SD_CARD_DEBUG})
+endif()
+
+if(SD_CARD_DEBUG)
+    target_compile_definitions(${COMPONENT_LIB} PUBLIC ENABLE_SD_CARD=1)
+    # SD card mode also implies JTAG mode disabled motor
+    target_compile_definitions(${COMPONENT_LIB} PUBLIC ENABLE_JTAG_DEBUG=1)
+    message(STATUS "SD Card debug mode ENABLED - motor control DISABLED (GPIO 14-15 used by SD card)")
 endif()

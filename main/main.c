@@ -46,6 +46,8 @@
 #include "mqtt_service.h"
 #endif
 #include "log_buffer.h"
+#include "status_led.h"
+#include "sd_card.h"
 
 static const char *TAG = "ROVER_MAIN";
 
@@ -966,6 +968,11 @@ static void status_update_task(void *pvParameters)
         mqtt_service_update_status(&status);
 #endif
 
+#if defined(ENABLE_STATUS_LED) && ENABLE_STATUS_LED
+        // REQ-39: Update status LED based on WiFi state
+        status_led_update(wifi_is_sta_mode(), wifi_is_sta_connected());
+#endif
+
 #if defined(ENABLE_TASK_WATCHDOG) && ENABLE_TASK_WATCHDOG
         // REQ-37: Feed task watchdog
         esp_task_wdt_reset();
@@ -1647,6 +1654,27 @@ void app_main(void)
     if (ret != ESP_OK) {
         ESP_LOGE(TAG, "LCD display init failed: %s", esp_err_to_name(ret));
         // Continue - LCD will be disabled
+    }
+#endif
+
+#if defined(ENABLE_STATUS_LED) && ENABLE_STATUS_LED
+    // REQ-39: Initialize status LED (ESP32-CAM only)
+    ret = status_led_init();
+    if (ret != ESP_OK && ret != ESP_ERR_NOT_SUPPORTED) {
+        ESP_LOGW(TAG, "Status LED init failed: %s", esp_err_to_name(ret));
+    }
+#endif
+
+#if defined(ENABLE_SD_CARD) && ENABLE_SD_CARD
+    // REQ-40: Initialize SD card in 1-bit mode (ESP32-CAM only)
+    // Note: Motor control is disabled when SD card is enabled
+    ret = sd_card_init();
+    if (ret == ESP_OK) {
+        ESP_LOGI(TAG, "SD card initialized successfully");
+        // Enable SD card storage for log buffer
+        log_buffer_enable_sd_storage("/sdcard/rover_logs.txt");
+    } else if (ret != ESP_ERR_NOT_SUPPORTED) {
+        ESP_LOGW(TAG, "SD card init failed: %s (continuing without SD)", esp_err_to_name(ret));
     }
 #endif
 

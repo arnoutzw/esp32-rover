@@ -5,6 +5,7 @@
 #include <string.h>
 #include <stdio.h>
 #include <stdarg.h>
+#include <time.h>
 
 static const char *TAG = "LOG_BUFFER";
 
@@ -34,8 +35,22 @@ typedef struct {
 
 static log_buffer_state_t state = {0};
 
-// Forward declaration
+// =============================================================================
+// SD Card Storage State (REQ-31 update) - declared early for vprintf hook
+// =============================================================================
+static struct {
+    bool enabled;
+    char file_path[128];
+    FILE *file;
+    size_t bytes_written;
+    size_t write_errors;
+} sd_state = {0};
+
+// Forward declarations
 static int log_vprintf_hook(const char *fmt, va_list args);
+static void sd_write_entry_internal(uint32_t timestamp, uint8_t level,
+                                    const char *tag, size_t tag_len,
+                                    const char *msg, size_t msg_len);
 
 // Level character to level number
 static uint8_t char_to_level(char c) {
@@ -230,8 +245,11 @@ static int log_vprintf_hook(const char *fmt, va_list args) {
     }
     size_t msg_len = msg_end - msg_start;
 
-    // Add to buffer
+    // Add to RAM buffer
     add_log_entry(timestamp, char_to_level(level_char), tag_start, tag_len, msg_start, msg_len);
+
+    // Also write to SD if enabled
+    sd_write_entry_internal(timestamp, char_to_level(level_char), tag_start, tag_len, msg_start, msg_len);
 
     return ret;
 }
@@ -529,4 +547,119 @@ bool log_buffer_read_next(size_t *position, char *json_out, size_t max_len, uint
     xSemaphoreGive(state.mutex);
 
     return found;
+}
+
+// =============================================================================
+// SD Card Storage (REQ-31 update)
+// =============================================================================
+
+// Internal: write a formatted log entry to SD card
+static void sd_write_entry_internal(uint32_t timestamp, uint8_t level,
+                                    const char *tag, size_t tag_len,
+                                    const char *msg, size_t msg_len) {
+    if (!sd_state.enabled || !sd_state.file) {
+        return;
+    }
+
+    // Format: "[timestamp] L TAG: message\n"
+    char line[LOG_ENTRY_MAX_SIZE + 64];
+    char tag_buf[64];
+    char msg_buf[LOG_ENTRY_MAX_SIZE];
+
+    // Copy tag (ensure null termination)
+    if (tag_len >= sizeof(tag_buf)) tag_len = sizeof(tag_buf) - 1;
+    memcpy(tag_buf, tag, tag_len);
+    tag_buf[tag_len] = '\0';
+
+    // Copy message (ensure null termination)
+    if (msg_len >= sizeof(msg_buf)) msg_len = sizeof(msg_buf) - 1;
+    memcpy(msg_buf, msg, msg_len);
+    msg_buf[msg_len] = '\0';
+
+    int len = snprintf(line, sizeof(line), "[%8lu] %c %s: %s\n",
+                       (unsigned long)timestamp, level_to_char(level),
+                       tag_buf, msg_buf);
+
+    if (len > 0 && len < (int)sizeof(line)) {
+        size_t written = fwrite(line, 1, len, sd_state.file);
+        if (written == (size_t)len) {
+            sd_state.bytes_written += written;
+            // Flush periodically (every 4KB)
+            if (sd_state.bytes_written % 4096 == 0) {
+                fflush(sd_state.file);
+            }
+        } else {
+            sd_state.write_errors++;
+            // Too many errors - disable SD storage
+            if (sd_state.write_errors > 10) {
+                ESP_LOGW(TAG, "Too many SD write errors, disabling SD storage");
+                log_buffer_disable_sd_storage();
+            }
+        }
+    }
+}
+
+esp_err_t log_buffer_enable_sd_storage(const char *file_path) {
+    if (!file_path) {
+        return ESP_ERR_INVALID_ARG;
+    }
+
+    // Close existing file if open
+    if (sd_state.file) {
+        fclose(sd_state.file);
+        sd_state.file = NULL;
+    }
+
+    // Store path
+    strncpy(sd_state.file_path, file_path, sizeof(sd_state.file_path) - 1);
+    sd_state.file_path[sizeof(sd_state.file_path) - 1] = '\0';
+
+    // Open file for appending
+    sd_state.file = fopen(file_path, "a");
+    if (!sd_state.file) {
+        ESP_LOGE(TAG, "Failed to open SD log file: %s", file_path);
+        sd_state.enabled = false;
+        return ESP_FAIL;
+    }
+
+    sd_state.enabled = true;
+    sd_state.bytes_written = 0;
+    sd_state.write_errors = 0;
+
+    ESP_LOGI(TAG, "SD card log storage enabled: %s", file_path);
+
+    // Write startup marker
+    time_t now;
+    time(&now);
+    struct tm timeinfo;
+    localtime_r(&now, &timeinfo);
+    char time_str[64];
+    strftime(time_str, sizeof(time_str), "%Y-%m-%d %H:%M:%S", &timeinfo);
+
+    fprintf(sd_state.file, "\n========== Log session started: %s ==========\n", time_str);
+    fflush(sd_state.file);
+
+    return ESP_OK;
+}
+
+void log_buffer_disable_sd_storage(void) {
+    if (sd_state.file) {
+        // Write closing marker
+        fprintf(sd_state.file, "========== Log session ended ==========\n\n");
+        fflush(sd_state.file);
+        fclose(sd_state.file);
+        sd_state.file = NULL;
+    }
+    sd_state.enabled = false;
+    ESP_LOGI(TAG, "SD card log storage disabled");
+}
+
+bool log_buffer_is_sd_active(void) {
+    return sd_state.enabled && sd_state.file != NULL;
+}
+
+void log_buffer_flush_sd(void) {
+    if (sd_state.enabled && sd_state.file) {
+        fflush(sd_state.file);
+    }
 }

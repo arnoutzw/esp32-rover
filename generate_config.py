@@ -188,6 +188,14 @@ def generate_header(config: dict, secrets: dict) -> str:
     lines.append(f'#define TASK_WDT_PANIC_ON_TIMEOUT {1 if task_wdt.get("panic_on_timeout", True) else 0}')
     lines.append("")
 
+    # Status LED configuration (REQ-39) - ESP32-CAM only
+    status_led = config.get("status_led", {})
+    lines.append("// Status LED Configuration (REQ-39)")
+    lines.append(f'#define ENABLE_STATUS_LED {1 if status_led.get("enabled", True) else 0}')
+    lines.append(f'#define STATUS_LED_STA_BLINK_PERIOD_MS {status_led.get("sta_blink_period_ms", 1000)}')
+    lines.append(f'#define STATUS_LED_AP_BLINK_PERIOD_MS {status_led.get("ap_blink_period_ms", 500)}')
+    lines.append("")
+
     # Debug options
     debug = config.get("debug", {})
     lines.append("// Debug Options")
