@@ -803,8 +803,16 @@ esp_err_t web_server_init(const web_server_config_t *config)
     http_config.stack_size = 8192;
     http_config.max_uri_handlers = 16;  // Increased for log endpoints
     http_config.lru_purge_enable = true;
-    // Allow multiple concurrent connections (stream + status/control requests)
-    http_config.max_open_sockets = 10;
+    // Configure max sockets based on target's LWIP_MAX_SOCKETS setting
+    // TTGO has LWIP_MAX_SOCKETS=8, ESP32-CAM has 16
+    // HTTP server uses 3 sockets internally, so max_open_sockets can be at most (LWIP_MAX_SOCKETS - 3)
+#ifdef ROVER_TARGET_ESP32CAM
+    http_config.max_open_sockets = 10;  // ESP32-CAM: 10 + 3 = 13 (safe with LWIP_MAX_SOCKETS=16)
+#elif defined(ROVER_TARGET_TTGO)
+    http_config.max_open_sockets = 4;   // TTGO: 4 + 3 = 7 (safe with LWIP_MAX_SOCKETS=8)
+#else
+    http_config.max_open_sockets = 4;   // Conservative default
+#endif
 
     ESP_LOGI(TAG, "Starting server on port %d", config->port);
 
