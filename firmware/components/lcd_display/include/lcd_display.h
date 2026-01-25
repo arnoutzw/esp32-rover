@@ -133,6 +133,28 @@ void lcd_display_reset_state(void);
  */
 esp_err_t lcd_display_sleep_screen(void);
 
+/**
+ * @brief Show a centered message on the display (REQ-SW-034)
+ *
+ * Displays a title and subtitle centered on screen for status messages.
+ *
+ * @param title Main message line
+ * @param subtitle Secondary message line (can be NULL)
+ * @return ESP_OK on success
+ */
+esp_err_t lcd_display_message(const char *title, const char *subtitle);
+
+/**
+ * @brief Show a temporary overlay message (REQ-SW-034)
+ *
+ * Displays a semi-transparent overlay with a message, typically
+ * used for countdown indicators during long-press actions.
+ *
+ * @param message Message to display
+ * @return ESP_OK on success
+ */
+esp_err_t lcd_display_overlay(const char *message);
+
 #ifdef __cplusplus
 }
 #endif

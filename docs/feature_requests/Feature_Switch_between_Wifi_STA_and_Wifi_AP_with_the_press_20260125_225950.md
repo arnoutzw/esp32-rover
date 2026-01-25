@@ -3,7 +3,9 @@
 | Field | Value |
 |-------|-------|
 | **Requested** | 2026-01-25 22:59:50 |
-| **Status** | New |
+| **Status** | Implemented |
+| **Requirement** | REQ-SW-034 |
+| **Implementation** | Commit d7acd7c |
 
 ## What I Want
 

@@ -1267,6 +1267,119 @@ static void enter_deep_sleep(void)
 
 #endif // ROVER_TARGET_TTGO && ENABLE_DEEP_SLEEP
 
+// =============================================================================
+// REQ-SW-034: WiFi AP Mode Switch via Right Button Long-Press
+// =============================================================================
+#if defined(ROVER_TARGET_TTGO)
+
+// WiFi AP switch state machine
+typedef enum {
+    WIFI_SWITCH_OFF,
+    WIFI_SWITCH_ENTERING,     // Right button held, counting down
+    WIFI_SWITCH_CONFIRMED     // 5s elapsed, ready to switch
+} wifi_switch_mode_t;
+
+typedef struct {
+    wifi_switch_mode_t mode;
+    TickType_t right_button_hold_start;
+} wifi_switch_state_t;
+
+#define WIFI_SWITCH_HOLD_TIME_MS  5000  // 5 seconds to switch WiFi mode
+
+// Update WiFi switch state machine
+// Returns the new mode after processing button input
+static wifi_switch_mode_t update_wifi_switch_state(wifi_switch_state_t *state, bool btn_left, bool btn_right,
+                                                   diag_mode_t diag_mode, sleep_mode_t sleep_mode)
+{
+    bool right_only = btn_right && !btn_left;
+
+    switch (state->mode) {
+        case WIFI_SWITCH_OFF:
+            // Only start if: right button pressed alone, not in diagnostic mode, not in sleep mode
+            if (right_only && diag_mode == DIAG_MODE_OFF && sleep_mode == SLEEP_MODE_OFF) {
+                state->right_button_hold_start = xTaskGetTickCount();
+                state->mode = WIFI_SWITCH_ENTERING;
+                ESP_LOGI(TAG, "WiFi AP switch: hold right button for 5 seconds...");
+            }
+            break;
+
+        case WIFI_SWITCH_ENTERING:
+            if (!right_only) {
+                // Button released or both pressed - cancel
+                state->mode = WIFI_SWITCH_OFF;
+            } else if ((xTaskGetTickCount() - state->right_button_hold_start) >= pdMS_TO_TICKS(WIFI_SWITCH_HOLD_TIME_MS)) {
+                state->mode = WIFI_SWITCH_CONFIRMED;
+                ESP_LOGI(TAG, "WiFi AP switch confirmed - switching to AP mode");
+            }
+            break;
+
+        case WIFI_SWITCH_CONFIRMED:
+            // Will be handled by caller to switch WiFi mode
+            break;
+    }
+
+    return state->mode;
+}
+
+// Get remaining seconds for WiFi switch countdown (0 if not in entering mode)
+static int get_wifi_switch_countdown(wifi_switch_state_t *state)
+{
+    if (state->mode != WIFI_SWITCH_ENTERING) {
+        return 0;
+    }
+    TickType_t elapsed = xTaskGetTickCount() - state->right_button_hold_start;
+    int elapsed_ms = (int)(elapsed * portTICK_PERIOD_MS);
+    int remaining_ms = WIFI_SWITCH_HOLD_TIME_MS - elapsed_ms;
+    if (remaining_ms < 0) remaining_ms = 0;
+    return (remaining_ms + 999) / 1000;  // Round up to whole seconds
+}
+
+// Switch WiFi from STA to AP mode at runtime (REQ-SW-034)
+static void runtime_switch_to_ap_mode(void)
+{
+    ESP_LOGI(TAG, "Runtime switching to WiFi AP mode...");
+
+    // Check if already in AP mode
+    if (!s_wifi_is_sta_mode) {
+        ESP_LOGI(TAG, "Already in AP mode");
+        return;
+    }
+
+    // Stop current WiFi
+    esp_wifi_stop();
+
+    // Create AP netif if not exists
+    esp_netif_create_default_wifi_ap();
+
+    // Configure and start AP mode
+    wifi_config_t wifi_config = {
+        .ap = {
+            .ssid = WIFI_AP_SSID,
+            .ssid_len = strlen(WIFI_AP_SSID),
+            .channel = WIFI_AP_CHANNEL,
+            .password = WIFI_AP_PASSWORD,
+            .max_connection = WIFI_AP_MAX_CONN,
+            .authmode = WIFI_AUTH_WPA_WPA2_PSK,
+        },
+    };
+
+    if (strlen(WIFI_AP_PASSWORD) == 0) {
+        wifi_config.ap.authmode = WIFI_AUTH_OPEN;
+    }
+
+    ESP_ERROR_CHECK(esp_wifi_set_mode(WIFI_MODE_AP));
+    ESP_ERROR_CHECK(esp_wifi_set_config(WIFI_IF_AP, &wifi_config));
+    ESP_ERROR_CHECK(esp_wifi_start());
+
+    s_wifi_is_sta_mode = false;
+    s_wifi_sta_connected = false;
+    snprintf(s_wifi_ip_str, sizeof(s_wifi_ip_str), "192.168.4.1");
+
+    ESP_LOGI(TAG, "WiFi AP mode active. SSID: %s, IP: %s", WIFI_AP_SSID, s_wifi_ip_str);
+}
+
+#endif // ROVER_TARGET_TTGO
+
 static void lcd_update_task(void *pvParameters)
 {
     ESP_LOGI(TAG, "LCD update task started");
@@ -1285,6 +1398,11 @@ static void lcd_update_task(void *pvParameters)
     diag_state_t diag_state = {0};
 #if defined(ROVER_TARGET_TTGO) && defined(ENABLE_DEEP_SLEEP) && ENABLE_DEEP_SLEEP
     sleep_state_t sleep_state = {0};
+#endif
+#if defined(ROVER_TARGET_TTGO)
+    wifi_switch_state_t wifi_switch_state = {0};
+    bool wifi_switch_message_shown = false;  // Track if confirmation message is displayed
+    TickType_t wifi_switch_message_time = 0;
 #endif
 
     lcd_rover_status_t lcd_status = {
@@ -1316,6 +1434,54 @@ static void lcd_update_task(void *pvParameters)
         if (sleep_mode == SLEEP_MODE_CONFIRMED) {
             enter_deep_sleep();  // This function never returns
         }
+#else
+        // Define sleep_mode for WiFi switch state machine when deep sleep is disabled
+        #define sleep_mode SLEEP_MODE_OFF
+#endif
+
+#if defined(ROVER_TARGET_TTGO)
+        // REQ-SW-034: Update WiFi AP switch state machine
+        wifi_switch_mode_t wifi_switch_mode = update_wifi_switch_state(&wifi_switch_state, btn_left, btn_right, diag_mode, sleep_mode);
+
+        // Handle WiFi switch states
+        if (wifi_switch_mode == WIFI_SWITCH_CONFIRMED && !wifi_switch_message_shown) {
+            // Perform the WiFi mode switch
+            runtime_switch_to_ap_mode();
+
+            // Show confirmation message on LCD
+            lcd_display_clear();
+            lcd_display_message("AP Mode Active", wifi_get_current_ssid());
+            wifi_switch_message_shown = true;
+            wifi_switch_message_time = xTaskGetTickCount();
+
+            // Reset state machine
+            wifi_switch_state.mode = WIFI_SWITCH_OFF;
+        }
+
+        // Clear confirmation message after 3 seconds
+        if (wifi_switch_message_shown) {
+            if ((xTaskGetTickCount() - wifi_switch_message_time) >= pdMS_TO_TICKS(3000)) {
+                wifi_switch_message_shown = false;
+                lcd_display_reset_state();
+                lcd_display_clear();
+            } else {
+                // Skip normal display update while showing message
+                vTaskDelay(pdMS_TO_TICKS(16));
+                continue;
+            }
+        }
+
+        // Show countdown overlay during WiFi switch entering mode
+        if (wifi_switch_mode == WIFI_SWITCH_ENTERING) {
+            int countdown = get_wifi_switch_countdown(&wifi_switch_state);
+            char countdown_msg[32];
+            snprintf(countdown_msg, sizeof(countdown_msg), "WiFi AP: %d...", countdown);
+            lcd_display_overlay(countdown_msg);
+        }
+#endif
+
+#if defined(ROVER_TARGET_TTGO) && !defined(ENABLE_DEEP_SLEEP)
+        #undef sleep_mode
 #endif
 
         if (diag_mode == DIAG_MODE_ON || diag_mode == DIAG_MODE_WAIT_RELEASE) {
