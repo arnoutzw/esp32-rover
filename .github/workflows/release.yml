@@ -33,9 +33,9 @@ jobs:
 
       - name: Build firmware
         run: |
-          ./scripts/generate_build_info.sh firmware/components/build_info/include/build_info.h
           export ROVER_TARGET=${{ matrix.target }}
           cd firmware
+          ../scripts/generate_build_info.sh components/build_info/include/build_info.h
           cp sdkconfig.defaults.${{ matrix.target }} sdkconfig.defaults
           idf.py build
 
