@@ -277,12 +277,14 @@ Binary checksums are displayed before flashing and stored in archive metadata fo
 
 ### OTA Rollback Support
 
-**Automatic rollback on boot failure is enabled.**
+**Automatic rollback on boot failure is enabled for ESP32-CAM only.**
 
-Both targets have `CONFIG_BOOTLOADER_APP_ROLLBACK_ENABLE=y` set, which means:
+ESP32-CAM has `CONFIG_BOOTLOADER_APP_ROLLBACK_ENABLE=y` set, which means:
 - If a new firmware fails to boot properly, the device automatically rolls back to the previous working firmware
 - The firmware must call `esp_ota_mark_app_valid_cancel_rollback()` after successful initialization to confirm it's working
 - This prevents bricking the device with a bad OTA update
+
+**Note:** TTGO T-Display does not have OTA rollback enabled due to IRAM memory constraints (no PSRAM). Extra caution should be taken when OTA flashing TTGO devices.
 
 ### Integration Tests
 
