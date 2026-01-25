@@ -315,3 +315,234 @@ After each build, metrics are:
 - Logged to `build_metrics.csv` for trend analysis
 
 Format: `date,target,duration_s,size_bytes,commit`
+
+---
+
+## Technical Deep Dive (AI Assistant Reference)
+
+### Component Architecture
+
+The firmware uses ESP-IDF's component model with 8 custom components in `firmware/components/`:
+
+| Component | Purpose | Key Files | Notes |
+|-----------|---------|-----------|-------|
+| `web_server` | HTTP REST API & Web UI | `web_server.c`, `web_ui.c` | ~920 LOC, serves control interface |
+| `camera` | OV2640 driver | `camera.c` | ESP32-CAM only, QVGA MJPEG |
+| `lcd_display` | ST7789 LCD driver | `lcd_display.c` | TTGO only, 135x240 display |
+| `mqtt_service` | Telemetry publishing | `mqtt_service.c` | Optional, 5s default interval |
+| `log_buffer` | Circular log capture | `log_buffer.c` | 16KB ring buffer, vprintf hook |
+| `resource_guard` | Memory safety | `resource_guard.c` | Heap/stack monitoring |
+| `build_info` | Git metadata | `build_info.h` (generated) | Commit hash, branch, timestamp |
+
+### Main Application Tasks (Core 0)
+
+```c
+// Tasks created in main.c
+Task Name          Stack   Priority  Purpose
+─────────────────────────────────────────────────────
+status_task        4096*   2         Collects metrics at 20Hz
+lcd_update_task    4096*   1         LCD refresh (TTGO only)
+web_server_task    auto    default   HTTP request handling
+mqtt_publish_task  4096*   2         MQTT telemetry at 5s interval
+
+* TTGO uses reduced stacks: status=2560, lcd=3072, mqtt=3072
+```
+
+### Configuration Generation Pipeline
+
+```
+rover_config.yaml  ─┐
+                    ├─► generate_config.py ─► config_generated.h ─► Compilation
+secrets.yaml       ─┘
+```
+
+Key defines generated:
+- `WIFI_MODE_*` - WiFi mode flags
+- `WIFI_AP_SSID`, `WIFI_STA_SSID` - Network names
+- `ENABLE_MQTT`, `ENABLE_REST_API` - Feature flags
+- `MDNS_HOSTNAME` - Network discovery name
+- `CFG_WATCHDOG_TIMEOUT_MS` - Safety timeout
+
+### Memory Budgets
+
+**ESP32-CAM** (has 4MB PSRAM):
+- Free heap at startup: ~150KB
+- PSRAM available for camera buffers
+- OTA rollback enabled (PSRAM buffer)
+
+**TTGO T-Display** (no PSRAM):
+- Free heap at startup: ~40-60KB
+- Aggressive optimization required
+- OTA rollback **disabled** (IRAM constraints)
+
+Critical TTGO optimizations:
+```
+Log buffer: 16KB (disable with ENABLE_LOG_BUFFER=0 saves 16KB)
+HTTP max header: 512B (vs 1024B on ESP32-CAM)
+HTTP max URI: 256B (vs 512B)
+Max connections: 4
+LWIP sockets: 8
+MQTT: No SSL/WebSocket
+```
+
+### Hardware Pin Maps
+
+**ESP32-CAM:**
+```
+Camera: GPIO 0,5,18-19,21-23,25-27,32,34-36,39
+Flash LED: GPIO 4
+JTAG: GPIO 12-15 (alternate use)
+```
+
+**TTGO T-Display:**
+```
+LCD: GPIO 4,5,16,18,19,23 (SPI + control)
+Buttons: GPIO 0 (left), GPIO 35 (right)
+Battery ADC: GPIO 34
+```
+
+### REST API Quick Reference
+
+```
+GET  /              Web UI
+GET  /stream        MJPEG video (ESP32-CAM)
+POST /control       {"speed":-100..100, "steering":-100..100, "estop":bool}
+GET  /status        JSON system status
+GET  /camera        Camera state
+POST /camera?enabled=true/false
+GET  /logs          All logs as text
+GET  /logs/stream   SSE log stream
+DELETE /logs        Clear buffer
+POST /ota           Firmware binary + password
+```
+
+### Status JSON Structure
+
+```json
+{
+  "target": "esp32cam|ttgo",
+  "battery": 7.4,
+  "camera": true,
+  "rssi": -45,
+  "btnL": false,
+  "btnR": true,
+  "diag": {
+    "ssid": "...",
+    "ip": "192.168.x.x",
+    "mac": "AA:BB:CC:DD:EE:FF",
+    "freeHeap": 150000,
+    "uptime": 3600,
+    "tasksCore0": 8,
+    "tasksCore1": 4,
+    "localTime": "14:30:45",
+    "ntpSynced": true,
+    "internet": true,
+    "restApi": true,
+    "mqttEnabled": true,
+    "mqttConnected": false
+  }
+}
+```
+
+### Test Organization
+
+```
+test/
+├── src/
+│   ├── test_config.c              # 15 tests - YAML config validation
+│   ├── test_diag_state_machine.c  # 12 tests - Diagnostic mode FSM
+│   ├── test_resource_guard.c      # 13 tests - Memory safety (target only)
+│   └── test_runner.c              # Test harness
+├── integration/                    # pytest hardware tests
+├── Makefile                        # Host-based test build
+└── CMakeLists.txt                  # ESP32 target tests
+```
+
+Run tests:
+```bash
+cd test && make test           # Host tests (no hardware)
+cd test && make coverage-html  # Coverage report
+```
+
+### Common Development Tasks
+
+**Adding a new configuration option:**
+1. Add to `config/rover_config.yaml`
+2. Update `scripts/generate_config.py` to generate define
+3. Regenerate: `source ./firmware/esp-idf/export.sh && python scripts/generate_config.py`
+4. Use `#ifdef CONFIG_OPTION` in C code
+
+**Adding a new component:**
+1. Create `firmware/components/mycomp/`
+2. Add `CMakeLists.txt` with `idf_component_register()`
+3. Add `include/mycomp.h` for public API
+4. Add to dependencies in `firmware/main/CMakeLists.txt`
+
+**Debugging memory issues:**
+1. Check heap: `esp_get_free_heap_size()`
+2. Check internal DRAM: `heap_caps_get_free_size(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT)`
+3. Check stack watermarks: `uxTaskGetStackHighWaterMark(NULL)`
+4. Use resource_guard component thresholds
+
+### Key Implementation Patterns
+
+**Safe task creation:**
+```c
+#ifdef CONFIG_TARGET_TTGO
+#define STATUS_TASK_STACK 2560
+#else
+#define STATUS_TASK_STACK 4096
+#endif
+```
+
+**Feature toggle pattern:**
+```c
+#if ENABLE_MQTT
+    mqtt_service_init();
+#endif
+```
+
+**Target-conditional code:**
+```c
+#ifdef CONFIG_TARGET_ESP32CAM
+    camera_init();
+#elif defined(CONFIG_TARGET_TTGO)
+    lcd_display_init();
+#endif
+```
+
+### Version Information
+
+- **Current Version**: Check `CHANGELOG.md` or run build
+- **ESP-IDF Version**: v5.2.2 (embedded in `firmware/esp-idf/`)
+- **Version in binary**: Accessible via build_info component
+
+### Troubleshooting Quick Reference
+
+| Issue | Cause | Solution |
+|-------|-------|----------|
+| Build fails after target switch | Old sdkconfig | `./scripts/build.sh <target> fullclean` |
+| OTA timeout | Rate limiting | Normal for ESP32-CAM (50 KB/s limit) |
+| TTGO heap exhaustion | No PSRAM | Disable log buffer, check stack sizes |
+| Camera not initializing | Wrong pins or PSRAM | Verify sdkconfig.defaults.esp32cam |
+| WiFi not connecting | Wrong mode/creds | Check rover_config.yaml, secrets.yaml |
+| mDNS not working | Firewall/router | Use IP address directly |
+
+### File Locations Quick Reference
+
+```
+Main entry point:      firmware/main/main.c
+Configuration header:  firmware/main/config.h
+Generated config:      firmware/main/config_generated.h
+Web server:            firmware/components/web_server/
+Camera driver:         firmware/components/camera/
+LCD driver:            firmware/components/lcd_display/
+Build script:          scripts/build.sh
+OTA script:            scripts/ota.sh
+Config generator:      scripts/generate_config.py
+Main config:           config/rover_config.yaml
+Secrets:               config/secrets.yaml
+Unit tests:            test/src/
+Documentation:         docs/
+Binaries archive:      binaries/esp32cam/, binaries/ttgo/
+```
