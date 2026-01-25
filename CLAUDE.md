@@ -76,27 +76,36 @@ The actual build target is selected via `./scripts/build.sh esp32cam` or `./scri
 - Only merge to `main` and create a version tag when the user explicitly requests it
 - Never commit directly to `main` unless instructed
 
+**CRITICAL: Always Push Immediately After Every Commit**
+
+Every `git commit` MUST be immediately followed by `git push`. This applies to:
+- All code changes (firmware, scripts, tests)
+- All documentation updates (markdown files, comments)
+- All configuration changes
+- Commits on any branch (develop, main, feature branches)
+
 **Workflow:**
 ```bash
-# Normal development
+# Normal development - ALWAYS commit AND push together
 git checkout develop
 # ... make changes ...
-git add -A && git commit -m "Description of changes"
-git push origin develop  # Automatically push commits immediately
+git add -A && git commit -m "Description of changes" && git push
 
 # When user requests a release to main:
 git checkout main
 git merge develop
 git tag -a v1.X.X -m "Release description"
-git push origin main --tags  # Automatically push tags immediately
+git push origin main --tags  # Push commits AND tags immediately
 git checkout develop
 ```
 
-**Important:** Always push commits and tags immediately after creating them. This ensures:
+**Why this matters:**
 - Changes are synced to remote immediately
 - CI/CD pipelines are triggered without delay
 - Team members have access to latest code
 - Release workflows execute automatically
+- No risk of losing work if local machine fails
+- Documentation updates are immediately visible to all users
 
 ### Clean Build Rule
 
