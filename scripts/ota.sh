@@ -133,6 +133,22 @@ esac
 # Use provided host or default
 HOST="${HOST:-$DEFAULT_HOST}"
 
+# Check if host is reachable via ping before attempting OTA
+echo -e "${BLUE}Checking connectivity to $HOST...${NC}"
+if ! ping -c 1 -W 2 "$HOST" > /dev/null 2>&1; then
+    echo -e "${RED}Error: Cannot reach OTA host at $HOST${NC}"
+    echo ""
+    echo "Possible solutions:"
+    echo "  1. Check device is powered on and connected to WiFi"
+    echo "  2. Verify device IP address or hostname is correct"
+    echo "  3. Check network connectivity from this machine"
+    echo "  4. Try specifying IP address instead of hostname"
+    echo ""
+    exit 1
+fi
+echo -e "${GREEN}Host is reachable!${NC}"
+echo ""
+
 # Determine which binary to use
 if [ -n "$BINARY_FILE" ]; then
     # User specified a binary file

@@ -770,23 +770,24 @@ esp_err_t lcd_display_diagnostics(const lcd_wifi_diag_t *diag)
     }
     y += 10;
 
-    // Battery and Uptime on same line
+    // Battery voltage
     lcd_draw_string(4, y, "Bat:", COLOR_LIGHTGRAY, COLOR_BLACK, 1);
     snprintf(buf, sizeof(buf), "%.2fV", diag->battery_volts);
     uint16_t bat_color = (diag->battery_volts > 3.7f) ? COLOR_GREEN :
                         (diag->battery_volts > 3.4f) ? COLOR_YELLOW : COLOR_RED;
     lcd_draw_string(34, y, buf, bat_color, COLOR_BLACK, 1);
+    y += 10;
 
-    // Uptime
+    // Uptime on separate line
     uint32_t secs = diag->uptime_secs;
     uint32_t mins = secs / 60;
     uint32_t hrs = mins / 60;
     secs %= 60;
     mins %= 60;
-    lcd_draw_string(70, y, "Up:", COLOR_LIGHTGRAY, COLOR_BLACK, 1);
+    lcd_draw_string(4, y, "Up:", COLOR_LIGHTGRAY, COLOR_BLACK, 1);
     snprintf(buf, sizeof(buf), "%02lu:%02lu:%02lu", (unsigned long)hrs, (unsigned long)mins, (unsigned long)secs);
-    lcd_draw_string(94, y, buf, COLOR_GREEN, COLOR_BLACK, 1);
-    y += 12;
+    lcd_draw_string(28, y, buf, COLOR_GREEN, COLOR_BLACK, 1);
+    y += 10;
 
     // Services Section
     lcd_fill_rect(0, y, LCD_WIDTH, 10, COLOR_DARKGRAY);
