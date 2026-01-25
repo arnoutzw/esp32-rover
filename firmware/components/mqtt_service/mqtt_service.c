@@ -215,7 +215,7 @@ esp_err_t mqtt_service_init(const mqtt_service_config_t *config)
     xTaskCreatePinnedToCore(
         mqtt_publish_task,
         "mqtt_pub",
-        4096,
+        STACK_SIZE_MQTT_TASK,  // Target-specific stack size
         NULL,
         2,
         &s_publish_task_handle,

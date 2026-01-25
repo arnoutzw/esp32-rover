@@ -43,7 +43,9 @@
 #if defined(ENABLE_MQTT) && ENABLE_MQTT
 #include "mqtt_service.h"
 #endif
+#if defined(ENABLE_LOG_BUFFER) && ENABLE_LOG_BUFFER
 #include "log_buffer.h"
+#endif
 
 static const char *TAG = "ROVER_MAIN";
 
@@ -1307,8 +1309,10 @@ static void lcd_update_task(void *pvParameters)
 
 void app_main(void)
 {
+#if defined(ENABLE_LOG_BUFFER) && ENABLE_LOG_BUFFER
     // REQ-31: Initialize log buffer FIRST to capture all boot logs
     log_buffer_init();
+#endif
 
 #if defined(ENABLE_TASK_WATCHDOG) && ENABLE_TASK_WATCHDOG
     // REQ-37: Initialize task watchdog timer
@@ -1462,7 +1466,7 @@ void app_main(void)
     xTaskCreatePinnedToCore(
         status_update_task,
         "status",
-        4096,  // Increased from 2048 for diagnostic data collection
+        STACK_SIZE_STATUS_TASK,  // Target-specific stack size
         NULL,
         2,  // Lower priority
         &status_task_handle,
@@ -1474,7 +1478,7 @@ void app_main(void)
     xTaskCreatePinnedToCore(
         lcd_update_task,
         "lcd",
-        4096,
+        STACK_SIZE_LCD_TASK,  // Target-specific stack size
         NULL,
         1,  // Low priority
         &lcd_task_handle,

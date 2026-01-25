@@ -178,3 +178,31 @@
 // -----------------------------------------------------------------------------
 #define DEBUG_CAMERA        0            // Enable camera debug output
 #define DEBUG_WEBSERVER     0            // Enable web server debug output
+
+// =============================================================================
+// Memory Optimization - Task Stack Sizes
+// =============================================================================
+// Target-specific stack sizes based on measured high-water marks
+// TTGO has limited DRAM, use smaller stacks where safe
+
+#ifdef ROVER_TARGET_TTGO
+    // TTGO T-Display: Memory-optimized stack sizes
+    #define STACK_SIZE_STATUS_TASK      2560    // Measured ~1.5KB usage
+    #define STACK_SIZE_LCD_TASK         3072    // LCD drawing needs moderate stack
+    #define STACK_SIZE_MQTT_TASK        3072    // MQTT operations
+#else
+    // ESP32-CAM: Standard stack sizes (has PSRAM)
+    #define STACK_SIZE_STATUS_TASK      4096
+    #define STACK_SIZE_LCD_TASK         4096
+    #define STACK_SIZE_MQTT_TASK        4096
+#endif
+
+// =============================================================================
+// Feature Toggles for Memory Optimization
+// =============================================================================
+
+// Log buffer can be disabled to save ~16-32KB RAM
+// Set to 0 to disable the circular log buffer (logs still go to UART)
+#ifndef ENABLE_LOG_BUFFER
+    #define ENABLE_LOG_BUFFER       1
+#endif

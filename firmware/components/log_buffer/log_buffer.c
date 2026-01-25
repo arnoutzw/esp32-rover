@@ -8,6 +8,50 @@
 
 static const char *TAG = "LOG_BUFFER";
 
+// =============================================================================
+// Stub implementations when log buffer is disabled
+// =============================================================================
+#if !defined(ENABLE_LOG_BUFFER) || !ENABLE_LOG_BUFFER
+
+esp_err_t log_buffer_init(void) {
+    ESP_LOGI(TAG, "Log buffer disabled (ENABLE_LOG_BUFFER=0)");
+    return ESP_OK;
+}
+
+void log_buffer_deinit(void) {}
+
+bool log_buffer_is_initialized(void) {
+    return false;
+}
+
+esp_err_t log_buffer_get_text(char **out_text, size_t *out_len, uint8_t min_level) {
+    (void)min_level;
+    if (out_text) *out_text = NULL;
+    if (out_len) *out_len = 0;
+    return ESP_ERR_NOT_SUPPORTED;
+}
+
+esp_err_t log_buffer_get_stats(log_buffer_stats_t *stats) {
+    if (stats) memset(stats, 0, sizeof(*stats));
+    return ESP_OK;
+}
+
+void log_buffer_clear(void) {}
+
+size_t log_buffer_get_read_position(void) {
+    return 0;
+}
+
+bool log_buffer_read_next(size_t *position, char *json_out, size_t max_len, uint8_t min_level) {
+    (void)position;
+    (void)json_out;
+    (void)max_len;
+    (void)min_level;
+    return false;
+}
+
+#else // ENABLE_LOG_BUFFER is enabled
+
 // Log entry header stored in ring buffer
 typedef struct __attribute__((packed)) {
     uint32_t timestamp_ms;
@@ -530,3 +574,5 @@ bool log_buffer_read_next(size_t *position, char *json_out, size_t max_len, uint
 
     return found;
 }
+
+#endif // ENABLE_LOG_BUFFER

@@ -10,9 +10,12 @@
 extern "C" {
 #endif
 
-// Log buffer size (32KB default)
+// Log buffer size - optimized for both targets
+// Both TTGO and ESP32-CAM benefit from smaller buffers (~16KB)
+// 16KB holds ~400 log lines, sufficient for debugging
+// Note: ROVER_TARGET_TTGO is defined via compiler flags in CMakeLists.txt
 #ifndef LOG_BUFFER_SIZE
-#define LOG_BUFFER_SIZE (32 * 1024)
+    #define LOG_BUFFER_SIZE (16 * 1024)   // 16KB for both targets
 #endif
 
 // Maximum size of a single log entry (tag + message + header)

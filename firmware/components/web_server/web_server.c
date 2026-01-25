@@ -4,7 +4,9 @@
 #ifdef ROVER_TARGET_ESP32CAM
 #include "camera.h"
 #endif
+#if defined(ENABLE_LOG_BUFFER) && ENABLE_LOG_BUFFER
 #include "log_buffer.h"
+#endif
 #include <string.h>
 #include <stdlib.h>
 #include "esp_log.h"
@@ -44,9 +46,11 @@ static esp_err_t control_handler(httpd_req_t *req);
 #if ENABLE_REST_API
 static esp_err_t status_handler(httpd_req_t *req);
 #endif
+#if defined(ENABLE_LOG_BUFFER) && ENABLE_LOG_BUFFER
 static esp_err_t logs_get_handler(httpd_req_t *req);
 static esp_err_t logs_stream_handler(httpd_req_t *req);
 static esp_err_t logs_delete_handler(httpd_req_t *req);
+#endif
 #ifdef ROVER_TARGET_ESP32CAM
 static esp_err_t stream_handler(httpd_req_t *req);
 static esp_err_t led_get_handler(httpd_req_t *req);
@@ -104,6 +108,7 @@ static const httpd_uri_t uri_led_post = {
 };
 #endif // ROVER_TARGET_ESP32CAM
 
+#if defined(ENABLE_LOG_BUFFER) && ENABLE_LOG_BUFFER
 // REQ-31: Log buffer endpoints
 static const httpd_uri_t uri_logs_get = {
     .uri = "/logs",
@@ -125,6 +130,7 @@ static const httpd_uri_t uri_logs_delete = {
     .handler = logs_delete_handler,
     .user_ctx = NULL
 };
+#endif // ENABLE_LOG_BUFFER
 
 // REQ-34: Camera stream control endpoints
 #ifdef ROVER_TARGET_ESP32CAM
@@ -515,6 +521,7 @@ static esp_err_t led_post_handler(httpd_req_t *req)
 }
 #endif // ROVER_TARGET_ESP32CAM
 
+#if defined(ENABLE_LOG_BUFFER) && ENABLE_LOG_BUFFER
 // =============================================================================
 // REQ-31: Log Buffer Handlers
 // =============================================================================
@@ -705,6 +712,7 @@ static esp_err_t logs_stream_handler(httpd_req_t *req)
 
     return ESP_OK;
 }
+#endif // ENABLE_LOG_BUFFER
 
 // =============================================================================
 // REQ-34: Camera Stream Control Handlers
@@ -824,11 +832,13 @@ esp_err_t web_server_init(const web_server_config_t *config)
     ESP_LOGI(TAG, "LED endpoint enabled (/led)");
 #endif
 
+#if defined(ENABLE_LOG_BUFFER) && ENABLE_LOG_BUFFER
     // REQ-31: Register log buffer endpoints
     httpd_register_uri_handler(server, &uri_logs_get);
     httpd_register_uri_handler(server, &uri_logs_stream);
     httpd_register_uri_handler(server, &uri_logs_delete);
     ESP_LOGI(TAG, "Log endpoints enabled (/logs, /logs/stream)");
+#endif
 
 #ifdef ROVER_TARGET_ESP32CAM
     // REQ-34: Register camera stream control endpoints
