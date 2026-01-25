@@ -70,13 +70,13 @@ setup_target() {
             ;;
     esac
 
-    # Check if sdkconfig.defaults file exists
+    # Check if target-specific sdkconfig.defaults file exists
     if [ ! -f "$SDKCONFIG_DEFAULTS" ]; then
         echo -e "${RED}Error: $SDKCONFIG_DEFAULTS not found${NC}"
         exit 1
     fi
 
-    # Copy target-specific defaults
+    # Copy target-specific defaults to firmware/sdkconfig.defaults (this is generated, not tracked in git)
     cp "$SDKCONFIG_DEFAULTS" sdkconfig.defaults
     echo -e "${GREEN}Using $SDKCONFIG_DEFAULTS${NC}"
 
