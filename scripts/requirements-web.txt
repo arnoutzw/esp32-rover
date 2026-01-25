@@ -1,0 +1,2 @@
+# Requirements for file_report_web.py
+flask>=2.0

@@ -19,6 +19,7 @@ set(COMPONENT_REQUIRES
     esp_psram
     esp_adc
     esp_system
+    esp_timer
     web_server
     lcd_display
     mqtt_service

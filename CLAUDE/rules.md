@@ -23,6 +23,7 @@ This document defines the behavioral rules and standards that AI assistants MUST
    - [Bug Report Analysis](#bug-report-analysis)
    - [Documentation Updates](#documentation-updates)
    - [Feature Request Processing](#feature-request-processing)
+   - [Automated Report Processing Rule](#automated-report-processing-rule)
    - [Requirements-First Development Rule](#requirements-first-development-rule)
    - [Feature Implementation Verification Rule](#feature-implementation-verification-rule)
 6. [Release Management](#release-management)
@@ -486,6 +487,95 @@ Feature requests are written from a user's perspective and may include technical
 4. Present to user: "I've processed your feature request. Here are the proposed requirements:"
 5. Wait for user approval before committing
 6. After approval, commit changes and inform user
+```
+
+### Automated Report Processing Rule
+
+**When user says "check reports" or similar, scan for new bug reports and feature requests and process them autonomously through the full development cycle.**
+
+This rule defines an end-to-end autonomous workflow that processes user-filed reports without intervention.
+
+**Trigger phrases:**
+- "check reports"
+- "check feature requests"
+- "check bug reports"
+- "process reports"
+- Any similar request to scan the report directories
+
+**Automated workflow for Feature Requests:**
+
+When a new feature request is found in `docs/feature_requests/` with `Status: New`:
+
+1. **Analyze the request**: Read and understand what the user wants
+2. **Update requirements**: Add formal requirements to `docs/requirements/software_requirements.md`
+   - Assign REQ-SW-XXX ID
+   - Add acceptance criteria
+   - Add to traceability matrix
+   - Add validation test entry
+3. **Implement the feature**: Write the code following the requirements
+   - Reference REQ ID in code comments
+   - Follow embedded coding standards
+4. **Update implementation documentation**:
+   - Update `CHANGELOG.md` under [Unreleased]
+   - Update `CLAUDE/context.md` if APIs changed
+5. **Commit and push**: `git add -A && git commit -m "feat(REQ-SW-XXX): description" && git push`
+6. **Build**: `./scripts/build.sh ttgo clean && ./scripts/build.sh ttgo`
+7. **OTA flash**: `./scripts/ota.sh ttgo ttgo-rover.local`
+8. **Verify deployment**: Query `/status` endpoint, confirm build fingerprint matches
+9. **Quick functional test**: Verify the feature works on hardware
+10. **Update feature request status**: Change `Status: New` to `Status: Implemented (hash)`
+11. **Report completion**: Summarize what was done
+
+**Automated workflow for Bug Reports:**
+
+When a new bug report is found in `docs/bugreport/` with `Status: Open`:
+
+1. **Analyze the bug**: Understand symptoms and reproduction steps
+2. **Create RCA document**: `RCA_vX.X.X_hash.md` following template
+3. **Create FIX_PLAN document**: `FIX_PLAN_vX.X.X_hash.md` with implementation plan
+4. **Implement the fix**: Apply the code changes
+5. **Update documentation**:
+   - Add entry to `docs/implementation/DEVELOPMENT_LESSONS.md`
+   - Update `CHANGELOG.md` under [Unreleased]
+6. **Commit and push**: `git add -A && git commit -m "fix: description" && git push`
+7. **Build**: `./scripts/build.sh ttgo clean && ./scripts/build.sh ttgo`
+8. **OTA flash**: `./scripts/ota.sh ttgo ttgo-rover.local`
+9. **Verify deployment**: Confirm build fingerprint matches
+10. **Test the fix**: Verify bug is resolved on hardware
+11. **Update bug report status**: Change `Status: Open` to `Status: Fixed (hash)`
+12. **Update RCA**: Add Resolution section
+13. **Report completion**: Summarize investigation and fix
+
+**Important notes:**
+- Process ALL new reports found, not just one
+- If multiple reports exist, process them in order (bugs before features)
+- If a step fails, stop and report the failure to user
+- Never skip the build/flash/verify cycle
+- Always update the report status after completion
+
+**Example session:**
+```
+User: check reports
+
+AI: Scanning docs/feature_requests/ and docs/bugreport/ for new reports...
+
+Found 1 new feature request:
+- Feature_Add_dark_mode_to_web_UI_20260125.md (Status: New)
+
+Processing feature request: Add dark mode to web UI
+
+Step 1: Adding requirement REQ-SW-036 to software_requirements.md...
+Step 2: Implementing dark mode CSS variables in web_ui.c...
+Step 3: Adding theme toggle button to settings panel...
+Step 4: Updating CHANGELOG.md...
+Step 5: Committing: "feat(REQ-SW-036): implement dark mode for web UI"
+Step 6: Building for ttgo target...
+Step 7: Flashing via OTA to ttgo-rover.local...
+Step 8: Verifying deployment - build fingerprint: abc1234 ✓
+Step 9: Quick test - dark mode toggle visible and functional ✓
+Step 10: Updating feature request status to "Implemented (abc1234)"
+
+✓ All reports processed successfully.
 ```
 
 ### Requirements-First Development Rule

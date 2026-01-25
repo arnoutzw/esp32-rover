@@ -37,6 +37,7 @@ typedef struct {
     uint32_t total_heap;            // Total heap memory
     uint32_t free_internal;         // Free internal RAM
     uint32_t uptime_secs;           // Uptime in seconds
+    uint8_t cpu_usage_percent;      // CPU busy percentage (REQ-SW-035)
     float cpu_freq_mhz;             // CPU frequency
     uint8_t task_count;             // Number of running tasks
     uint8_t tasks_core0;            // Tasks running on core 0
