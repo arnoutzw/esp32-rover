@@ -346,57 +346,6 @@ static const char web_ui_html[] = R"rawliteral(
         .diag-full-row {
             grid-column: span 2;
         }
-        /* REQ-31: Log panel styles */
-        .log-controls {
-            display: flex;
-            gap: 10px;
-            align-items: center;
-            margin-bottom: 8px;
-        }
-        .log-controls select {
-            background: #2d2d44;
-            color: #eee;
-            border: 1px solid #444;
-            border-radius: 4px;
-            padding: 4px 8px;
-            font-size: 0.8em;
-        }
-        .log-controls button {
-            background: #3282b8;
-            color: #fff;
-            border: none;
-            border-radius: 4px;
-            padding: 4px 12px;
-            font-size: 0.8em;
-            cursor: pointer;
-        }
-        .log-controls button:hover {
-            background: #2a6a9a;
-        }
-        .log-container {
-            background: #0a0a12;
-            border-radius: 4px;
-            max-height: 200px;
-            overflow-y: auto;
-            font-family: monospace;
-            font-size: 0.75em;
-            padding: 8px;
-        }
-        .log-entry {
-            white-space: pre-wrap;
-            word-break: break-all;
-            margin: 2px 0;
-        }
-        .log-entry.error { color: #ff4444; }
-        .log-entry.warn { color: #ffaa00; }
-        .log-entry.info { color: #44ff44; }
-        .log-entry.debug { color: #888; }
-        .log-entry.verbose { color: #666; }
-        .log-status {
-            font-size: 0.75em;
-            color: #888;
-            margin-top: 4px;
-        }
         @media (max-width: 768px) {
             .main-content {
                 flex-direction: column;
@@ -588,24 +537,6 @@ static const char web_ui_html[] = R"rawliteral(
                                     <span class="diag-value" id="diag-localtime">--:--:--</span>
                                 </div>
                             </div>
-                        </div>
-                        <div class="diag-section">
-                            <div class="diag-section-title">System Logs</div>
-                            <div class="log-controls">
-                                <select id="log-level-filter" onchange="updateLogFilter()">
-                                    <option value="1">Errors</option>
-                                    <option value="2">Warnings+</option>
-                                    <option value="3" selected>Info+</option>
-                                    <option value="4">Debug+</option>
-                                    <option value="5">Verbose</option>
-                                </select>
-                                <button onclick="downloadLogs()">Download</button>
-                                <button onclick="clearLogs()">Clear</button>
-                            </div>
-                            <div class="log-container" id="log-container">
-                                <div id="log-entries"></div>
-                            </div>
-                            <div class="log-status" id="log-status">Connecting...</div>
                         </div>
                     </div>
                 </div>
@@ -1028,109 +959,6 @@ static const char web_ui_html[] = R"rawliteral(
             document.getElementById('btn-cam').addEventListener('click', toggleCamera);
             fetchCameraState();
         }
-
-        // =============================================================================
-        // REQ-31: Log Streaming
-        // =============================================================================
-        let logEventSource = null;
-        let logLevel = 3;  // Default: Info
-        let logEntryCount = 0;
-        const MAX_LOG_ENTRIES = 500;
-
-        function levelToClass(level) {
-            switch (level) {
-                case 'E': return 'error';
-                case 'W': return 'warn';
-                case 'I': return 'info';
-                case 'D': return 'debug';
-                case 'V': return 'verbose';
-                default: return 'info';
-            }
-        }
-
-        function appendLogEntry(entry) {
-            const container = document.getElementById('log-entries');
-            const div = document.createElement('div');
-            div.className = 'log-entry ' + levelToClass(entry.l);
-            div.textContent = '[' + String(entry.t).padStart(8, ' ') + '] ' +
-                              entry.l + ' ' + entry.tag + ': ' + entry.msg;
-            container.appendChild(div);
-            logEntryCount++;
-
-            // Limit entries to prevent memory issues
-            while (logEntryCount > MAX_LOG_ENTRIES) {
-                container.removeChild(container.firstChild);
-                logEntryCount--;
-            }
-
-            // Auto-scroll to bottom
-            const logContainer = document.getElementById('log-container');
-            logContainer.scrollTop = logContainer.scrollHeight;
-        }
-
-        function startLogStream() {
-            if (logEventSource) {
-                logEventSource.close();
-            }
-
-            const url = '/logs/stream?level=' + logLevel;
-            logEventSource = new EventSource(url);
-
-            logEventSource.onopen = function() {
-                document.getElementById('log-status').textContent = 'Connected - streaming logs';
-            };
-
-            logEventSource.addEventListener('log', function(e) {
-                try {
-                    const entry = JSON.parse(e.data);
-                    appendLogEntry(entry);
-                } catch (err) {
-                    // Ignore parse errors
-                }
-            });
-
-            logEventSource.onerror = function() {
-                document.getElementById('log-status').textContent = 'Disconnected - reconnecting...';
-                logEventSource.close();
-                logEventSource = null;
-                // Reconnect after delay
-                setTimeout(startLogStream, 3000);
-            };
-        }
-
-        function updateLogFilter() {
-            logLevel = parseInt(document.getElementById('log-level-filter').value);
-            // Clear current logs and restart stream with new filter
-            document.getElementById('log-entries').innerHTML = '';
-            logEntryCount = 0;
-            startLogStream();
-        }
-
-        function downloadLogs() {
-            window.location.href = '/logs?download=1&level=' + logLevel;
-        }
-
-        async function clearLogs() {
-            try {
-                await fetch('/logs', { method: 'DELETE' });
-                document.getElementById('log-entries').innerHTML = '';
-                logEntryCount = 0;
-            } catch (e) {
-                // Silently fail
-            }
-        }
-
-        // Start log stream when diagnostics is expanded
-        const diagObserver = new MutationObserver(function(mutations) {
-            mutations.forEach(function(mutation) {
-                if (mutation.target.classList.contains('expanded') && !logEventSource) {
-                    startLogStream();
-                }
-            });
-        });
-
-        const diagContent = document.getElementById('diag-content');
-        diagObserver.observe(diagContent, { attributes: true, attributeFilter: ['class'] });
     </script>
 </body>
 </html>

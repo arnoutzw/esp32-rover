@@ -43,9 +43,6 @@
 #if defined(ENABLE_MQTT) && ENABLE_MQTT
 #include "mqtt_service.h"
 #endif
-#if defined(ENABLE_LOG_BUFFER) && ENABLE_LOG_BUFFER
-#include "log_buffer.h"
-#endif
 
 static const char *TAG = "ROVER_MAIN";
 
@@ -1332,11 +1329,6 @@ static void lcd_update_task(void *pvParameters)
 
 void app_main(void)
 {
-#if defined(ENABLE_LOG_BUFFER) && ENABLE_LOG_BUFFER
-    // REQ-31: Initialize log buffer FIRST to capture all boot logs
-    log_buffer_init();
-#endif
-
 #if defined(ENABLE_TASK_WATCHDOG) && ENABLE_TASK_WATCHDOG
     // REQ-37: Initialize task watchdog timer
     esp_task_wdt_config_t wdt_config = {

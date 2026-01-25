@@ -790,7 +790,6 @@ The firmware uses ESP-IDF's component model with 8 custom components in `firmwar
 | `camera` | OV2640 driver | `camera.c` | ESP32-CAM only, QVGA MJPEG |
 | `lcd_display` | ST7789 LCD driver | `lcd_display.c` | TTGO only, 135x240 display |
 | `mqtt_service` | Telemetry publishing | `mqtt_service.c` | Optional, 5s default interval |
-| `log_buffer` | Circular log capture | `log_buffer.c` | 16KB ring buffer, vprintf hook |
 | `resource_guard` | Memory safety | `resource_guard.c` | Heap/stack monitoring |
 | `build_info` | Git metadata | `build_info.h` (generated) | Commit hash, branch, timestamp |
 
@@ -837,7 +836,6 @@ Key defines generated:
 
 Critical TTGO optimizations:
 ```
-Log buffer: 16KB (disable with ENABLE_LOG_BUFFER=0 saves 16KB)
 HTTP max header: 512B (vs 1024B on ESP32-CAM)
 HTTP max URI: 256B (vs 512B)
 Max connections: 4
@@ -870,9 +868,6 @@ POST /control       {"speed":-100..100, "steering":-100..100, "estop":bool}
 GET  /status        JSON system status
 GET  /camera        Camera state
 POST /camera?enabled=true/false
-GET  /logs          All logs as text
-GET  /logs/stream   SSE log stream
-DELETE /logs        Clear buffer
 POST /ota           Firmware binary + password
 ```
 
@@ -994,7 +989,7 @@ cd test && make coverage-html  # Coverage report
 |-------|-------|----------|
 | Build fails after target switch | Old sdkconfig | `./scripts/build.sh <target> fullclean` |
 | OTA timeout | Rate limiting | Normal for ESP32-CAM (50 KB/s limit) |
-| TTGO heap exhaustion | No PSRAM | Disable log buffer, check stack sizes |
+| TTGO heap exhaustion | No PSRAM | Check stack sizes, reduce HTTP buffers |
 | Camera not initializing | Wrong pins or PSRAM | Verify sdkconfig.defaults.esp32cam |
 | WiFi not connecting | Wrong mode/creds | Check rover_config.yaml, secrets.yaml |
 | mDNS not working | Firewall/router | Use IP address directly |

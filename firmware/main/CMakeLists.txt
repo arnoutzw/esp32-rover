@@ -22,7 +22,6 @@ set(COMPONENT_REQUIRES
     web_server
     lcd_display
     mqtt_service
-    log_buffer
     lwip
     app_update
     resource_guard
@@ -53,14 +52,6 @@ if(ROVER_TARGET STREQUAL "esp32cam")
 elseif(ROVER_TARGET STREQUAL "ttgo")
     target_compile_definitions(${COMPONENT_LIB} PUBLIC ROVER_TARGET_TTGO=1)
 endif()
-
-# Feature toggles - exported as compile definitions for all components
-# ENABLE_LOG_BUFFER: Set to 0 to disable log buffer and save ~16-32KB RAM
-# Default: enabled (1)
-if(NOT DEFINED ENABLE_LOG_BUFFER)
-    set(ENABLE_LOG_BUFFER 1)
-endif()
-target_compile_definitions(${COMPONENT_LIB} PUBLIC ENABLE_LOG_BUFFER=${ENABLE_LOG_BUFFER})
 
 # REQ-38: JTAG Debug Mode - frees GPIO 12-15 for JTAG debugging
 # Usage: JTAG_DEBUG=1 ROVER_TARGET=esp32cam idf.py build

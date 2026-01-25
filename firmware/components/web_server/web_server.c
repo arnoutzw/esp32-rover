@@ -4,9 +4,6 @@
 #ifdef ROVER_TARGET_ESP32CAM
 #include "camera.h"
 #endif
-#if defined(ENABLE_LOG_BUFFER) && ENABLE_LOG_BUFFER
-#include "log_buffer.h"
-#endif
 #include <string.h>
 #include <stdlib.h>
 #include "esp_log.h"
@@ -32,9 +29,6 @@ static rover_status_t current_status = {0};
 static int64_t last_command_time = 0;
 static SemaphoreHandle_t state_mutex = NULL;
 
-// Log stream task handle
-static TaskHandle_t log_stream_task_handle = NULL;
-
 #ifdef ROVER_TARGET_ESP32CAM
 // Async stream task handle
 static TaskHandle_t stream_task_handle = NULL;
@@ -45,11 +39,6 @@ static esp_err_t root_handler(httpd_req_t *req);
 static esp_err_t control_handler(httpd_req_t *req);
 #if ENABLE_REST_API
 static esp_err_t status_handler(httpd_req_t *req);
-#endif
-#if defined(ENABLE_LOG_BUFFER) && ENABLE_LOG_BUFFER
-static esp_err_t logs_get_handler(httpd_req_t *req);
-static esp_err_t logs_stream_handler(httpd_req_t *req);
-static esp_err_t logs_delete_handler(httpd_req_t *req);
 #endif
 #ifdef ROVER_TARGET_ESP32CAM
 static esp_err_t stream_handler(httpd_req_t *req);
@@ -107,30 +96,6 @@ static const httpd_uri_t uri_led_post = {
     .user_ctx = NULL
 };
 #endif // ROVER_TARGET_ESP32CAM
-
-#if defined(ENABLE_LOG_BUFFER) && ENABLE_LOG_BUFFER
-// REQ-31: Log buffer endpoints
-static const httpd_uri_t uri_logs_get = {
-    .uri = "/logs",
-    .method = HTTP_GET,
-    .handler = logs_get_handler,
-    .user_ctx = NULL
-};
-
-static const httpd_uri_t uri_logs_stream = {
-    .uri = "/logs/stream",
-    .method = HTTP_GET,
-    .handler = logs_stream_handler,
-    .user_ctx = NULL
-};
-
-static const httpd_uri_t uri_logs_delete = {
-    .uri = "/logs",
-    .method = HTTP_DELETE,
-    .handler = logs_delete_handler,
-    .user_ctx = NULL
-};
-#endif // ENABLE_LOG_BUFFER
 
 // REQ-34: Camera stream control endpoints
 #ifdef ROVER_TARGET_ESP32CAM
@@ -598,199 +563,6 @@ static esp_err_t led_post_handler(httpd_req_t *req)
 }
 #endif // ROVER_TARGET_ESP32CAM
 
-#if defined(ENABLE_LOG_BUFFER) && ENABLE_LOG_BUFFER
-// =============================================================================
-// REQ-31: Log Buffer Handlers
-// =============================================================================
-
-// Helper to parse level query parameter
-static uint8_t get_level_from_query(httpd_req_t *req) {
-    char query[64] = {0};
-    if (httpd_req_get_url_query_str(req, query, sizeof(query)) == ESP_OK) {
-        char level_str[8] = {0};
-        if (httpd_query_key_value(query, "level", level_str, sizeof(level_str)) == ESP_OK) {
-            int level = atoi(level_str);
-            if (level >= 1 && level <= 5) {
-                return (uint8_t)level;
-            }
-        }
-    }
-    return LOG_LEVEL_INFO;  // Default: Info level and above
-}
-
-// Helper to check if download mode
-static bool is_download_request(httpd_req_t *req) {
-    char query[64] = {0};
-    if (httpd_req_get_url_query_str(req, query, sizeof(query)) == ESP_OK) {
-        char download_str[8] = {0};
-        if (httpd_query_key_value(query, "download", download_str, sizeof(download_str)) == ESP_OK) {
-            return download_str[0] == '1' || download_str[0] == 't';
-        }
-    }
-    return false;
-}
-
-// GET /logs - Return all buffered logs as text
-static esp_err_t logs_get_handler(httpd_req_t *req)
-{
-    if (!log_buffer_is_initialized()) {
-        httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "Log buffer not initialized");
-        return ESP_FAIL;
-    }
-
-    uint8_t min_level = get_level_from_query(req);
-    bool download = is_download_request(req);
-
-    char *log_text = NULL;
-    size_t log_len = 0;
-
-    esp_err_t ret = log_buffer_get_text(&log_text, &log_len, min_level);
-    if (ret != ESP_OK) {
-        httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "Failed to get logs");
-        return ESP_FAIL;
-    }
-
-    httpd_resp_set_type(req, "text/plain");
-    httpd_resp_set_hdr(req, "Access-Control-Allow-Origin", "*");
-
-    // REQ-35: Add download header if requested
-    if (download) {
-        httpd_resp_set_hdr(req, "Content-Disposition", "attachment; filename=\"esp32_logs.txt\"");
-    }
-
-    esp_err_t send_ret = httpd_resp_send(req, log_text ? log_text : "", log_len);
-    free(log_text);
-
-    return send_ret;
-}
-
-// DELETE /logs - Clear log buffer
-static esp_err_t logs_delete_handler(httpd_req_t *req)
-{
-    log_buffer_clear();
-
-    httpd_resp_set_type(req, "application/json");
-    httpd_resp_set_hdr(req, "Access-Control-Allow-Origin", "*");
-    return httpd_resp_sendstr(req, "{\"status\":\"cleared\"}");
-}
-
-// Log stream task data
-typedef struct {
-    httpd_req_t *req;
-    uint8_t min_level;
-} log_stream_task_data_t;
-
-// SSE stream task for logs
-static void log_stream_task(void *pvParameters)
-{
-    log_stream_task_data_t *data = (log_stream_task_data_t *)pvParameters;
-    httpd_req_t *req = data->req;
-    uint8_t min_level = data->min_level;
-    char json_buf[512];
-    esp_err_t res;
-
-    ESP_LOGI(TAG, "Log stream task started");
-
-    // Get current position (start from end to only get new logs)
-    size_t position = log_buffer_get_read_position();
-
-    while (true) {
-        // Try to read next log entry
-        if (log_buffer_read_next(&position, json_buf, sizeof(json_buf), min_level)) {
-            // Send SSE event
-            char sse_buf[600];
-            int len = snprintf(sse_buf, sizeof(sse_buf), "event: log\ndata: %s\n\n", json_buf);
-
-            res = httpd_resp_send_chunk(req, sse_buf, len);
-            if (res != ESP_OK) {
-                ESP_LOGI(TAG, "Log stream client disconnected");
-                break;
-            }
-        } else {
-            // No new logs, wait a bit
-            vTaskDelay(pdMS_TO_TICKS(100));
-
-            // Send keepalive comment every ~3 seconds (30 iterations)
-            static int keepalive_counter = 0;
-            if (++keepalive_counter >= 30) {
-                keepalive_counter = 0;
-                res = httpd_resp_send_chunk(req, ": keepalive\n\n", 13);
-                if (res != ESP_OK) {
-                    ESP_LOGI(TAG, "Log stream client disconnected (keepalive)");
-                    break;
-                }
-            }
-        }
-    }
-
-    httpd_req_async_handler_complete(req);
-    free(data);
-    log_stream_task_handle = NULL;
-    ESP_LOGI(TAG, "Log stream task ended");
-    vTaskDelete(NULL);
-}
-
-// GET /logs/stream - SSE stream for live logs
-static esp_err_t logs_stream_handler(httpd_req_t *req)
-{
-    if (!log_buffer_is_initialized()) {
-        httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "Log buffer not initialized");
-        return ESP_FAIL;
-    }
-
-    // Only allow one log stream at a time
-    if (log_stream_task_handle != NULL) {
-        httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "Log stream already active");
-        return ESP_FAIL;
-    }
-
-    uint8_t min_level = get_level_from_query(req);
-
-    // Set SSE headers
-    httpd_resp_set_type(req, "text/event-stream");
-    httpd_resp_set_hdr(req, "Cache-Control", "no-cache");
-    httpd_resp_set_hdr(req, "Connection", "keep-alive");
-    httpd_resp_set_hdr(req, "Access-Control-Allow-Origin", "*");
-
-    // Start async handling
-    httpd_req_t *async_req = NULL;
-    esp_err_t res = httpd_req_async_handler_begin(req, &async_req);
-    if (res != ESP_OK) {
-        ESP_LOGE(TAG, "Failed to start async handler for log stream: %s", esp_err_to_name(res));
-        return res;
-    }
-
-    // Allocate task data
-    log_stream_task_data_t *task_data = malloc(sizeof(log_stream_task_data_t));
-    if (!task_data) {
-        httpd_req_async_handler_complete(async_req);
-        return ESP_ERR_NO_MEM;
-    }
-    task_data->req = async_req;
-    task_data->min_level = min_level;
-
-    // Create log stream task on Core 0
-    BaseType_t xReturned = xTaskCreatePinnedToCore(
-        log_stream_task,
-        "log_stream",
-        4096,
-        task_data,
-        2,  // Lower priority than MJPEG stream
-        &log_stream_task_handle,
-        0   // Core 0
-    );
-
-    if (xReturned != pdPASS) {
-        ESP_LOGE(TAG, "Failed to create log stream task");
-        httpd_req_async_handler_complete(async_req);
-        free(task_data);
-        return ESP_FAIL;
-    }
-
-    return ESP_OK;
-}
-#endif // ENABLE_LOG_BUFFER
-
 // =============================================================================
 // REQ-34: Camera Stream Control Handlers
 // =============================================================================
@@ -915,14 +687,6 @@ esp_err_t web_server_init(const web_server_config_t *config)
     httpd_register_uri_handler(server, &uri_led_get);
     httpd_register_uri_handler(server, &uri_led_post);
     ESP_LOGI(TAG, "LED endpoint enabled (/led)");
-#endif
-
-#if defined(ENABLE_LOG_BUFFER) && ENABLE_LOG_BUFFER
-    // REQ-31: Register log buffer endpoints
-    httpd_register_uri_handler(server, &uri_logs_get);
-    httpd_register_uri_handler(server, &uri_logs_stream);
-    httpd_register_uri_handler(server, &uri_logs_delete);
-    ESP_LOGI(TAG, "Log endpoints enabled (/logs, /logs/stream)");
 #endif
 
 #ifdef ROVER_TARGET_ESP32CAM

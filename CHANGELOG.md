@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Removed
+- **Log Buffer System Removal**:
+  - Removed `log_buffer` component directory and all source files
+  - Removed `/logs`, `/logs/stream` REST API endpoints from web server
+  - Removed System Logs UI panel from web interface diagnostics
+  - Removed `ENABLE_LOG_BUFFER` configuration option from config.h and CMakeLists.txt
+  - Logs still output via UART as normal for debugging with serial monitor
+  - Saves ~16-20KB RAM (16KB ring buffer + task stack + metadata)
+
 ## [2.0.1] - 2026-01-25
 
 ### Added

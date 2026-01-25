@@ -259,12 +259,3 @@
     #define STACK_SIZE_MQTT_TASK        4096
 #endif
 
-// =============================================================================
-// Feature Toggles for Memory Optimization
-// =============================================================================
-
-// Log buffer can be disabled to save ~16-32KB RAM
-// Set to 0 to disable the circular log buffer (logs still go to UART)
-#ifndef ENABLE_LOG_BUFFER
-    #define ENABLE_LOG_BUFFER       1
-#endif
