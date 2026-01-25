@@ -181,6 +181,12 @@ class BugReportApp:
         self.fetch_btn = ttk.Button(fetch_frame, text="Fetch Build Info", command=self.fetch_build_info)
         self.fetch_btn.pack(side=tk.LEFT)
 
+        # Status label for fetch feedback (no popup)
+        self.status_var = tk.StringVar(value="")
+        self.status_label = ttk.Label(fetch_frame, textvariable=self.status_var,
+                                       font=('TkDefaultFont', 9))
+        self.status_label.pack(side=tk.LEFT, padx=(10, 0))
+
         # Bug Title
         title_frame = ttk.LabelFrame(main_frame, text="Bug Title", padding="10")
         title_frame.pack(fill=tk.X, pady=(0, 10))
@@ -226,17 +232,18 @@ class BugReportApp:
             self.root.quit()
 
     def fetch_build_info(self):
-        """Fetch build info from device via REST API."""
+        """Fetch build info from device via REST API and fill fields directly."""
         import urllib.request
         import json
 
         device_ip = self.device_ip_var.get().strip()
         if not device_ip:
-            messagebox.showerror("Error", "Please enter a device IP or hostname")
+            self.show_status("Please enter a device IP or hostname", error=True)
             return
 
         url = f"http://{device_ip}/status"
         self.fetch_btn.config(state=tk.DISABLED)
+        self.show_status("Fetching build info...")
         self.root.update()
 
         try:
@@ -255,16 +262,21 @@ class BugReportApp:
             if fingerprint:
                 self.hash_var.set(fingerprint[:7])
 
-            messagebox.showinfo("Success", f"Fetched build info:\nVersion: {version}\nHash: {fingerprint}")
+            self.show_status(f"Fetched: v{self.version_var.get()} ({self.hash_var.get()})")
 
         except urllib.error.URLError as e:
-            messagebox.showerror("Connection Error", f"Could not connect to device:\n{e}")
+            self.show_status(f"Connection error: {e.reason}", error=True)
         except json.JSONDecodeError:
-            messagebox.showerror("Error", "Invalid response from device")
+            self.show_status("Invalid response from device", error=True)
         except Exception as e:
-            messagebox.showerror("Error", f"Failed to fetch build info:\n{e}")
+            self.show_status(f"Error: {e}", error=True)
         finally:
             self.fetch_btn.config(state=tk.NORMAL)
+
+    def show_status(self, message, error=False):
+        """Show status message in the status label."""
+        self.status_var.set(message)
+        self.status_label.config(foreground="red" if error else "green")
 
     def validate_inputs(self):
         """Validate all required inputs."""
