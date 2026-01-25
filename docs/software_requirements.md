@@ -47,12 +47,12 @@ All GPIO pins are defined in `main/config.h`. Pin assignments differ between har
 | GPIO | Function | Direction | Notes |
 |------|----------|-----------|-------|
 | 0 | CAM XCLK | Output | ⚠️ Bootstrap pin - needs external pull-up |
-| 2 | SD Card D0 | I/O | ⚠️ Bootstrap pin - used by SD card in debug mode |
+| 2 | Available | I/O | ⚠️ Bootstrap pin - should be LOW or floating at boot |
 | 5 | CAM D0 | Output | Camera data |
 | 12 | JTAG TDI / Available | I/O | ⛔ **CRITICAL** - Controls flash voltage at boot, requires pull-down |
 | 13 | JTAG TCK / Available | I/O | Available for future use |
-| 14 | JTAG TMS / SD CLK | Shared | Can be used for SD card clock or future motor/I2C |
-| 15 | JTAG TDO / SD CMD | Shared | Can be used for SD card command or future motor/I2C |
+| 14 | JTAG TMS | I/O | Can be used for JTAG or future motor/I2C |
+| 15 | JTAG TDO | I/O | Can be used for JTAG or future motor/I2C |
 | 18 | CAM D1 | Output | Camera data |
 | 19 | CAM D2 | Output | Camera data |
 | 21 | CAM D3 | Output | Camera data |
@@ -68,7 +68,7 @@ All GPIO pins are defined in `main/config.h`. Pin assignments differ between har
 | 36 | CAM D4 | Input | ⚡ Input-only pin |
 | 39 | CAM D5 | Input | ⚡ Input-only pin |
 
-**Note**: GPIO 12-15 available for JTAG debugging or SD card when enabled via build flags.
+**Note**: GPIO 12-15 available for JTAG debugging when enabled via build flag.
 
 ### Pin Legend
 
