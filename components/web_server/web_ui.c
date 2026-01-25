@@ -483,7 +483,7 @@ static const char web_ui_html[] = R"rawliteral(
                     </div>
                     <div class="telemetry-item">
                         <span class="telemetry-label">Steering</span>
-                        <span class="telemetry-value" id="tel-steering">0°</span>
+                        <span class="telemetry-value" id="tel-steering">0%</span>
                     </div>
                     <div class="telemetry-item">
                         <span class="telemetry-label">Velocity</span>
@@ -683,7 +683,7 @@ static const char web_ui_html[] = R"rawliteral(
 
             // Update telemetry display
             document.getElementById('tel-speed').textContent = Math.round(speed) + '%';
-            document.getElementById('tel-steering').textContent = Math.round(steering) + '°';
+            document.getElementById('tel-steering').textContent = Math.round(steering) + '%';
         }
 
         function handleJoystickEnd() {
@@ -692,7 +692,7 @@ static const char web_ui_html[] = R"rawliteral(
             speed = 0;
             steering = 0;
             document.getElementById('tel-speed').textContent = '0%';
-            document.getElementById('tel-steering').textContent = '0°';
+            document.getElementById('tel-steering').textContent = '0%';
         }
 
         // Mouse events

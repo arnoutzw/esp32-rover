@@ -552,22 +552,6 @@ esp_err_t lcd_display_update(const lcd_rover_status_t *status)
     y += 32;
 
     // =========================================================================
-    // VELOCITY SECTION - Only redraw on value change (0.1 precision)
-    // =========================================================================
-    int16_t vel_x10 = (int16_t)(status->velocity_rads * 10);
-    if (vel_x10 != s_prev_velocity_x10) {
-        // Label (draw once)
-        if (s_prev_velocity_x10 == INT16_MIN) {
-            lcd_draw_string(4, y, "VEL", COLOR_LIGHTGRAY, COLOR_BLACK, 1);
-        }
-        snprintf(buf, sizeof(buf), "%5.1f r/s", status->velocity_rads);
-        lcd_fill_rect(50, y, 80, 10, COLOR_BLACK);  // Clear old value
-        lcd_draw_string(50, y, buf, COLOR_YELLOW, COLOR_BLACK, 1);
-        s_prev_velocity_x10 = vel_x10;
-    }
-    y += 16;
-
-    // =========================================================================
     // BATTERY SECTION - Only redraw on value change (0.01V precision)
     // =========================================================================
     int16_t bat_x100 = (int16_t)(status->battery_volts * 100);

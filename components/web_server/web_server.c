@@ -1,6 +1,9 @@
 #include "web_server.h"
-#include "camera.h"
 #include "config.h"
+
+#ifdef ROVER_TARGET_ESP32CAM
+#include "camera.h"
+#endif
 #include "log_buffer.h"
 #include <string.h>
 #include <stdlib.h>
@@ -27,26 +30,30 @@ static rover_status_t current_status = {0};
 static int64_t last_command_time = 0;
 static SemaphoreHandle_t state_mutex = NULL;
 
-// Async stream task handle
-static TaskHandle_t stream_task_handle = NULL;
-
 // Log stream task handle
 static TaskHandle_t log_stream_task_handle = NULL;
 
+#ifdef ROVER_TARGET_ESP32CAM
+// Async stream task handle
+static TaskHandle_t stream_task_handle = NULL;
+#endif
+
 // Forward declarations
 static esp_err_t root_handler(httpd_req_t *req);
-static esp_err_t stream_handler(httpd_req_t *req);
 static esp_err_t control_handler(httpd_req_t *req);
 #if ENABLE_REST_API
 static esp_err_t status_handler(httpd_req_t *req);
 #endif
-static esp_err_t led_get_handler(httpd_req_t *req);
-static esp_err_t led_post_handler(httpd_req_t *req);
 static esp_err_t logs_get_handler(httpd_req_t *req);
 static esp_err_t logs_stream_handler(httpd_req_t *req);
 static esp_err_t logs_delete_handler(httpd_req_t *req);
+#ifdef ROVER_TARGET_ESP32CAM
+static esp_err_t stream_handler(httpd_req_t *req);
+static esp_err_t led_get_handler(httpd_req_t *req);
+static esp_err_t led_post_handler(httpd_req_t *req);
 static esp_err_t camera_get_handler(httpd_req_t *req);
 static esp_err_t camera_post_handler(httpd_req_t *req);
+#endif
 
 // URI handlers
 static const httpd_uri_t uri_root = {
@@ -56,12 +63,14 @@ static const httpd_uri_t uri_root = {
     .user_ctx = NULL
 };
 
+#ifdef ROVER_TARGET_ESP32CAM
 static const httpd_uri_t uri_stream = {
     .uri = "/stream",
     .method = HTTP_GET,
     .handler = stream_handler,
     .user_ctx = NULL
 };
+#endif
 
 static const httpd_uri_t uri_control = {
     .uri = "/control",
@@ -79,6 +88,7 @@ static const httpd_uri_t uri_status = {
 };
 #endif
 
+#ifdef ROVER_TARGET_ESP32CAM
 static const httpd_uri_t uri_led_get = {
     .uri = "/led",
     .method = HTTP_GET,
@@ -92,6 +102,7 @@ static const httpd_uri_t uri_led_post = {
     .handler = led_post_handler,
     .user_ctx = NULL
 };
+#endif // ROVER_TARGET_ESP32CAM
 
 // REQ-31: Log buffer endpoints
 static const httpd_uri_t uri_logs_get = {
@@ -116,6 +127,7 @@ static const httpd_uri_t uri_logs_delete = {
 };
 
 // REQ-34: Camera stream control endpoints
+#ifdef ROVER_TARGET_ESP32CAM
 static const httpd_uri_t uri_camera_get = {
     .uri = "/camera",
     .method = HTTP_GET,
@@ -129,6 +141,7 @@ static const httpd_uri_t uri_camera_post = {
     .handler = camera_post_handler,
     .user_ctx = NULL
 };
+#endif // ROVER_TARGET_ESP32CAM
 
 // Root handler - serve HTML UI
 static esp_err_t root_handler(httpd_req_t *req)
@@ -139,6 +152,7 @@ static esp_err_t root_handler(httpd_req_t *req)
     return httpd_resp_send(req, html, strlen(html));
 }
 
+#ifdef ROVER_TARGET_ESP32CAM
 // Async stream task data
 typedef struct {
     httpd_req_t *req;
@@ -277,6 +291,7 @@ static esp_err_t stream_handler(httpd_req_t *req)
 
     return ESP_OK;
 }
+#endif // ROVER_TARGET_ESP32CAM
 
 // Control handler - receive commands
 static esp_err_t control_handler(httpd_req_t *req)
@@ -373,10 +388,7 @@ static esp_err_t status_handler(httpd_req_t *req)
     snprintf(response, sizeof(response),
         "{"
         "\"target\":\"%s\","
-        "\"velocity\":%.2f,"
         "\"battery\":%.2f,"
-        "\"steering\":%.1f,"
-        "\"motor\":%s,"
         "\"camera\":%s,"
         "\"rssi\":%d,"
         "\"btnL\":%s,"
@@ -407,10 +419,7 @@ static esp_err_t status_handler(httpd_req_t *req)
         "}"
         "}",
         target_str,
-        status.motor_velocity,
         status.battery_voltage,
-        status.steering_angle,
-        status.motor_enabled ? "true" : "false",
         status.camera_active ? "true" : "false",
         status.wifi_rssi,
         status.button_left ? "true" : "false",
@@ -446,9 +455,10 @@ static esp_err_t status_handler(httpd_req_t *req)
 #endif // ENABLE_REST_API
 
 // =============================================================================
-// LED Control Handlers
+// LED Control Handlers (ESP32-CAM Flash LED)
 // =============================================================================
 
+#ifdef ROVER_TARGET_ESP32CAM
 // GET /led - Return LED state
 static esp_err_t led_get_handler(httpd_req_t *req)
 {
@@ -505,6 +515,7 @@ static esp_err_t led_post_handler(httpd_req_t *req)
     httpd_resp_set_hdr(req, "Access-Control-Allow-Origin", "*");
     return httpd_resp_sendstr(req, response);
 }
+#endif // ROVER_TARGET_ESP32CAM
 
 // =============================================================================
 // REQ-31: Log Buffer Handlers
@@ -701,6 +712,7 @@ static esp_err_t logs_stream_handler(httpd_req_t *req)
 // REQ-34: Camera Stream Control Handlers
 // =============================================================================
 
+#ifdef ROVER_TARGET_ESP32CAM
 // GET /camera - Return camera stream state
 static esp_err_t camera_get_handler(httpd_req_t *req)
 {
@@ -757,6 +769,7 @@ static esp_err_t camera_post_handler(httpd_req_t *req)
     httpd_resp_set_hdr(req, "Access-Control-Allow-Origin", "*");
     return httpd_resp_sendstr(req, response);
 }
+#endif // ROVER_TARGET_ESP32CAM
 
 esp_err_t web_server_init(const web_server_config_t *config)
 {
@@ -797,17 +810,21 @@ esp_err_t web_server_init(const web_server_config_t *config)
 
     // Register URI handlers
     httpd_register_uri_handler(server, &uri_root);
+#ifdef ROVER_TARGET_ESP32CAM
     httpd_register_uri_handler(server, &uri_stream);
+#endif
     httpd_register_uri_handler(server, &uri_control);
 #if ENABLE_REST_API
     httpd_register_uri_handler(server, &uri_status);
     ESP_LOGI(TAG, "REST API enabled (/status endpoint)");
 #endif
 
-    // Register LED endpoints
+#ifdef ROVER_TARGET_ESP32CAM
+    // Register LED endpoints (Flash LED control)
     httpd_register_uri_handler(server, &uri_led_get);
     httpd_register_uri_handler(server, &uri_led_post);
     ESP_LOGI(TAG, "LED endpoint enabled (/led)");
+#endif
 
     // REQ-31: Register log buffer endpoints
     httpd_register_uri_handler(server, &uri_logs_get);
@@ -815,10 +832,12 @@ esp_err_t web_server_init(const web_server_config_t *config)
     httpd_register_uri_handler(server, &uri_logs_delete);
     ESP_LOGI(TAG, "Log endpoints enabled (/logs, /logs/stream)");
 
+#ifdef ROVER_TARGET_ESP32CAM
     // REQ-34: Register camera stream control endpoints
     httpd_register_uri_handler(server, &uri_camera_get);
     httpd_register_uri_handler(server, &uri_camera_post);
     ESP_LOGI(TAG, "Camera control endpoint enabled (/camera)");
+#endif
 
     ESP_LOGI(TAG, "Web server started");
     return ESP_OK;

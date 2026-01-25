@@ -19,9 +19,6 @@ typedef struct {
 // Status structure
 typedef struct {
     float battery_voltage;
-    float motor_velocity;
-    float steering_angle;
-    bool motor_enabled;
     bool camera_active;
     int wifi_rssi;
     bool button_left;

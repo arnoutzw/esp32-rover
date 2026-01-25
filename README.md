@@ -1,14 +1,14 @@
 # ESP32 WiFi Rover Firmware
 
-A WiFi-controlled rover using ESP32 with SimpleFOC BLDC motor control and servo steering.
+A WiFi-controlled rover platform using ESP32 with camera streaming and web-based control interface.
+
+**Note**: Motor/servo/encoder components have been removed from the codebase as of v1.6. The web control interface (speed, steering, emergency stop) is preserved for future motor implementation. The firmware now focuses on WiFi connectivity, camera streaming, LCD display, and diagnostic features.
 
 ## Features
 
 - **WiFi Control**: AP mode, STA mode, or STA-first with AP fallback
 - **Live Video Stream**: MJPEG stream from OV2640 camera (ESP32-CAM only)
-- **BLDC Motor Control**: SimpleFOC-style velocity control with AS5600 encoder
-- **Servo Steering**: MG90S servo for front axle Ackermann steering
-- **Virtual Joystick**: Touch-friendly web UI with joystick control
+- **Virtual Joystick**: Touch-friendly web UI with joystick control (ready for motor integration)
 - **LCD Display**: ST7789 135x240 on-device status display (TTGO only)
 - **Hardware Buttons**: Left/Right button input with WebUI indicators (TTGO only)
 - **Diagnostics Panel**: System info, WiFi status, service status, logs
@@ -30,14 +30,11 @@ A WiFi-controlled rover using ESP32 with SimpleFOC BLDC motor control and servo 
 | `esp32cam` | AI-Thinker ESP32-CAM | Yes | No | No | Full features with live video |
 | `ttgo` | LilyGO TTGO T-Display | No | Yes | Yes | LCD status display + buttons |
 
-### Common Hardware
+### Optional Hardware
 
-- SimpleFOC Mini or compatible BLDC driver
-- BLDC gimbal motor (2204/2208 or similar)
-- AS5600 magnetic encoder
-- MG90S servo
+- Motor driver and motors (for future integration - firmware ready)
 - 2S LiPo battery (7.4V)
-- 5V BEC for servo power
+- 5V voltage regulator
 
 ## Quick Start
 
@@ -99,16 +96,13 @@ esp32-rover-firmware/
 │   ├── config.h            # Hardware configuration
 │   └── config_generated.h  # Generated from YAML config
 ├── components/             # Reusable ESP-IDF components
-│   ├── as5600/             # Magnetic encoder driver
-│   ├── bldc_motor/         # BLDC motor controller
-│   ├── servo_control/      # Servo driver
-│   ├── camera/             # Camera module (ESP32-CAM)
-│   ├── lcd_display/        # ST7789 LCD driver (TTGO)
-│   ├── web_server/         # HTTP server with UI
+│   ├── camera/             # Camera module (ESP32-CAM only)
+│   ├── lcd_display/        # ST7789 LCD driver (TTGO only)
+│   ├── web_server/         # HTTP server with control UI
 │   ├── mqtt_service/       # MQTT telemetry publisher
 │   ├── log_buffer/         # Serial log capture with SD storage
-│   ├── status_led/         # WiFi status LED indicator
-│   ├── sd_card/            # SD card 1-bit SDMMC driver
+│   ├── status_led/         # WiFi status LED indicator (ESP32-CAM only)
+│   ├── sd_card/            # SD card 1-bit SDMMC driver (ESP32-CAM debug mode)
 │   └── resource_guard/     # Memory/stack safety guards
 ├── esp-idf/                # Embedded ESP-IDF v5.2.2
 ├── docs/
@@ -147,13 +141,10 @@ mqtt:
   broker:
     host: "192.168.1.100"
 
-# Motor tuning
-motor:
-  pole_pairs: 7
-  voltage_limit: 6.0
-  pid:
-    p: 0.2
-    i: 2.0
+# Control parameters
+control:
+  watchdog_timeout_ms: 500
+  max_speed_percent: 100
 
 # Task watchdog (auto-reboot on hang)
 task_watchdog:
@@ -191,13 +182,6 @@ mqtt_password: ""
 
 | GPIO | Function | Notes |
 |------|----------|-------|
-| 25 | Motor IN1 | BLDC phase A |
-| 26 | Motor IN2 | BLDC phase B |
-| 27 | Motor IN3 | BLDC phase C |
-| 33 | Motor EN | Motor enable |
-| 21 | I2C SDA | AS5600 encoder |
-| 22 | I2C SCL | AS5600 encoder |
-| 32 | Servo PWM | Steering servo |
 | 18 | LCD SCLK | ST7789 SPI clock |
 | 19 | LCD MOSI | ST7789 SPI data |
 | 16 | LCD DC | ST7789 data/command |
@@ -207,33 +191,47 @@ mqtt_password: ""
 | 0 | Button L | Left button (active LOW) |
 | 35 | Button R | Right button (active LOW) |
 
+**Available GPIOs for future expansion**: 21-22, 25-27, 32-33 (can be used for motors/sensors)
+
 ### ESP32-CAM
 
 | GPIO | Function | Notes |
 |------|----------|-------|
-| 12 | Motor IN1 | Boot-sensitive (keep LOW) |
-| 13 | Motor IN2 | BLDC phase B |
-| 14 | Motor IN3 / I2C SDA / SD CLK | Shared with encoder/SD |
-| 15 | Motor EN / I2C SCL / SD CMD | Shared with encoder/SD |
-| 2 | Servo PWM / SD D0 | Has onboard LED, shared with SD |
 | 33 | Status LED | On-board red LED (inverted logic) |
 | 4 | Flash LED | On-board white LED |
-| Many | Camera | See config.h for full pinout |
+| Many | Camera | See config.h for full camera pinout |
+
+**SD Card Debug Mode (1-bit SDMMC)**:
+| GPIO | Function | Notes |
+|------|----------|-------|
+| 2 | SD D0 | Data line 0 |
+| 14 | SD CLK | Clock line |
+| 15 | SD CMD | Command line |
+
+**JTAG Debug Mode**:
+| GPIO | Function | Notes |
+|------|----------|-------|
+| 12 | TDI | JTAG data in |
+| 13 | TCK | JTAG clock |
+| 14 | TMS | JTAG mode select |
+| 15 | TDO | JTAG data out |
+
+**Available GPIOs for future motor expansion**: 12-15 (normal mode), 21-22, 25-27, 32
 
 **Notes**:
-- GPIO 12-15 are also JTAG pins. Use `JTAG_DEBUG=1` build flag to disable motor and enable JTAG debugging.
-- GPIO 2, 14, 15 are used for SD card in 1-bit mode. Use `SD_CARD_DEBUG=1` build flag to enable SD card (disables motor).
-- Status LED (GPIO 33) uses inverted logic: LOW = LED on, HIGH = LED off.
+- Status LED (GPIO 33) uses inverted logic: LOW = LED on, HIGH = LED off
+- SD Card mode (`SD_CARD_DEBUG=1`) uses GPIO 2, 14, 15
+- JTAG mode (`JTAG_DEBUG=1`) uses GPIO 12-15
+- GPIO 12 is boot-sensitive (must be LOW/floating during boot)
 
 ## Web Interface
 
 ### Control Interface
 
 The main web UI provides:
-- Virtual joystick for speed/steering control
+- Virtual joystick for speed/steering control (ready for motor integration)
 - Battery voltage indicator
 - WiFi signal strength display
-- Motor enable/disable toggle
 - Emergency stop button
 - Camera stream (ESP32-CAM only)
 - Camera on/off toggle (saves resources for OTA)
@@ -276,10 +274,7 @@ Access system diagnostics by scrolling down:
 ```json
 {
   "target": "esp32cam",
-  "velocity": 5.2,
   "battery": 7.4,
-  "steering": 15.0,
-  "motor": true,
   "camera": true,
   "rssi": -45,
   "btnL": false,
@@ -360,14 +355,13 @@ SD_CARD_DEBUG=1 ROVER_TARGET=esp32cam idf.py build flash
 
 ```
 Core 0: WiFi, Web server, Camera capture, LCD updates, Status updates, MQTT
-Core 1: Motor control loop (100Hz)
+Core 1: Available for future motor control implementation
 ```
 
 ### Task Allocation
 
 | Task | Core | Priority | Frequency |
 |------|------|----------|-----------|
-| Motor control | 1 | 5 | 100 Hz |
 | Status update | 0 | 2 | 20 Hz |
 | LCD update | 0 | 1 | ~60 Hz |
 | Web server | 0 | - | Event-driven |
@@ -376,9 +370,9 @@ Core 1: Motor control loop (100Hz)
 ### Task Watchdog
 
 Critical tasks are monitored by ESP-IDF's Task Watchdog Timer (TWDT):
-- Motor control task feeds watchdog every 10ms
 - Status task feeds watchdog every 50ms
 - 30-second timeout triggers automatic reboot
+- Configurable via `rover_config.yaml`
 
 ## Hardware Buttons (TTGO only)
 
@@ -420,7 +414,6 @@ See [test/README.md](test/README.md) for details.
 
 ## Troubleshooting
 
-- **Motor not moving**: Check encoder magnet position, verify I2C connection
 - **Camera not working**: Ensure you're using ESP32-CAM build with PSRAM
 - **OTA fails at ~10%**: Disable camera stream first (CAM ON/OFF button)
 - **LCD not displaying**: Check SPI connections, verify `ENABLE_LCD_DISPLAY=1`
@@ -429,14 +422,27 @@ See [test/README.md](test/README.md) for details.
 - **Status LED not blinking**: LED uses inverted logic (LOW = on), check GPIO 33, ESP32-CAM only
 - **SD card not mounting**: Use `SD_CARD_DEBUG=1` build, check card format (FAT32), verify 1-bit mode pins
 - **Logs not on SD card**: Check SD mount, verify `/sdcard/rover_logs.txt` writable, check web UI `/logs`
-- **Servo jitter**: Ensure adequate 5V power supply
 - **Build fails**: Run `./setup.sh` first to install tools
+- **IRAM overflow on TTGO**: Additional IRAM optimizations applied in `sdkconfig.defaults`
 - **mDNS not working**: Ensure device on same network, try IP address
 - **JTAG won't connect**: Add pull-down resistor to GPIO 12, check wiring
 
 ## Changelog
 
-### v1.5 (Latest)
+### v1.6 (Latest)
+- **BREAKING**: Removed motor/servo/encoder components from codebase
+  - Removed `components/bldc_motor/`, `components/servo_control/`, `components/as5600/`
+  - Web control interface preserved for future motor implementation
+  - GPIO pins now available for custom motor integration
+- Fixed IRAM overflow on TTGO T-Display build
+  - Made camera component conditional (ESP32-CAM only)
+  - Added IRAM optimizations to `sdkconfig.defaults`
+  - TTGO build: 1,017 KB (34% free)
+  - ESP32-CAM build: 1,227 KB (21% free)
+- Updated documentation to reflect motor removal
+- Cleaned up configuration files and GPIO assignments
+
+### v1.5
 - Added Status LED Indicator (REQ-39)
   - On-board red LED (GPIO 33) shows WiFi status on ESP32-CAM
   - Solid ON: Powered, no WiFi connection

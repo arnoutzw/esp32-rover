@@ -32,9 +32,6 @@
 #if defined(ENABLE_TASK_WATCHDOG) && ENABLE_TASK_WATCHDOG
 #include "esp_task_wdt.h"
 #endif
-#include "as5600.h"
-#include "bldc_motor.h"
-#include "servo_control.h"
 #if !DISABLE_CAMERA
 #include "camera.h"
 #endif
@@ -51,17 +48,11 @@
 
 static const char *TAG = "ROVER_MAIN";
 
-// Global handles
-static as5600_handle_t encoder_handle = NULL;
-static bldc_motor_handle_t motor_handle = NULL;
-static servo_handle_t servo_handle = NULL;
-
 // Control state
 static rover_command_t current_command = {0};
 static SemaphoreHandle_t command_mutex = NULL;
 
 // Task handles
-static TaskHandle_t motor_task_handle = NULL;
 static TaskHandle_t status_task_handle = NULL;
 #if defined(ENABLE_LCD_DISPLAY) && ENABLE_LCD_DISPLAY
 static TaskHandle_t lcd_task_handle = NULL;
@@ -721,80 +712,10 @@ static void on_rover_command(const rover_command_t *cmd)
         xSemaphoreGive(command_mutex);
     }
 
-    if (cmd->emergency_stop) {
-        ESP_LOGW(TAG, "Emergency stop activated!");
-        if (motor_handle) {
-            bldc_motor_emergency_stop(motor_handle);
-        }
-    }
-
 #if DEBUG_WEBSERVER
     ESP_LOGI(TAG, "Command: speed=%.1f, steering=%.1f, estop=%d",
              cmd->speed, cmd->steering, cmd->emergency_stop);
 #endif
-}
-
-// =============================================================================
-// Motor Control Task (runs on Core 1)
-// =============================================================================
-
-static void motor_control_task(void *pvParameters)
-{
-    ESP_LOGI(TAG, "Motor control task started on core %d", xPortGetCoreID());
-
-#if defined(ENABLE_TASK_WATCHDOG) && ENABLE_TASK_WATCHDOG
-    // REQ-37: Subscribe to task watchdog
-    esp_err_t wdt_err = esp_task_wdt_add(NULL);
-    if (wdt_err != ESP_OK) {
-        ESP_LOGW(TAG, "Failed to add motor_ctrl to watchdog: %s", esp_err_to_name(wdt_err));
-    }
-#endif
-
-    TickType_t last_wake_time = xTaskGetTickCount();
-    const TickType_t loop_period = pdMS_TO_TICKS(1000 / CONTROL_LOOP_FREQ);
-
-    rover_command_t cmd = {0};
-
-    while (1) {
-        // Get latest command
-        if (command_mutex && xSemaphoreTake(command_mutex, pdMS_TO_TICKS(5)) == pdTRUE) {
-            cmd = current_command;
-            xSemaphoreGive(command_mutex);
-        }
-
-        // Check for command timeout (watchdog)
-#if ENABLE_WATCHDOG
-        uint32_t cmd_age = web_server_get_command_age_ms();
-        if (cmd_age > WATCHDOG_TIMEOUT_MS) {
-            // No recent commands, stop motors
-            cmd.speed = 0;
-            cmd.steering = 0;
-        }
-#endif
-
-        // Update motor velocity
-        if (motor_handle) {
-            // Convert speed percentage to velocity (rad/s)
-            float target_velocity = (cmd.speed / 100.0f) * MOTOR_VELOCITY_LIMIT;
-            bldc_motor_set_velocity(motor_handle, target_velocity);
-            bldc_motor_loop(motor_handle);
-        }
-
-        // Update servo steering
-        if (servo_handle) {
-            // Convert steering percentage to angle
-            float steering_angle = (cmd.steering / 100.0f) * STEERING_MAX_ANGLE;
-            servo_set_angle(servo_handle, steering_angle);
-        }
-
-#if defined(ENABLE_TASK_WATCHDOG) && ENABLE_TASK_WATCHDOG
-        // REQ-37: Feed task watchdog
-        esp_task_wdt_reset();
-#endif
-
-        // Maintain loop timing
-        vTaskDelayUntil(&last_wake_time, loop_period);
-    }
 }
 
 // =============================================================================
@@ -866,17 +787,6 @@ static void status_update_task(void *pvParameters)
 
     while (1) {
         rover_status_t status = {0};
-
-        // Get motor velocity
-        if (motor_handle) {
-            bldc_motor_get_velocity(motor_handle, &status.motor_velocity);
-            status.motor_enabled = true;  // TODO: track actual state
-        }
-
-        // Get steering angle
-        if (servo_handle) {
-            servo_get_angle(servo_handle, &status.steering_angle);
-        }
 
         // Camera status
 #if !DISABLE_CAMERA
@@ -985,99 +895,6 @@ static void status_update_task(void *pvParameters)
 // =============================================================================
 // Initialization
 // =============================================================================
-
-static esp_err_t init_encoder(void)
-{
-    ESP_LOGI(TAG, "Initializing AS5600 encoder");
-
-    as5600_config_t config = {
-        .i2c_port = ENCODER_I2C_PORT,
-        .sda_pin = ENCODER_I2C_SDA,
-        .scl_pin = ENCODER_I2C_SCL,
-        .i2c_freq = ENCODER_I2C_FREQ,
-        .i2c_addr = AS5600_I2C_ADDR,
-    };
-
-    return as5600_init(&config, &encoder_handle);
-}
-
-static esp_err_t init_motor(void)
-{
-    ESP_LOGI(TAG, "Initializing BLDC motor");
-
-    bldc_motor_config_t config = {
-        .pin_in1 = MOTOR_PIN_IN1,
-        .pin_in2 = MOTOR_PIN_IN2,
-        .pin_in3 = MOTOR_PIN_IN3,
-        .pin_en = MOTOR_PIN_EN,
-        .pole_pairs = MOTOR_POLE_PAIRS,
-        .voltage_limit = MOTOR_VOLTAGE_LIMIT,
-        .velocity_limit = MOTOR_VELOCITY_LIMIT,
-        .direction = MOTOR_DIR_CW,
-        .pwm_frequency = MOTOR_PWM_FREQ,
-        .velocity_pid = {
-            .kp = MOTOR_PID_P,
-            .ki = MOTOR_PID_I,
-            .kd = MOTOR_PID_D,
-            .output_ramp = MOTOR_PID_RAMP,
-            .limit = MOTOR_VOLTAGE_LIMIT,
-        },
-        .angle_pid = {
-            .kp = 10.0f,
-            .ki = 0.0f,
-            .kd = 0.0f,
-            .output_ramp = 0,
-            .limit = MOTOR_VELOCITY_LIMIT,
-        },
-        .velocity_lpf = {
-            .tf = MOTOR_LPF_TF,
-        },
-        .encoder = encoder_handle,
-    };
-
-    esp_err_t ret = bldc_motor_init(&config, &motor_handle);
-    if (ret != ESP_OK) {
-        return ret;
-    }
-
-    // Calibrate motor
-    ESP_LOGI(TAG, "Calibrating motor...");
-    bldc_motor_calibrate(motor_handle);
-
-    // Enable motor and set to velocity mode
-    bldc_motor_enable(motor_handle);
-    bldc_motor_set_mode(motor_handle, MOTOR_MODE_VELOCITY);
-    bldc_motor_set_velocity(motor_handle, 0);
-
-    return ESP_OK;
-}
-
-static esp_err_t init_servo(void)
-{
-    ESP_LOGI(TAG, "Initializing steering servo");
-
-    servo_config_t config = {
-        .gpio_pin = SERVO_PIN,
-        .pwm_channel = SERVO_PWM_CHANNEL,
-        .pwm_timer = SERVO_PWM_TIMER,
-        .pwm_freq = SERVO_PWM_FREQ,
-        .min_pulse_us = SERVO_MIN_PULSE_US,
-        .max_pulse_us = SERVO_MAX_PULSE_US,
-        .center_pulse_us = SERVO_CENTER_PULSE_US,
-        .max_angle = STEERING_MAX_ANGLE,
-        .trim_offset = STEERING_TRIM,
-    };
-
-    esp_err_t ret = servo_init(&config, &servo_handle);
-    if (ret != ESP_OK) {
-        return ret;
-    }
-
-    // Center servo
-    servo_center(servo_handle);
-
-    return ESP_OK;
-}
 
 #if !DISABLE_CAMERA
 static esp_err_t init_camera(void)
@@ -1223,16 +1040,7 @@ static void enter_deep_sleep(void)
 {
     ESP_LOGI(TAG, "Entering deep sleep mode...");
 
-    // 1. Stop motor and center servo
-    if (motor_handle) {
-        bldc_motor_set_velocity(motor_handle, 0);
-        bldc_motor_disable(motor_handle);
-    }
-    if (servo_handle) {
-        servo_center(servo_handle);
-    }
-
-    // 2. Show sleep screen with Snorlax sprite on LCD
+    // Show sleep screen with Snorlax sprite on LCD
     lcd_display_sleep_screen();
     vTaskDelay(pdMS_TO_TICKS(2000));  // Show sleep screen for 2 seconds
 
@@ -1470,13 +1278,9 @@ static void lcd_update_task(void *pvParameters)
             lcd_status.wifi_ssid = wifi_get_current_ssid();
             lcd_status.wifi_ip = wifi_get_ip_str();
             lcd_status.speed_percent = (int)cmd.speed;
-            lcd_status.steering_degrees = (int)((cmd.steering / 100.0f) * STEERING_MAX_ANGLE);
+            // Differential drive: steering shown as percentage (-100 to +100)
+            lcd_status.steering_degrees = (int)cmd.steering;
             lcd_status.estop = cmd.emergency_stop;
-
-            // Get motor velocity
-            if (motor_handle) {
-                bldc_motor_get_velocity(motor_handle, &lcd_status.velocity_rads);
-            }
 
             // Check if client connected (command age < 1 second means active)
             lcd_status.connected = (web_server_get_command_age_ms() < 1000);
@@ -1603,35 +1407,6 @@ void app_main(void)
     }
 
     // Initialize hardware components
-#if !ENABLE_JTAG_DEBUG
-    ret = init_encoder();
-    if (ret != ESP_OK) {
-        ESP_LOGW(TAG, "Encoder init failed: %s (continuing without encoder)", esp_err_to_name(ret));
-        // Continue without encoder - will use open-loop control
-    }
-
-    ret = init_motor();
-    if (ret != ESP_OK) {
-        ESP_LOGE(TAG, "Motor init failed: %s", esp_err_to_name(ret));
-        // Continue - motor control will be disabled
-    }
-
-    ret = init_servo();
-    if (ret != ESP_OK) {
-        ESP_LOGE(TAG, "Servo init failed: %s", esp_err_to_name(ret));
-        // Continue - steering will be disabled
-    }
-#else
-    // REQ-38: JTAG Debug Mode - skip motor/encoder/servo init to free GPIO 12-15
-    ESP_LOGW(TAG, "==============================================");
-    ESP_LOGW(TAG, "JTAG DEBUG MODE - Motor control DISABLED");
-    ESP_LOGW(TAG, "GPIO 12-15 available for JTAG debugging");
-    ESP_LOGW(TAG, "==============================================");
-    encoder_handle = NULL;
-    motor_handle = NULL;
-    servo_handle = NULL;
-#endif
-
 #if !DISABLE_CAMERA
     ret = init_camera();
     if (ret != ESP_OK) {
@@ -1703,22 +1478,6 @@ void app_main(void)
     } else {
         ESP_LOGI(TAG, "MQTT disabled - not in STA mode");
     }
-#endif
-
-#if !ENABLE_JTAG_DEBUG
-    // Create motor control task on Core 1
-    xTaskCreatePinnedToCore(
-        motor_control_task,
-        "motor_ctrl",
-        4096,
-        NULL,
-        5,  // High priority
-        &motor_task_handle,
-        1   // Core 1
-    );
-#else
-    motor_task_handle = NULL;
-    ESP_LOGW(TAG, "Motor control task SKIPPED - JTAG debug mode");
 #endif
 
     // Create status update task on Core 0

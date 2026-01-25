@@ -68,35 +68,9 @@ mqtt:
   qos: 0
 
 # -----------------------------------------------------------------------------
-# Motor Configuration
-# -----------------------------------------------------------------------------
-motor:
-  pole_pairs: 7
-  voltage_limit: 6.0
-  velocity_limit: 20.0
-  pwm_frequency: 20000
-  pid:
-    p: 0.2
-    i: 2.0
-    d: 0.0
-    ramp: 1000.0
-  lpf_time_constant: 0.01
-
-# -----------------------------------------------------------------------------
-# Servo Configuration
-# -----------------------------------------------------------------------------
-servo:
-  min_pulse_us: 500
-  max_pulse_us: 2500
-  center_pulse_us: 1500
-  max_angle: 45
-  trim: 0
-
-# -----------------------------------------------------------------------------
 # Control Parameters
 # -----------------------------------------------------------------------------
 control:
-  loop_frequency_hz: 100
   watchdog_timeout_ms: 500
   max_speed_percent: 100
   speed_ramp_rate: 5
@@ -166,9 +140,6 @@ status_led:
 # Debug Options
 # -----------------------------------------------------------------------------
 debug:
-  motor: false
-  encoder: false
-  servo: false
   camera: false
   webserver: false
   mqtt: false

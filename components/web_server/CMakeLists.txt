@@ -6,7 +6,6 @@ idf_component_register(
         "include"
     REQUIRES
         esp_http_server
-        camera
         log_buffer
     PRIV_REQUIRES
         esp_timer

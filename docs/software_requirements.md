@@ -1,5 +1,11 @@
 # ESP32 Rover Software Requirements
 
+## Overview
+
+The ESP32 Rover firmware provides a web-based control interface with camera streaming capabilities.
+
+**Current Status**: Motor/encoder/servo components have been removed from the codebase. The web GUI control interface (speed, steering, emergency stop) is preserved for future motor implementation.
+
 ## Table of Contents
 
 1. [GPIO Allocation](#gpio-allocation)
@@ -30,28 +36,23 @@ All GPIO pins are defined in `main/config.h`. Pin assignments differ between har
 | 16 | LCD DC | Output | Data/command select |
 | 18 | LCD SCLK | Output | SPI clock |
 | 19 | LCD MOSI | Output | SPI data |
-| 21 | Encoder I2C SDA | Open-drain | AS5600 data |
-| 22 | Encoder I2C SCL | Open-drain | AS5600 clock |
 | 23 | LCD RST | Output | Display reset |
-| 25 | Motor IN1 | PWM Output | Phase A |
-| 26 | Motor IN2 | PWM Output | Phase B |
-| 27 | Motor IN3 | PWM Output | Phase C |
-| 32 | Servo PWM | PWM Output | Steering servo |
-| 33 | Motor EN | Output | Motor enable |
 | 34 | Battery ADC | Input | ⚡ Input-only pin |
 | 35 | Button RIGHT | Input | ⚡ Input-only pin |
+
+**Note**: GPIO 21-22, 25-27, 32-33 available for future motor/encoder expansion.
 
 ### ESP32-CAM Pin Map
 
 | GPIO | Function | Direction | Notes |
 |------|----------|-----------|-------|
 | 0 | CAM XCLK | Output | ⚠️ Bootstrap pin - needs external pull-up |
-| 2 | Servo PWM | PWM Output | ⚠️ Bootstrap pin |
+| 2 | SD Card D0 | I/O | ⚠️ Bootstrap pin - used by SD card in debug mode |
 | 5 | CAM D0 | Output | Camera data |
-| 12 | Motor IN1 | PWM Output | ⛔ **CRITICAL** - Controls flash voltage at boot, requires pull-down |
-| 13 | Motor IN2 | PWM Output | Phase B |
-| 14 | Motor IN3 / I2C SDA | Shared | ⚠️ Dual-use: Motor phase C and encoder I2C |
-| 15 | Motor EN / I2C SCL | Shared | ⚠️ Dual-use: Motor enable and encoder I2C |
+| 12 | JTAG TDI / Available | I/O | ⛔ **CRITICAL** - Controls flash voltage at boot, requires pull-down |
+| 13 | JTAG TCK / Available | I/O | Available for future use |
+| 14 | JTAG TMS / SD CLK | Shared | Can be used for SD card clock or future motor/I2C |
+| 15 | JTAG TDO / SD CMD | Shared | Can be used for SD card command or future motor/I2C |
 | 18 | CAM D1 | Output | Camera data |
 | 19 | CAM D2 | Output | Camera data |
 | 21 | CAM D3 | Output | Camera data |
@@ -61,10 +62,13 @@ All GPIO pins are defined in `main/config.h`. Pin assignments differ between har
 | 26 | CAM SIOD | Open-drain | Camera I2C data (SCCB) |
 | 27 | CAM SIOC | Open-drain | Camera I2C clock (SCCB) |
 | 32 | CAM PWDN | Output | Camera power down |
+| 33 | Status LED | Output | WiFi status indicator (inverted logic) |
 | 34 | CAM D6 | Input | ⚡ Input-only pin |
 | 35 | CAM D7 | Input | ⚡ Input-only pin |
 | 36 | CAM D4 | Input | ⚡ Input-only pin |
 | 39 | CAM D5 | Input | ⚡ Input-only pin |
+
+**Note**: GPIO 12-15 available for JTAG debugging or SD card when enabled via build flags.
 
 ### Pin Legend
 
@@ -275,38 +279,56 @@ motor:
 
 ---
 
-### REQ-07: Servo Steering Control [IMPLEMENTED]
+### REQ-07: Differential Drive Steering [IMPLEMENTED]
 
-**Requirement**: The rover shall use a servo motor for steering with configurable center position and travel limits.
+**Requirement**: The rover shall use differential drive (tank-style) steering with two independently controlled motors.
 
 **Implementation**:
-- Standard PWM servo control using ESP32 LEDC peripheral
-- Configurable pulse width range (default: 500-2500µs)
-- Center position calibration
-- Configurable steering angle limits
-- Smooth angle transitions
+- 3-wheel configuration: 2 front wheels (motorized), 1 rear wheel (passive caster)
+- Steering achieved by varying speed difference between left and right motors
+- Motor 1 (left) and Motor 2 (right) controlled via BLDC FOC
+- AS5600 magnetic encoders for position feedback (one per motor)
+- Note: Currently single motor due to AS5600 I2C address conflict (0x36 fixed)
 
-**Configuration Options**:
-```yaml
-servo:
-  pin: 32
-  min_pulse_us: 500
-  max_pulse_us: 2500
-  center_pulse_us: 1500
-  max_angle: 45
+**Differential Drive Calculation**:
+```c
+// Base velocity from speed input (-100 to 100)
+float base_velocity = (speed / 100.0f) * MOTOR_VELOCITY_LIMIT;
+
+// Steering factor from steering input (-100 to 100)
+float steering_factor = (steering / 100.0f) * STEERING_SENSITIVITY;
+float differential = base_velocity * steering_factor;
+
+// Individual wheel velocities
+float left_velocity = base_velocity + differential;
+float right_velocity = base_velocity - differential;
 ```
 
-**API**:
-- `servo_init()` - Initialize servo
-- `servo_set_angle()` - Set steering angle (-max to +max degrees)
-- `servo_center()` - Return to center position
-- `servo_set_trim()` - Set steering trim offset
-- `servo_set_pulse()` - Set pulse width directly (µs)
+**Steering Behavior**:
+- `steering = 0`: Both wheels same speed (straight)
+- `steering > 0`: Turn right (left wheel faster)
+- `steering < 0`: Turn left (right wheel faster)
+- `steering = ±100` with `speed = 0`: Pivot turn (wheels opposite direction)
+
+**Configuration** (`main/config.h`):
+```c
+#define DIFF_DRIVE_TRACK_WIDTH_MM   200  // Distance between wheels
+#define DIFF_DRIVE_WHEEL_RADIUS_MM  40   // Wheel radius
+#define STEERING_SENSITIVITY        1.0f // 1.0 = full differential
+```
+
+**Hardware Note**:
+Both AS5600 encoders have fixed I2C address 0x36. Options for dual encoder:
+1. I2C multiplexer (TCA9548A) - recommended
+2. Bit-banged software I2C on separate pins
+3. Single encoder with velocity estimation
 
 **Files**:
-- `components/servo_control/servo_control.c` - Servo control implementation
-- `components/servo_control/include/servo_control.h` - Public API
-- `rover_config.yaml` - Servo configuration section
+- `main/config.h` - Motor 1/2 pin definitions, differential drive parameters
+- `main/main.c` - Differential drive control in motor task
+- `components/bldc_motor/` - BLDC motor control with FOC
+
+**Status**: IMPLEMENTED (single motor, dual motor pending I2C mux)
 
 ---
 

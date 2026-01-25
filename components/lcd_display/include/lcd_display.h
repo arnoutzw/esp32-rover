@@ -34,7 +34,6 @@ typedef struct {
 typedef struct {
     int speed_percent;      /**< Speed -100 to +100 */
     int steering_degrees;   /**< Steering angle in degrees */
-    float velocity_rads;    /**< Actual velocity in rad/s */
     float battery_volts;    /**< Battery voltage */
     bool connected;         /**< WiFi client connected */
     bool estop;             /**< Emergency stop active */

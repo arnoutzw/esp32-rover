@@ -34,16 +34,6 @@
 #endif
 
 // -----------------------------------------------------------------------------
-// REQ-38: JTAG Debug Mode
-// -----------------------------------------------------------------------------
-// When enabled, motor control is disabled to free GPIO 12-15 for JTAG debugging.
-// Set via CMake: JTAG_DEBUG=1 ROVER_TARGET=esp32cam idf.py build
-// Only useful for ESP32-CAM target (TTGO uses different motor pins).
-#ifndef ENABLE_JTAG_DEBUG
-#define ENABLE_JTAG_DEBUG   0
-#endif
-
-// -----------------------------------------------------------------------------
 // WiFi Configuration (defaults - overridden by config_generated.h if present)
 // -----------------------------------------------------------------------------
 #ifndef WIFI_MODE_AP_ONLY
@@ -95,30 +85,7 @@
 // -----------------------------------------------------------------------------
 // ESP32-CAM AI-Thinker Pin Configuration
 // Note: Many pins are used by camera, limited GPIO available
-// Available pins: GPIO 12, 13, 14, 15 (some have boot restrictions)
 // -----------------------------------------------------------------------------
-
-// Motor Control Pins - using available GPIO on ESP32-CAM
-// WARNING: GPIO 12 affects flash voltage at boot - keep LOW during boot
-#define MOTOR_PIN_IN1       GPIO_NUM_12
-#define MOTOR_PIN_IN2       GPIO_NUM_13
-#define MOTOR_PIN_IN3       GPIO_NUM_14
-#define MOTOR_PIN_EN        GPIO_NUM_15
-
-// Encoder Configuration (AS5600) - shared I2C with camera SCCB
-// Note: Camera uses GPIO 26 (SIOD) and 27 (SIOC) for SCCB
-// We need separate I2C pins for encoder
-#define ENCODER_I2C_SDA     GPIO_NUM_14  // Shared with motor, configure carefully
-#define ENCODER_I2C_SCL     GPIO_NUM_15  // Shared with motor, configure carefully
-#define ENCODER_I2C_PORT    I2C_NUM_1    // Use I2C port 1 (camera uses port 0)
-#define ENCODER_I2C_FREQ    400000       // 400kHz I2C clock
-#define AS5600_I2C_ADDR     0x36         // AS5600 default address
-
-// Servo Configuration - using GPIO 2 (has LED, usable after boot)
-#define SERVO_PIN           GPIO_NUM_2
-#define SERVO_PWM_FREQ      50           // 50Hz for servo
-#define SERVO_PWM_CHANNEL   LEDC_CHANNEL_3
-#define SERVO_PWM_TIMER     LEDC_TIMER_1
 
 // Camera Configuration (ESP32-CAM AI Thinker)
 #define CAM_PIN_PWDN        GPIO_NUM_32
@@ -156,25 +123,6 @@
 // Avoid: GPIO 0,2,5,12,15 (boot), 34-39 (input only), 16-17 (PSRAM on some)
 // -----------------------------------------------------------------------------
 
-// Motor Control Pins (SimpleFOC)
-#define MOTOR_PIN_IN1       GPIO_NUM_25
-#define MOTOR_PIN_IN2       GPIO_NUM_26
-#define MOTOR_PIN_IN3       GPIO_NUM_27
-#define MOTOR_PIN_EN        GPIO_NUM_33
-
-// Encoder Configuration (AS5600)
-#define ENCODER_I2C_SDA     GPIO_NUM_21
-#define ENCODER_I2C_SCL     GPIO_NUM_22
-#define ENCODER_I2C_PORT    I2C_NUM_0
-#define ENCODER_I2C_FREQ    400000       // 400kHz I2C clock
-#define AS5600_I2C_ADDR     0x36         // AS5600 default address
-
-// Servo Configuration (MG90S)
-#define SERVO_PIN           GPIO_NUM_32
-#define SERVO_PWM_FREQ      50           // 50Hz for servo
-#define SERVO_PWM_CHANNEL   LEDC_CHANNEL_3
-#define SERVO_PWM_TIMER     LEDC_TIMER_1
-
 // LCD Display Configuration (ST7789 135x240)
 // TTGO T-Display built-in LCD pins
 #define LCD_PIN_SCLK        GPIO_NUM_18
@@ -211,37 +159,6 @@
 // =============================================================================
 
 // -----------------------------------------------------------------------------
-// Motor PWM Configuration
-// -----------------------------------------------------------------------------
-#define MOTOR_PWM_FREQ      20000        // 20kHz PWM frequency
-#define MOTOR_PWM_RES       LEDC_TIMER_10_BIT  // 10-bit resolution (0-1023)
-#define MOTOR_PWM_MAX       1023
-
-// Motor Control Parameters
-#define MOTOR_POLE_PAIRS    7            // Number of pole pairs (adjust for your motor)
-#define MOTOR_VOLTAGE_LIMIT 6.0f         // Voltage limit for motor
-#define MOTOR_VELOCITY_LIMIT 20.0f       // Maximum velocity in rad/s
-
-// PID Parameters for velocity control
-#define MOTOR_PID_P         0.2f
-#define MOTOR_PID_I         2.0f
-#define MOTOR_PID_D         0.0f
-#define MOTOR_PID_RAMP      1000.0f
-#define MOTOR_LPF_TF        0.01f        // Low pass filter time constant
-
-// -----------------------------------------------------------------------------
-// Servo Configuration (common)
-// -----------------------------------------------------------------------------
-// Servo pulse width (microseconds)
-#define SERVO_MIN_PULSE_US  500          // Full left
-#define SERVO_MAX_PULSE_US  2500         // Full right
-#define SERVO_CENTER_PULSE_US 1500       // Center position
-
-// Steering angles
-#define STEERING_MAX_ANGLE  45           // Maximum steering angle in degrees
-#define STEERING_TRIM       0            // Steering trim offset
-
-// -----------------------------------------------------------------------------
 // Web Server Configuration
 // -----------------------------------------------------------------------------
 #define WEB_SERVER_PORT     80
@@ -251,10 +168,9 @@
 // -----------------------------------------------------------------------------
 // Control Parameters
 // -----------------------------------------------------------------------------
-#define CONTROL_LOOP_FREQ   100          // Control loop frequency in Hz
-#define WATCHDOG_TIMEOUT_MS 500          // Stop motors if no command received
+#define WATCHDOG_TIMEOUT_MS 500          // Command timeout for safety
 
-// Speed limits
+// Speed limits (for UI)
 #define MAX_SPEED           100          // Maximum speed percentage (0-100)
 #define SPEED_RAMP_RATE     5            // Speed change per control loop iteration
 
@@ -267,8 +183,5 @@
 // -----------------------------------------------------------------------------
 // Debug Options
 // -----------------------------------------------------------------------------
-#define DEBUG_MOTOR         0            // Enable motor debug output
-#define DEBUG_ENCODER       0            // Enable encoder debug output
-#define DEBUG_SERVO         0            // Enable servo debug output
 #define DEBUG_CAMERA        0            // Enable camera debug output
 #define DEBUG_WEBSERVER     0            // Enable web server debug output

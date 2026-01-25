@@ -96,10 +96,7 @@ static void mqtt_publish_task(void *pvParameters)
         }
 
         // Basic status
-        cJSON_AddNumberToObject(root, "velocity", status.motor_velocity);
         cJSON_AddNumberToObject(root, "battery", status.battery_voltage);
-        cJSON_AddNumberToObject(root, "steering", status.steering_angle);
-        cJSON_AddBoolToObject(root, "motor", status.motor_enabled);
         cJSON_AddBoolToObject(root, "camera", status.camera_active);
         cJSON_AddNumberToObject(root, "rssi", status.wifi_rssi);
 
