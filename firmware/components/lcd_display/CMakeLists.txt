@@ -2,5 +2,5 @@ idf_component_register(
     SRCS "lcd_display.c"
     INCLUDE_DIRS "include"
     REQUIRES driver esp_lcd
-    PRIV_REQUIRES build_info
+    PRIV_REQUIRES build_info main
 )
