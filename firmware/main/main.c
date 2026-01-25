@@ -24,6 +24,7 @@
 #include "esp_http_server.h"
 #include "esp_sntp.h"
 #include "esp_sleep.h"
+#include "esp_timer.h"
 #include "driver/rtc_io.h"
 #include "mdns.h"
 
@@ -843,9 +844,6 @@ static void get_task_core_counts(task_core_counts_t *counts)
 static uint8_t calculate_cpu_usage(void)
 {
 #if configGENERATE_RUN_TIME_STATS
-    // Get current total runtime from the runtime counter
-    uint32_t current_total_runtime = 0;
-
     // Get idle task handles for both cores
     TaskHandle_t idle_core0 = xTaskGetIdleTaskHandleForCore(0);
     TaskHandle_t idle_core1 = xTaskGetIdleTaskHandleForCore(1);
@@ -865,37 +863,39 @@ static uint8_t calculate_cpu_usage(void)
         idle_runtime_core1 = idle_status_1.ulRunTimeCounter;
     }
 
-    // Get total system runtime from all tasks
-    UBaseType_t num_tasks = uxTaskGetNumberOfTasks();
-    TaskStatus_t *task_array = pvPortMalloc(num_tasks * sizeof(TaskStatus_t));
-    if (task_array == NULL) {
-        return s_cpu_usage_percent;  // Return last known value
-    }
-
-    UBaseType_t actual_count = uxTaskGetSystemState(task_array, num_tasks, &current_total_runtime);
-    vPortFree(task_array);
-    (void)actual_count;  // Unused but required for uxTaskGetSystemState
+    // Get elapsed time using the runtime stats timer (same source as task counters)
+    // This is typically esp_timer in microseconds
+    uint32_t current_time = (uint32_t)(esp_timer_get_time() / 1000);  // Convert to ms
 
     // Calculate deltas since last measurement
-    uint32_t total_delta = current_total_runtime - s_last_total_runtime;
+    uint32_t time_delta = current_time - s_last_total_runtime;
     uint32_t idle_delta_0 = idle_runtime_core0 - s_last_idle_runtime_core0;
     uint32_t idle_delta_1 = idle_runtime_core1 - s_last_idle_runtime_core1;
 
     // Update tracking variables for next measurement
-    s_last_total_runtime = current_total_runtime;
+    s_last_total_runtime = current_time;
     s_last_idle_runtime_core0 = idle_runtime_core0;
     s_last_idle_runtime_core1 = idle_runtime_core1;
 
-    // Calculate CPU usage: total_delta represents time across both cores
-    // idle time for both cores combined
-    if (total_delta > 0) {
-        uint32_t total_idle = idle_delta_0 + idle_delta_1;
-        // For dual-core, idle percentage = idle_time / total_time
-        // CPU usage = 100 - idle_percentage
-        uint8_t idle_percent = (uint8_t)((total_idle * 100) / total_delta);
-        // Clamp to valid range
-        if (idle_percent > 100) idle_percent = 100;
-        s_cpu_usage_percent = 100 - idle_percent;
+    // Calculate CPU usage
+    // For dual-core: each core can be 100% busy, so max total busy = 200%
+    // We report average CPU usage across both cores (0-100%)
+    // idle_delta is in runtime stats units, time_delta is in ms
+    // Runtime stats use esp_timer at 1MHz (1us resolution), so divide by 1000 for ms equivalent
+    if (time_delta > 0) {
+        // Convert idle runtime from us to ms for comparison
+        uint32_t idle_ms_0 = idle_delta_0 / 1000;
+        uint32_t idle_ms_1 = idle_delta_1 / 1000;
+        uint32_t total_idle_ms = idle_ms_0 + idle_ms_1;
+
+        // For dual-core, total available time is time_delta * 2
+        uint32_t total_available_ms = time_delta * 2;
+
+        if (total_available_ms > 0) {
+            uint32_t idle_percent = (total_idle_ms * 100) / total_available_ms;
+            if (idle_percent > 100) idle_percent = 100;
+            s_cpu_usage_percent = (uint8_t)(100 - idle_percent);
+        }
     }
 
     return s_cpu_usage_percent;
