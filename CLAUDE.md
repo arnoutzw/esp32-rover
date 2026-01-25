@@ -199,6 +199,31 @@ git push origin develop  # Ensure develop is also pushed
 - No risk of losing work if local machine fails
 - Documentation updates are immediately visible to all users
 
+### Commit Before Build Rule
+
+**NEVER attempt a build with uncommitted changes. Always commit first.**
+
+Before running ANY build command (`./scripts/build.sh`, `idf.py build`, or similar):
+1. Stage all changes: `git add -A`
+2. Commit with a descriptive message: `git commit -m "Description"`
+3. Push to origin: `git push origin develop`
+4. Only then run the build command
+
+**This ensures:**
+- The git commit hash embedded in the firmware matches the actual source code
+- Build fingerprint verification works correctly after flashing
+- No "dirty" builds that cannot be reproduced from git history
+- Every flashed firmware can be traced to an exact commit
+
+**Workflow example:**
+```bash
+# After making code changes, ALWAYS do this sequence:
+git add -A
+git commit -m "Add WiFi retry logic for robust STA connection"
+git push origin develop
+./scripts/build.sh ttgo
+```
+
 ### Clean Build Rule
 
 **All builds and flashes are automatically enforced to use clean git state.**

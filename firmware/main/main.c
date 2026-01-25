@@ -220,6 +220,7 @@ static bool s_wifi_is_sta_mode = false;
 static volatile bool s_wifi_sta_connected = false;  // Modified in event handler callback
 static char s_wifi_ip_str[16] = "192.168.4.1";
 static EventGroupHandle_t s_wifi_event_group = NULL;
+static volatile int s_wifi_retry_count = 0;  // STA connection retry counter
 #define WIFI_CONNECTED_BIT BIT0
 #define WIFI_FAIL_BIT      BIT1
 
@@ -248,14 +249,26 @@ static void wifi_event_handler(void *arg, esp_event_base_t event_base,
                 break;
             }
             case WIFI_EVENT_STA_START:
+                s_wifi_retry_count = 0;  // Reset retry counter on STA start
                 esp_wifi_connect();
                 break;
             case WIFI_EVENT_STA_DISCONNECTED:
-                if (s_wifi_event_group) {
-                    xEventGroupSetBits(s_wifi_event_group, WIFI_FAIL_BIT);
-                }
                 s_wifi_sta_connected = false;
-                ESP_LOGI(TAG, "Disconnected from WiFi");
+                if (s_wifi_event_group) {
+                    // Retry connection if we haven't exceeded max retries
+                    if (s_wifi_retry_count < WIFI_STA_MAX_RETRIES) {
+                        s_wifi_retry_count++;
+                        ESP_LOGW(TAG, "WiFi disconnected, retry %d/%d...",
+                                 s_wifi_retry_count, WIFI_STA_MAX_RETRIES);
+                        esp_wifi_connect();
+                    } else {
+                        ESP_LOGE(TAG, "WiFi connection failed after %d retries", WIFI_STA_MAX_RETRIES);
+                        xEventGroupSetBits(s_wifi_event_group, WIFI_FAIL_BIT);
+                    }
+                } else {
+                    // Not in initial connection phase, just log
+                    ESP_LOGI(TAG, "Disconnected from WiFi");
+                }
                 break;
             default:
                 break;
@@ -263,6 +276,7 @@ static void wifi_event_handler(void *arg, esp_event_base_t event_base,
     } else if (event_base == IP_EVENT && event_id == IP_EVENT_STA_GOT_IP) {
         ip_event_got_ip_t *event = (ip_event_got_ip_t *)event_data;
         snprintf(s_wifi_ip_str, sizeof(s_wifi_ip_str), IPSTR, IP2STR(&event->ip_info.ip));
+        s_wifi_retry_count = 0;  // Reset retry counter on successful connection
         ESP_LOGI(TAG, "Got IP: %s", s_wifi_ip_str);
         s_wifi_sta_connected = true;
         if (s_wifi_event_group) {

@@ -70,6 +70,9 @@
 #ifndef WIFI_STA_CONNECT_TIMEOUT_S
 #define WIFI_STA_CONNECT_TIMEOUT_S 10
 #endif
+#ifndef WIFI_STA_MAX_RETRIES
+#define WIFI_STA_MAX_RETRIES    3   // Max connection retries before fallback to AP
+#endif
 
 // Legacy compatibility defines
 #define WIFI_SSID           WIFI_AP_SSID
