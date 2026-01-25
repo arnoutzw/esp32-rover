@@ -1563,6 +1563,119 @@ xtensa-esp32-elf-gdb -ex "target remote :3333" build/esp32-rover.elf
 
 ---
 
+### REQ-41: Build Fingerprint System [IMPLEMENTED]
+
+**Requirement**: The firmware shall embed git commit information at build time to enable verification of which exact code revision is running on a device. This information shall be accessible via serial logs at boot and via the REST API.
+
+**Rationale**:
+- Post-OTA verification of deployed firmware version
+- Remote debugging requires knowing exact code revision
+- Bug reports must be linkable to specific git commits
+- Detect if firmware has uncommitted changes (dirty flag)
+
+**Implementation**:
+
+1. **Build-Time Script** (`generate_build_info.sh`):
+   - Extracts git commit hash (short and full)
+   - Captures git branch name
+   - Detects working directory dirty state
+   - Records build timestamp (ISO 8601 format)
+   - Queries ESP-IDF version
+   - Generates `build_info.h` header file
+
+2. **Auto-Generated Header** (`build/esp-idf/main/build_info.h`):
+   ```c
+   #define BUILD_GIT_HASH       "5dcefb4"
+   #define BUILD_GIT_HASH_FULL  "5dcefb41c65e057d8e5b3b8295db9fa6f1cf02f4"
+   #define BUILD_GIT_BRANCH     "main"
+   #define BUILD_GIT_DIRTY      false
+   #define BUILD_TIME           "2026-01-25T06:48:35Z"
+   #define BUILD_TIMESTAMP      1769323715UL
+   #define BUILD_IDF_VERSION    "v5.2.2"
+   #define BUILD_FINGERPRINT    "5dcefb4"
+   ```
+
+3. **CMake Integration** (`main/CMakeLists.txt`):
+   - Custom command runs `generate_build_info.sh` at build time
+   - Header regenerated on every build
+   - Added as dependency to main component
+   - Build directory included in component paths
+
+4. **Serial Log Output** (at boot in `app_main()`):
+   ```
+   Build: 5dcefb4 (main)
+   Build Time: 2026-01-25T06:48:35Z
+   ESP-IDF: v5.2.2
+   ```
+
+5. **REST API Exposure** (`/status` endpoint):
+   ```json
+   {
+     "diag": {
+       "buildFingerprint": "5dcefb4",
+       "buildTime": "2026-01-25T06:48:35Z",
+       "buildBranch": "main",
+       "buildDirty": false
+     }
+   }
+   ```
+
+**Usage**:
+
+```bash
+# Build firmware (generates build_info.h automatically)
+./build.sh ttgo
+
+# Check build fingerprint before flashing
+cat build/esp-idf/main/build_info.h
+
+# After OTA update, verify running firmware version
+curl -s http://192.168.2.75/status | jq '.diag.buildFingerprint'
+# Returns: "5dcefb4"
+
+# Match to git commit
+git log --oneline | grep 5dcefb4
+# Shows: 5dcefb4 feat: Add build fingerprint system...
+```
+
+**Build Info Fields**:
+| Field | Type | Description | Example |
+|-------|------|-------------|---------|
+| `buildFingerprint` | string | Short git commit hash | `"5dcefb4"` |
+| `buildTime` | string | Build timestamp (ISO 8601) | `"2026-01-25T06:48:35Z"` |
+| `buildBranch` | string | Git branch name | `"main"` |
+| `buildDirty` | boolean | Uncommitted changes present | `false` |
+
+**Status Structure** (added fields to `rover_status_t`):
+```c
+typedef struct {
+    // ... existing fields ...
+
+    // Build information (REQ-41)
+    const char* build_fingerprint;  // Git commit hash (short)
+    const char* build_time;         // Build timestamp (ISO 8601)
+    const char* build_branch;       // Git branch name
+    bool build_dirty;               // Working directory had uncommitted changes
+} rover_status_t;
+```
+
+**Files**:
+- `generate_build_info.sh` - Build info extraction script
+- `main/CMakeLists.txt` - Custom command to generate header
+- `main/main.c` - Log build info at startup, populate status fields
+- `components/web_server/include/web_server.h` - Added build fields to `rover_status_t`
+- `components/web_server/web_server.c` - Added build fields to JSON response (increased buffer to 1024 bytes)
+
+**Benefits**:
+- Enables post-OTA verification of deployed firmware
+- Links bug reports to exact code revisions
+- Detects if firmware built from dirty working directory
+- Facilitates remote debugging of production devices
+
+**Status**: IMPLEMENTED
+
+---
+
 ## Future Requirements
 
 (Add new requirements here as they are defined)

@@ -528,6 +528,12 @@ typedef struct {
     int wifi_rssi;
     bool button_left;      // Left button state (TTGO only)
     bool button_right;     // Right button state (TTGO only)
+
+    // Build information (auto-generated at build time)
+    const char* build_fingerprint;  // Git commit hash (short)
+    const char* build_time;         // Build timestamp (ISO 8601)
+    const char* build_branch;       // Git branch name
+    bool build_dirty;               // Working directory had uncommitted changes
 } rover_status_t;
 
 typedef void (*command_callback_t)(const rover_command_t *cmd);
@@ -587,16 +593,48 @@ Get time since last command was received. Used for watchdog timeout.
 
 ```json
 {
-    "velocity": 5.2,    // Current motor velocity (rad/s)
-    "battery": 7.4,     // Battery voltage
-    "steering": 15.0,   // Current steering angle
-    "motor": true,      // Motor enabled
-    "camera": false,    // Camera active
-    "rssi": -45,        // WiFi signal strength
-    "btnL": false,      // Left button pressed (TTGO only)
-    "btnR": true        // Right button pressed (TTGO only)
+    "velocity": 5.2,            // Current motor velocity (rad/s)
+    "battery": 7.4,             // Battery voltage
+    "steering": 15.0,           // Current steering angle
+    "motor": true,              // Motor enabled
+    "camera": false,            // Camera active
+    "rssi": -45,                // WiFi signal strength
+    "btnL": false,              // Left button pressed (TTGO only)
+    "btnR": true,               // Right button pressed (TTGO only)
+    "buildFingerprint": "5dcefb4", // Git commit hash (short)
+    "buildTime": "2026-01-25T06:48:35Z", // Build timestamp (ISO 8601)
+    "buildBranch": "main",      // Git branch name
+    "buildDirty": false         // Working directory had uncommitted changes
 }
 ```
+
+### Build Fingerprint Fields
+
+The `/status` endpoint includes build information fields that uniquely identify the firmware version running on the device. These fields are automatically generated at build time from git repository information.
+
+**Fields:**
+- **buildFingerprint**: Short git commit hash (7 characters). This is the primary identifier for linking a deployed firmware to its source code.
+- **buildTime**: ISO 8601 timestamp of when the firmware was built (UTC timezone).
+- **buildBranch**: Git branch name from which the firmware was built.
+- **buildDirty**: Boolean indicating whether the working directory had uncommitted changes at build time.
+
+**Example usage:**
+```bash
+# Query build fingerprint via REST API
+curl http://192.168.4.1/status | jq '.buildFingerprint'
+# Output: "5dcefb4"
+
+# Match to git commit
+git log --oneline | grep 5dcefb4
+# Output: 5dcefb4 Add build fingerprint system to track firmware versions
+```
+
+**Benefits:**
+- **Version Tracking**: Instantly identify which code version is running on a device
+- **Debugging**: Match deployed firmware to exact source code for troubleshooting
+- **Quality Assurance**: Verify correct firmware was deployed after OTA updates
+- **Audit Trail**: Track firmware rollout across multiple devices
+- **Safety**: The `buildDirty` flag warns if firmware was built from modified code
 
 ---
 
