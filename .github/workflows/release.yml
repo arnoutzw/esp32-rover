@@ -25,19 +25,18 @@ jobs:
           submodules: recursive
           fetch-depth: 0
 
-      - name: Setup ESP-IDF
+      - name: Build firmware
         uses: espressif/esp-idf-ci-action@v1
         with:
           esp_idf_version: ${{ env.IDF_VERSION }}
           target: esp32
-
-      - name: Build firmware
-        run: |
-          export ROVER_TARGET=${{ matrix.target }}
-          cd firmware
-          ../scripts/generate_build_info.sh components/build_info/include/build_info.h
-          cp sdkconfig.defaults.${{ matrix.target }} sdkconfig.defaults
-          idf.py build
+          path: firmware
+          command: |
+            ../scripts/generate_build_info.sh components/build_info/include/build_info.h
+            cp sdkconfig.defaults.${{ matrix.target }} sdkconfig.defaults
+            idf.py build
+        env:
+          ROVER_TARGET: ${{ matrix.target }}
 
       - name: Rename binary
         run: |
