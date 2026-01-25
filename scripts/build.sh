@@ -86,6 +86,10 @@ setup_target() {
 
     # Export the target define for CMake
     export ROVER_TARGET="$target"
+
+    # Regenerate config_generated.h with target-specific settings
+    echo -e "${BLUE}Regenerating config for target: $target${NC}"
+    python "$SCRIPT_DIR/generate_config.py"
 }
 
 check_git_clean_state() {

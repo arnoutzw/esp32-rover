@@ -42,7 +42,7 @@ def load_secrets(config_dir: str) -> dict:
         return {}
 
 
-def generate_header(config: dict, secrets: dict) -> str:
+def generate_header(config: dict, secrets: dict, target: str) -> str:
     """Generate C header content from configuration and secrets dictionaries."""
     lines = [
         "// =============================================================================",
@@ -53,10 +53,7 @@ def generate_header(config: dict, secrets: dict) -> str:
         "",
     ]
 
-    # Target selection - NOTE: The actual ROVER_TARGET_* is set by CMake via build command
-    # (./build.sh esp32cam or ./build.sh ttgo). The YAML target is used here only
-    # for target-specific config generation like mDNS hostname.
-    target = config.get("target", "ttgo").lower()
+    # Target is passed in from ROVER_TARGET environment variable (set by build.sh)
     # Don't define ROVER_TARGET_* here - CMake does that based on build command
     lines.append(f"// Config generated for target: {target}")
     lines.append("// NOTE: ROVER_TARGET_* is defined by CMake, not here")
@@ -227,8 +224,21 @@ def main():
     config_dir = os.path.dirname(config_path)
     secrets = load_secrets(config_dir)
 
+    # Get target from environment variable (set by build.sh)
+    target = os.environ.get("ROVER_TARGET", "").lower()
+    if not target:
+        print("Error: ROVER_TARGET environment variable not set.")
+        print("This script should be called from the build system, or you can set it manually:")
+        print("  export ROVER_TARGET=esp32cam  # or ttgo")
+        print("  python generate_config.py")
+        sys.exit(1)
+
+    if target not in ("esp32cam", "ttgo"):
+        print(f"Error: Invalid ROVER_TARGET '{target}'. Must be 'esp32cam' or 'ttgo'.")
+        sys.exit(1)
+
     # Generate header
-    header_content = generate_header(config, secrets)
+    header_content = generate_header(config, secrets, target)
 
     # Write output
     os.makedirs(os.path.dirname(output_path), exist_ok=True)

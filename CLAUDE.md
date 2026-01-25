@@ -35,8 +35,9 @@ source ./firmware/esp-idf/export.sh
 # Build for TTGO T-Display
 ./scripts/build.sh ttgo
 
-# Regenerate config (after changing config/rover_config.yaml)
-source ./firmware/esp-idf/export.sh && python scripts/generate_config.py
+# Regenerate config manually (normally done automatically by build.sh)
+# Requires ROVER_TARGET environment variable to be set
+source ./firmware/esp-idf/export.sh && ROVER_TARGET=esp32cam python scripts/generate_config.py
 
 # OTA flash to ESP32-CAM (auto rate-limited for stability)
 ./scripts/ota.sh esp32cam
@@ -51,11 +52,11 @@ source ./firmware/esp-idf/export.sh && python scripts/generate_config.py
 
 ## Target Configuration
 
-The `target` field in `config/rover_config.yaml` controls mDNS hostname generation:
-- `target: esp32cam` → hostname `esp32-rover.local`
-- `target: ttgo` → hostname `ttgo-rover.local`
+The build target is determined entirely by the build command - there is no `target` field in `rover_config.yaml`:
+- `./scripts/build.sh esp32cam` → hostname `esp32-rover.local`
+- `./scripts/build.sh ttgo` → hostname `ttgo-rover.local`
 
-The actual build target is selected via `./scripts/build.sh esp32cam` or `./scripts/build.sh ttgo`.
+The build script automatically regenerates `config_generated.h` with the correct target-specific settings (like mDNS hostname) before each build.
 
 ## Key Files
 

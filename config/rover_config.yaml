@@ -9,13 +9,6 @@
 # =============================================================================
 
 # -----------------------------------------------------------------------------
-# Build Target (for config generation - mDNS hostname selection)
-# -----------------------------------------------------------------------------
-# NOTE: This sets target-specific options like mDNS hostname.
-# The actual build target is selected via: ./build.sh esp32cam or ./build.sh ttgo
-target: esp32cam  # Options: "esp32cam" or "ttgo"
-
-# -----------------------------------------------------------------------------
 # WiFi Configuration
 # -----------------------------------------------------------------------------
 wifi:
