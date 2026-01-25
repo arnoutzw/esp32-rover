@@ -338,6 +338,85 @@ Each entry should include:
 
 This ensures knowledge is preserved and similar issues can be avoided or quickly diagnosed in the future.
 
+### Bug Report Analysis
+
+**For every analyzed bug report, create both an RCA (Root Cause Analysis) and a FIX_PLAN document.**
+
+Bug reports are stored in `docs/bugreport/v{VERSION}/{HASH}/` where:
+- `{VERSION}` is the firmware version (e.g., `v2.0.1`)
+- `{HASH}` is the 7-character git commit hash (e.g., `e4b11fc`)
+
+**Required documents for each analyzed bug:**
+
+1. **RCA (Root Cause Analysis)** - `RCA_v{VERSION}_{HASH}.md`
+   ```markdown
+   # Root Cause Analysis: [Bug Title]
+
+   ## Summary
+   Brief description of the bug and its impact.
+
+   ## Symptoms
+   - What the user observed
+   - Error messages, logs, or unexpected behavior
+
+   ## Environment
+   - Firmware version and build hash
+   - Target hardware (TTGO/ESP32-CAM)
+   - Configuration settings relevant to the bug
+
+   ## Investigation
+   Step-by-step analysis of how the root cause was identified.
+
+   ## Root Cause
+   Technical explanation of why the bug occurred.
+
+   ## Contributing Factors
+   Any secondary issues that enabled or worsened the bug.
+
+   ## Impact Assessment
+   - Severity: Critical / High / Medium / Low
+   - Affected functionality
+   - Risk of recurrence
+   ```
+
+2. **FIX_PLAN** - `FIX_PLAN_v{VERSION}_{HASH}.md`
+   ```markdown
+   # Fix Plan: [Bug Title]
+
+   ## Overview
+   Brief description of the fix approach.
+
+   ## Related RCA
+   Link to the RCA document.
+
+   ## Proposed Fix
+   Detailed description of the code changes.
+
+   ## Files to Modify
+   | File | Change |
+   |------|--------|
+   | path/to/file.c | Description of change |
+
+   ## Implementation Steps
+   1. Step one
+   2. Step two
+
+   ## Testing Plan
+   How to verify the fix works.
+
+   ## Rollback Plan
+   How to revert if the fix causes issues.
+   ```
+
+**Workflow:**
+1. User reports a bug or issue is discovered
+2. Create the version/hash folder in `docs/bugreport/`
+3. Create initial bug report document
+4. Analyze and create `RCA_*.md`
+5. Design fix and create `FIX_PLAN_*.md`
+6. Implement fix following the plan
+7. Update RCA with "Resolution" section after fix is verified
+
 ### Documentation Updates
 
 **When making changes to firmware features, APIs, or configuration, update the relevant documentation.**
