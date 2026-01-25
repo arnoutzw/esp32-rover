@@ -940,3 +940,60 @@ esp_err_t lcd_display_sleep_screen(void)
 
     return ESP_OK;
 }
+
+// =============================================================================
+// REQ-SW-034: Message and Overlay Display Functions
+// =============================================================================
+
+esp_err_t lcd_display_message(const char *title, const char *subtitle)
+{
+    if (!s_spi) {
+        return ESP_ERR_INVALID_STATE;
+    }
+
+    lcd_display_clear();
+
+    // Draw title centered (scale 2)
+    if (title) {
+        int title_len = strlen(title);
+        int title_width = title_len * 6 * 2;  // 6 pixels per char * scale 2
+        int title_x = (LCD_WIDTH - title_width) / 2;
+        if (title_x < 0) title_x = 5;
+        lcd_draw_string(title_x, LCD_HEIGHT / 2 - 20, title, COLOR_GREEN, COLOR_BLACK, 2);
+    }
+
+    // Draw subtitle centered (scale 1)
+    if (subtitle) {
+        int sub_len = strlen(subtitle);
+        int sub_width = sub_len * 6;  // 6 pixels per char * scale 1
+        int sub_x = (LCD_WIDTH - sub_width) / 2;
+        if (sub_x < 0) sub_x = 5;
+        lcd_draw_string(sub_x, LCD_HEIGHT / 2 + 10, subtitle, COLOR_CYAN, COLOR_BLACK, 1);
+    }
+
+    return ESP_OK;
+}
+
+esp_err_t lcd_display_overlay(const char *message)
+{
+    if (!s_spi || !message) {
+        return ESP_ERR_INVALID_STATE;
+    }
+
+    // Draw overlay at top of screen - simple banner
+    // Fill a horizontal stripe at the top
+    int overlay_height = 24;
+    int overlay_y = 5;
+
+    // Draw dark background stripe
+    lcd_fill_rect(0, overlay_y, LCD_WIDTH, overlay_height, COLOR_DARKGRAY);
+
+    // Draw message centered in overlay (scale 2 for visibility)
+    int msg_len = strlen(message);
+    int msg_width = msg_len * 6 * 2;
+    int msg_x = (LCD_WIDTH - msg_width) / 2;
+    if (msg_x < 0) msg_x = 2;
+    lcd_draw_string(msg_x, overlay_y + 4, message, COLOR_YELLOW, COLOR_DARKGRAY, 2);
+
+    return ESP_OK;
+}

@@ -5,7 +5,7 @@
 | Field | Value |
 |-------|-------|
 | **Document ID** | ESP32-ROVER-SRS-001 |
-| **Version** | 2.3.0 |
+| **Version** | 2.4.0 |
 | **Status** | Approved |
 | **Last Updated** | 2026-01-25 |
 | **Author** | ESP32 Rover Development Team |
@@ -21,6 +21,7 @@
 | 2.1.0 | 2026-01-25 | Team | Restructured to professional format with traceability |
 | 2.2.0 | 2026-01-25 | Team | Added REQ-SW-032 Live Telemetry Chart |
 | 2.3.0 | 2026-01-25 | Team | Added REQ-SW-033 Dual-Axis Telemetry Chart |
+| 2.4.0 | 2026-01-25 | Team | Added REQ-SW-034 WiFi Mode Switch via Button |
 
 ### Approval Signatures
 
@@ -886,6 +887,38 @@ power:
 
 ---
 
+#### REQ-SW-034: WiFi Mode Switch via Button
+
+| Field                   | Value                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   |     |
+| ----------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --- |
+| **Priority**            | Medium                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  |     |
+| **Type**                | Functional                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              |     |
+| **Description**         | On TTGO T-Display, the firmware SHALL switch from WiFi STA mode to AP mode when the right button is held for 5 seconds, with LCD feedback during the transition.                                                                                                                                                                                                                                                                                                                                                        |     |
+| **Rationale**           | Allows user to enable AP mode when internet/router is unreliable, without needing to reflash or modify configuration files. Essential for field operation.                                                                                                                                                                                                                                                                                                                                                              |     |
+| **Acceptance Criteria** | • Long-press detection on right button (GPIO 35) for 5 seconds<br>• Does not activate during diagnostic mode or sleep mode<br>• LCD shows progress indicator: "WiFi AP: 3..." countdown<br>• On 5s hold complete: stop WiFi STA, start WiFi AP with configured SSID/password<br>• LCD shows confirmation: "AP Mode Active" with SSID<br>• Mode is not persisted - reboot returns to configured default mode<br>• If already in AP mode, shows "Already in AP mode"<br>• Web server remains accessible on new AP network |     |
+| **Verification Method** | T (Mode switch test), D (LCD feedback demonstration)                                                                                                                                                                                                                                                                                                                                                                                                                                                                    |     |
+| **Dependencies**        | REQ-SW-006 (Button input), REQ-SW-018 (LCD display), REQ-SW-007 (WiFi AP), REQ-SW-008 (WiFi STA)                                                                                                                                                                                                                                                                                                                                                                                                                        |     |
+| **Status**              | Approved                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                |     |
+|                         |                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |     |
+
+**User Interaction Flow**:
+1. User holds right button
+2. At 1s: LCD shows "WiFi AP: 5..."
+3. At 2s: LCD shows "WiFi AP: 4..."
+4. At 3s: LCD shows "WiFi AP: 3..."
+5. At 4s: LCD shows "WiFi AP: 2..."
+6. At 5s: LCD shows "WiFi AP: 1..."
+7. On release after 5s: Switch to AP mode
+8. LCD shows "AP Mode Active" with SSID for 3 seconds
+
+**Implementation Notes**:
+- Uses same 5s threshold as sleep mode for consistency
+- Right button monitors press duration in `lcd_update_task()`
+- WiFi switch uses `esp_wifi_set_mode()` and `esp_wifi_start()`
+- Does not require reboot - runtime mode change
+
+---
+
 ### 5.7 Diagnostics & Logging
 
 #### REQ-SW-026: Serial Log Capture
@@ -1271,6 +1304,7 @@ xtensa-esp32-elf-gdb -ex "target remote :3333" build/esp32-rover.elf
 | REQ-SW-031 | REQ-SW-011 | I, T | scripts/generate_build_info.sh | ✓ |
 | REQ-SW-032 | REQ-SW-011, REQ-SW-015, REQ-SW-012 | D, T | components/web_server/ | ✓ |
 | REQ-SW-033 | REQ-SW-032, REQ-SW-011, REQ-SW-012 | D, T | components/web_server/ | ✓ |
+| REQ-SW-034 | REQ-SW-006, REQ-SW-018, REQ-SW-007, REQ-SW-008 | D, T | main/main.c | ⏳ |
 | REQ-NFR-001 | REQ-SW-012 | A, T | - | ✓ |
 | REQ-NFR-002 | REQ-SW-007 | A | - | ✓ |
 | REQ-NFR-003 | REQ-SW-009 | T | - | ✓ |
@@ -1564,6 +1598,7 @@ xtensa-esp32-elf-gdb -ex "target remote :3333" build/esp32-rover.elf
 | VT-F-023 | REQ-SW-031 | Integration | Device | Build fingerprint accessible | High |
 | VT-F-024 | REQ-SW-032 | Integration | Device + Browser | Live telemetry chart updates | Medium |
 | VT-F-025 | REQ-SW-033 | Integration | Device + Browser | Dual-axis chart shows speed+steering | Medium |
+| VT-F-026 | REQ-SW-034 | Integration | TTGO Device | Hold right button 5s switches to AP mode | Medium |
 
 ### 9.2 Non-Functional Validation Tests
 
