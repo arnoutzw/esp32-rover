@@ -41,8 +41,8 @@ class MainMenuApp:
     def __init__(self, root, initial_version="", initial_hash=""):
         self.root = root
         self.root.title("ESP32 Rover - Report Tool")
-        self.root.geometry("400x380")
-        self.root.minsize(350, 350)
+        self.root.geometry("450x480")
+        self.root.minsize(400, 450)
         self.initial_version = initial_version
         self.initial_hash = initial_hash
 
@@ -59,17 +59,17 @@ class MainMenuApp:
 
         # Title
         title_label = ttk.Label(main_frame, text="ESP32 Rover",
-                                font=('TkDefaultFont', 20, 'bold'))
+                                font=('TkDefaultFont', 24, 'bold'))
         title_label.pack(pady=(0, 5))
 
         subtitle_label = ttk.Label(main_frame, text="Report & Request Tool",
-                                   font=('TkDefaultFont', 12))
+                                   font=('TkDefaultFont', 14))
         subtitle_label.pack(pady=(0, 30))
 
         # Description
         desc_label = ttk.Label(main_frame,
                                text="Choose what you'd like to file:",
-                               font=('TkDefaultFont', 10))
+                               font=('TkDefaultFont', 14))
         desc_label.pack(pady=(0, 20))
 
         # Buttons frame
@@ -83,7 +83,7 @@ class MainMenuApp:
 
         bug_desc = ttk.Label(btn_frame,
                              text="Report a problem or unexpected behavior",
-                             foreground="gray", font=('TkDefaultFont', 9))
+                             foreground="gray", font=('TkDefaultFont', 11))
         bug_desc.pack(pady=(0, 20))
 
         # Feature Request button
@@ -93,12 +93,12 @@ class MainMenuApp:
 
         feature_desc = ttk.Label(btn_frame,
                                  text="Suggest a new feature or improvement",
-                                 foreground="gray", font=('TkDefaultFont', 9))
+                                 foreground="gray", font=('TkDefaultFont', 11))
         feature_desc.pack(pady=(0, 20))
 
         # Exit button
         exit_btn = ttk.Button(main_frame, text="Exit", command=self.root.quit, width=15)
-        exit_btn.pack(pady=(20, 0))
+        exit_btn.pack(pady=(30, 0))
 
     def open_bug_report(self):
         """Open the bug report form in a new window."""
