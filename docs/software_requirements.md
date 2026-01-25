@@ -440,54 +440,6 @@ Both AS5600 encoders have fixed I2C address 0x36. Options for dual encoder:
 - `components/camera/camera.c` - Camera initialization and streaming
 - `components/camera/include/camera.h` - Public API
 
-### REQ-40: SD Card Debug Mode [NOT IMPLEMENTED]
-
-**Requirement**: When `SD_CARD_DEBUG=1` build flag is set, enable the microSD card slot in 1-bit mode on ESP32-CAM. This frees GPIO 12 and 13 for other use.
-
-**Rationale**:
-- SD card shares pins with motor control - mutually exclusive features
-- 1-bit mode reduces pin usage while maintaining SD functionality
-- Enables log storage and data capture for debugging purposes
-
-**Pin Mapping (1-bit mode)**:
-
-| MicroSD Card | ESP32 GPIO | Notes |
-|--------------|------------|-------|
-| CLK | GPIO 14 | Clock |
-| CMD | GPIO 15 | Command |
-| DATA0 | GPIO 2 | Data line (1-bit mode) |
-| DATA1/flashlight | GPIO 4 | Unused in 1-bit mode |
-| DATA2 | GPIO 12 | Unused in 1-bit mode (freed) |
-| DATA3 | GPIO 13 | Unused in 1-bit mode (freed) |
-
-**Implementation**:
-- CMake environment variable: `SD_CARD_DEBUG=1`
-- Compile-time define: `ENABLE_SD_CARD=1`
-- Mutually exclusive with motor control (motor disabled when SD enabled)
-- Uses ESP-IDF SDMMC driver in 1-bit mode
-
-**Usage**:
-```bash
-SD_CARD_DEBUG=1 ROVER_TARGET=esp32cam idf.py build
-```
-
-**API**:
-```c
-esp_err_t sd_card_init(void);
-esp_err_t sd_card_deinit(void);
-bool sd_card_is_mounted(void);
-const char* sd_card_get_mount_point(void);  // Returns "/sdcard"
-```
-
-**Files** (to be created):
-- `components/sd_card/CMakeLists.txt` - Component build config
-- `components/sd_card/include/sd_card.h` - Public API
-- `components/sd_card/sd_card.c` - SDMMC 1-bit mode implementation
-- `main/CMakeLists.txt` - SD_CARD_DEBUG flag handling
-- `main/config.h` - SD card pin defines for ESP32-CAM
-
-**Status**: NOT IMPLEMENTED
-
 ---
 
 ## Networking & Connectivity
@@ -539,57 +491,6 @@ const char* sd_card_get_mount_point(void);  // Returns "/sdcard"
 - `components/web_server/web_server.c` - JSON `internet` field
 
 ---
-
-### REQ-39: Status LED Indicator [NOT IMPLEMENTED]
-
-**Requirement**: The on-board red LED (GPIO 33 on ESP32-CAM) shall indicate WiFi connection status:
-- LED uses **inverted logic** (LOW = on, HIGH = off)
-- **Solid ON**: Powered but no WiFi connection
-- **1Hz blink**: STA WiFi connection active (500ms on, 500ms off)
-- **2Hz blink**: AP mode active (250ms on, 250ms off)
-
-**Rationale**:
-- Provides visual feedback without needing serial connection or web UI
-- Helps diagnose WiFi connectivity issues
-- Low-cost indicator using existing hardware
-
-**Hardware**:
-- GPIO 33 on ESP32-CAM module (on-board red LED next to RST button)
-- Inverted logic: `gpio_set_level(GPIO_NUM_33, 0)` = LED ON
-- ESP32-CAM only (TTGO uses GPIO 33 for motor enable)
-
-**Implementation**:
-- New `components/status_led/` component
-- Called from `status_update_task` at 20Hz
-- Uses `wifi_is_sta_mode()` and `wifi_is_sta_connected()` for state detection
-- Simple GPIO control (no PWM required)
-
-**Configuration** (`rover_config.yaml`):
-```yaml
-status_led:
-  enabled: true
-  sta_blink_period_ms: 1000   # 1Hz
-  ap_blink_period_ms: 500     # 2Hz
-```
-
-**API**:
-```c
-esp_err_t status_led_init(void);
-void status_led_update(bool is_sta_mode, bool is_connected);
-```
-
-**Files** (to be created):
-- `components/status_led/CMakeLists.txt` - Component build config
-- `components/status_led/include/status_led.h` - Public API
-- `components/status_led/status_led.c` - Implementation
-- `main/config.h` - Add `STATUS_LED_GPIO` for ESP32-CAM
-- `main/main.c` - Initialize and call from status task
-
-**Status**: NOT IMPLEMENTED
-
----
-
-
 
 ### REQ-14: HTTP REST API [IMPLEMENTED]
 
@@ -1067,11 +968,9 @@ power:
 
 ## Diagnostics & Logging
 
-### REQ-31: Serial Log Capture and Web Display [NOT implemented]
+### REQ-31: Serial Log Capture and Web Display [IMPLEMENTED]
 
-**Requirement**: All ESP_LOG serial output since reboot shall be captured in a ring buffer and displayed in the web GUI diagnostics panel with live streaming via Server-Sent Events (SSE). 
-
-New requirement: The ringbuffer shall be stored on the sd-card, any writefailure shall be dealt with gracefully and not cause a crash
+**Requirement**: All ESP_LOG serial output since reboot shall be captured in a ring buffer and displayed in the web GUI diagnostics panel with live streaming via Server-Sent Events (SSE).
 
 **Rationale**:
 - Enables remote debugging without physical serial connection

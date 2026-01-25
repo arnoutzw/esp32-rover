@@ -52,7 +52,7 @@ JTAG Header (2x5 pins):
 │ VDD GND GND GND GND │
 └─────────────────────┘
 ```
-![[Espressif-ESP-Prog-Debug-Probe-Pinout-CIRCUITSTATE-Electronics-1-1-1920x1344.png]]
+
 ### Minimum Required Connections
 
 For JTAG to work, you need at minimum:
@@ -70,7 +70,7 @@ GND (pin 3)  ───► GND
 **Important**: Always connect at least one GND wire. Signal integrity suffers without proper grounding.
 
 ## ESP32-CAM Pin Location
-![[Pasted image 20260124235207.png]]
+
 ```
 ESP32-CAM Module (top view, camera connector at top):
 

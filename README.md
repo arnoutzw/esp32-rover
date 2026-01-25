@@ -4,6 +4,10 @@ A WiFi-controlled rover platform using ESP32 with camera streaming and web-based
 
 **Note**: Motor/servo/encoder components have been removed from the codebase as of v1.6. The web control interface (speed, steering, emergency stop) is preserved for future motor implementation. The firmware now focuses on WiFi connectivity, camera streaming, LCD display, and diagnostic features.
 
+<p align="center">
+  <img src="docs/images/rover_top_view.svg" alt="Rover Top View" width="400"/>
+</p>
+
 ## Features
 
 - **WiFi Control**: AP mode, STA mode, or STA-first with AP fallback
