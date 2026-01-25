@@ -24,6 +24,7 @@ This document defines the behavioral rules and standards that AI assistants MUST
    - [Documentation Updates](#documentation-updates)
    - [Feature Request Processing](#feature-request-processing)
    - [Requirements-First Development Rule](#requirements-first-development-rule)
+   - [Feature Implementation Verification Rule](#feature-implementation-verification-rule)
 6. [Release Management](#release-management)
    - [Binary Archive Management](#binary-archive-management)
    - [CI/CD Pipeline](#cicd-pipeline)
@@ -543,6 +544,77 @@ Step 3: After approval, implement the code
 
 Step 4: Update feature request status
   - Mark as implemented with REQ-SW-032 reference
+```
+
+### Feature Implementation Verification Rule
+
+**After implementing any feature request, ALWAYS verify the implementation by building, flashing via OTA, and confirming the build hash matches.**
+
+This ensures the feature is actually deployed and working on real hardware, not just committed to the repository.
+
+**Mandatory verification steps after feature implementation:**
+
+1. **Clean Build**:
+   ```bash
+   ./scripts/build.sh <target> clean && ./scripts/build.sh <target>
+   ```
+
+2. **Verify Build Hash**:
+   - Note the commit hash from build output (e.g., `958b259`)
+   - Verify it matches the expected commit: `git log --oneline -1`
+
+3. **Flash via OTA**:
+   ```bash
+   ./scripts/ota.sh <target> <device-ip-or-hostname>
+   ```
+   Example: `./scripts/ota.sh ttgo ttgo-rover.local`
+
+4. **Verify Deployment**:
+   - Query the device's `/status` endpoint to confirm the build fingerprint
+   - The `diag.buildFingerprint` field MUST match the commit hash from step 2
+   ```bash
+   curl http://<device>/status | jq '.diag.buildFingerprint'
+   ```
+   Or use the bug report tool to fetch build info:
+   ```bash
+   python scripts/file_report.py --bug
+   # Click "Fetch Build Info" button
+   ```
+
+5. **Functional Verification**:
+   - Test the implemented feature on actual hardware
+   - Verify acceptance criteria from the requirement are met
+   - Document any issues found
+
+**Why this rule exists:**
+- Ensures code actually runs on hardware, not just compiles
+- Catches deployment issues (OTA failures, boot loops, etc.)
+- Verifies the correct version is running (no stale firmware)
+- Confirms feature works in real environment, not just in theory
+- Prevents "it works on my machine" syndrome
+
+**This verification is MANDATORY for all feature implementations.** Do not consider a feature complete until it has been flashed and verified on hardware.
+
+**Example workflow:**
+```bash
+# After committing feature implementation
+git log --oneline -1
+# Output: 958b259 feat(REQ-SW-032): implement live telemetry chart
+
+# Clean build
+./scripts/build.sh ttgo clean && ./scripts/build.sh ttgo
+# Verify output shows: 958b259
+
+# Flash via OTA
+./scripts/ota.sh ttgo ttgo-rover.local
+
+# Verify deployment
+curl -s http://ttgo-rover.local/status | jq '.diag.buildFingerprint'
+# Output: "958b259" ← Must match!
+
+# Test the feature
+# Open http://ttgo-rover.local in browser
+# Verify steering chart is visible and updating
 ```
 
 ---
