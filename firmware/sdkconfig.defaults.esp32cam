@@ -36,3 +36,6 @@ CONFIG_LOG_DEFAULT_LEVEL_INFO=y
 
 # Disable WiFi NVS to prevent mode override issues
 CONFIG_ESP_WIFI_NVS_ENABLED=n
+
+# Task Watchdog - disable auto init (we init manually in app)
+CONFIG_ESP_TASK_WDT_INIT=n

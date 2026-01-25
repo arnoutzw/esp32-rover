@@ -37,6 +37,9 @@ CONFIG_LOG_DEFAULT_LEVEL_INFO=y
 # Disable WiFi NVS to prevent mode override issues
 CONFIG_ESP_WIFI_NVS_ENABLED=n
 
+# Task Watchdog - disable auto init (we init manually in app)
+CONFIG_ESP_TASK_WDT_INIT=n
+
 # IRAM optimization - move non-ISR code to flash to free up IRAM
 CONFIG_FREERTOS_PLACE_FUNCTIONS_INTO_FLASH=y
 CONFIG_FREERTOS_PLACE_SNAPSHOT_FUNS_INTO_FLASH=y
