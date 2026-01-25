@@ -94,18 +94,32 @@ git checkout develop
 
 ### Clean Build Rule
 
-**Never build with a dirty working directory.**
+**All builds and flashes are automatically enforced to use clean git state.**
 
-Before running any build command (`./scripts/build.sh`):
-1. Check if there are uncommitted changes (`git status`)
-2. If dirty, commit all changes to `develop` with a descriptive message
-3. Push to origin
-4. Only then proceed with the build
+The build script (`./scripts/build.sh`) now automatically:
+1. Checks for uncommitted changes before building
+2. Verifies all commits are pushed to origin
+3. Blocks the build if the git state is dirty
 
-This ensures:
-- Every build is traceable to a specific commit
-- Build fingerprint in firmware matches a known state
+**If you attempt to build with uncommitted or unpushed changes, you will see:**
+```
+Error: You have uncommitted changes
+
+Uncommitted changes:
+ M firmware/components/web_server/web_server.c
+
+Please commit your changes before building:
+  git add -A
+  git commit -m "Your commit message"
+  git push origin develop
+```
+
+**This enforcement ensures:**
+- Every build is traceable to a specific commit that exists in the remote repository
+- Build fingerprint in firmware always matches a known, pushed state
 - No accidental "works on my machine" issues from uncommitted changes
+- Firmware versions can be reliably reproduced from git history
+- No more "dirty" builds with untraceable modifications
 
 ### Bug Documentation
 
