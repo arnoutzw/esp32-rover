@@ -7,22 +7,23 @@ This document provides detailed API documentation for all firmware components.
 - [Overview](#overview)
 - [Build Targets](#build-targets)
 - [Component Architecture](#component-architecture)
-- [AS5600 Magnetic Encoder](#as5600-magnetic-encoder)
-- [BLDC Motor Control](#bldc-motor-control)
-- [Servo Control](#servo-control)
 - [Web Server](#web-server)
 - [Camera Module](#camera-module)
 - [LCD Display](#lcd-display)
+- [MQTT Service](#mqtt-service)
+- [Log Buffer](#log-buffer)
+- [Resource Guard](#resource-guard)
+- [Build Info](#build-info)
 
 ---
 
 ## Overview
 
-The ESP32 Rover firmware is built using ESP-IDF and follows a modular component architecture. Each component is designed to be reusable and has a clean C API.
+The ESP32 Rover firmware is built using ESP-IDF v5.2.2 and follows a modular component architecture. Each component is designed to be reusable and has a clean C API.
+
+**Note**: Motor/servo/encoder components have been removed from the codebase as of v1.6. The web control interface (speed, steering, emergency stop) is preserved for future motor implementation.
 
 ### Supported Hardware
-
-The firmware supports two hardware targets:
 
 | Target | Board | Camera | LCD | Buttons | PSRAM | Notes |
 |--------|-------|--------|-----|---------|-------|-------|
@@ -31,28 +32,31 @@ The firmware supports two hardware targets:
 
 ### Self-Contained Project
 
-This project includes ESP-IDF v5.2.2 embedded in the `esp-idf/` directory. No external ESP-IDF installation required.
+This project includes ESP-IDF v5.2.2 embedded in the `firmware/esp-idf/` directory. No external ESP-IDF installation required.
 
 ### Directory Structure
 
 ```
 esp32-rover-firmware/
-├── main/
-│   ├── main.c           # Application entry point
-│   └── config.h         # Hardware configuration (target-specific)
-├── components/
-│   ├── as5600/          # Magnetic encoder driver
-│   ├── bldc_motor/      # BLDC motor controller (SimpleFOC-style)
-│   ├── servo_control/   # PWM servo driver
-│   ├── camera/          # Camera wrapper module (ESP32-CAM)
-│   ├── lcd_display/     # ST7789 LCD driver (TTGO)
-│   └── web_server/      # HTTP server with control UI
-├── esp-idf/             # Embedded ESP-IDF v5.2.2
-├── sdkconfig.defaults.esp32cam  # ESP32-CAM SDK configuration
-├── sdkconfig.defaults.ttgo      # TTGO T-Display SDK configuration
-├── build.sh             # Build script for target selection
-├── setup.sh             # First-time toolchain installation
-└── partitions.csv       # Flash partition table
+├── firmware/                    # Firmware source code
+│   ├── main/                    # Application entry point
+│   │   ├── main.c
+│   │   ├── config.h             # Hardware configuration
+│   │   └── config_generated.h   # Generated from YAML config
+│   ├── components/              # Reusable ESP-IDF components
+│   │   ├── camera/              # Camera module (ESP32-CAM only)
+│   │   ├── lcd_display/         # ST7789 LCD driver (TTGO only)
+│   │   ├── web_server/          # HTTP server with control UI
+│   │   ├── mqtt_service/        # MQTT telemetry publisher
+│   │   ├── log_buffer/          # Serial log capture ring buffer
+│   │   ├── resource_guard/      # Memory/stack safety guards
+│   │   └── build_info/          # Auto-generated build information
+│   ├── esp-idf/                 # Embedded ESP-IDF v5.2.2 (submodule)
+│   └── sdkconfig.defaults.*     # Target-specific SDK configs
+├── scripts/                     # Build and utility scripts
+├── config/                      # Configuration files
+├── test/                        # Unit tests
+└── docs/                        # Documentation
 ```
 
 ---
@@ -64,7 +68,7 @@ esp32-rover-firmware/
 Run once to install the ESP-IDF toolchain:
 
 ```bash
-./setup.sh
+./scripts/setup.sh
 ```
 
 ### Quick Start
@@ -73,43 +77,29 @@ Use the build script for easy target selection:
 
 ```bash
 # Build for ESP32-CAM (with camera)
-./build.sh esp32cam
+./scripts/build.sh esp32cam
 
 # Build for TTGO T-Display (with LCD + buttons)
-./build.sh ttgo
+./scripts/build.sh ttgo
 
 # Build and flash
-./build.sh esp32cam flash
+./scripts/build.sh esp32cam flash
 
-# Build and flash to specific port
-./build.sh ttgo flash -p /dev/cu.usbserial-0001
-```
+# Build, flash, and monitor
+./scripts/build.sh ttgo flash monitor
 
-### Manual Build
-
-You can also build manually using idf.py:
-
-```bash
-# Source the embedded ESP-IDF
-source esp-idf/export.sh
-
-# For ESP32-CAM
-cp sdkconfig.defaults.esp32cam sdkconfig.defaults
-ROVER_TARGET=esp32cam idf.py build
-
-# For TTGO T-Display
-cp sdkconfig.defaults.ttgo sdkconfig.defaults
-ROVER_TARGET=ttgo idf.py build
+# Flash to specific port
+./scripts/build.sh ttgo flash -p /dev/cu.usbserial-0001
 ```
 
 ### Target Selection in Code
 
-The target is controlled by preprocessor defines in `config.h`:
+The target is controlled by preprocessor defines:
 
 ```c
-// Define one of these (or set via -D compiler flag):
-#define ROVER_TARGET_ESP32CAM  1  // ESP32-CAM with camera
-#define ROVER_TARGET_TTGO      1  // TTGO T-Display with LCD + buttons
+// Defined via ROVER_TARGET environment variable:
+// ROVER_TARGET=esp32cam -> ROVER_TARGET_ESP32CAM=1
+// ROVER_TARGET=ttgo -> ROVER_TARGET_TTGO=1
 
 // Camera is automatically enabled/disabled based on target:
 #ifdef ROVER_TARGET_ESP32CAM
@@ -130,25 +120,16 @@ The target is controlled by preprocessor defines in `config.h`:
 #### ESP32-CAM Pins
 | Function | GPIO | Notes |
 |----------|------|-------|
-| Motor IN1 | 12 | Boot-sensitive (keep LOW) |
-| Motor IN2 | 13 | |
-| Motor IN3 | 14 | |
-| Motor EN | 15 | |
-| Servo | 2 | Has onboard LED |
-| I2C SDA | 14 | Encoder |
-| I2C SCL | 15 | Encoder |
+| Flash LED | 4 | On-board white LED |
 | Camera | Many | See config.h |
+| JTAG TDI | 12 | JTAG mode only |
+| JTAG TCK | 13 | JTAG mode only |
+| JTAG TMS | 14 | JTAG mode only |
+| JTAG TDO | 15 | JTAG mode only |
 
 #### TTGO T-Display Pins
 | Function | GPIO | Notes |
 |----------|------|-------|
-| Motor IN1 | 25 | |
-| Motor IN2 | 26 | |
-| Motor IN3 | 27 | |
-| Motor EN | 33 | |
-| Servo | 32 | |
-| I2C SDA | 21 | Encoder |
-| I2C SCL | 22 | Encoder |
 | LCD SCLK | 18 | SPI clock |
 | LCD MOSI | 19 | SPI data |
 | LCD DC | 16 | Data/command |
@@ -172,337 +153,36 @@ The target is controlled by preprocessor defines in `config.h`:
         │                    │                    │
         ▼                    ▼                    ▼
 ┌───────────────┐  ┌─────────────────┐  ┌─────────────────────┐
-│  web_server   │  │   bldc_motor    │  │   servo_control     │
-│  (Core 0)     │  │   (Core 1)      │  │   (Core 1)          │
+│  web_server   │  │  mqtt_service   │  │   log_buffer        │
+│  (Core 0)     │  │  (Core 0)       │  │   (All cores)       │
 └───────────────┘  └─────────────────┘  └─────────────────────┘
-        │                    │
-        │                    ▼
-        │          ┌─────────────────┐
-        │          │     as5600      │
-        │          │   (I2C Encoder) │
-        │          └─────────────────┘
+        │
         ▼
-┌───────────────┐  ┌─────────────────┐
-│    camera     │  │   lcd_display   │
-│  (if enabled) │  │  (TTGO only)    │
-└───────────────┘  └─────────────────┘
+┌───────────────┐  ┌─────────────────┐  ┌─────────────────────┐
+│    camera     │  │   lcd_display   │  │  resource_guard     │
+│  (ESP32-CAM)  │  │  (TTGO only)    │  │  (Safety checks)    │
+└───────────────┘  └─────────────────┘  └─────────────────────┘
 ```
 
 ### Core Allocation
 
-- **Core 0**: WiFi stack, HTTP server, camera capture, LCD updates, status updates
-- **Core 1**: Motor control loop (100Hz), servo updates
+- **Core 0**: WiFi stack, HTTP server, camera capture, LCD updates, MQTT, status updates
+- **Core 1**: Available for future motor control implementation
 
 ### Task Allocation
 
-| Task | Core | Priority | Frequency | Stack |
+| Task | Core | Priority | Frequency | Notes |
 |------|------|----------|-----------|-------|
-| Motor control | 1 | 5 | 100 Hz | 4096 |
-| Status update | 0 | 2 | 5 Hz | 2048 |
-| LCD update | 0 | 1 | 10 Hz | 4096 |
-| Web server | 0 | - | Event-driven | - |
-
----
-
-## AS5600 Magnetic Encoder
-
-The AS5600 component provides an interface to the AS5600 12-bit contactless magnetic rotary position sensor.
-
-### Header File
-
-```c
-#include "as5600.h"
-```
-
-### Configuration
-
-```c
-typedef struct {
-    i2c_port_t i2c_port;     // I2C port number (I2C_NUM_0 or I2C_NUM_1)
-    gpio_num_t sda_pin;      // GPIO for I2C SDA
-    gpio_num_t scl_pin;      // GPIO for I2C SCL
-    uint32_t i2c_freq;       // I2C clock frequency (typically 400000)
-    uint8_t i2c_addr;        // I2C address (default 0x36)
-} as5600_config_t;
-```
-
-### Functions
-
-#### `as5600_init`
-```c
-esp_err_t as5600_init(const as5600_config_t *config, as5600_handle_t *handle);
-```
-Initialize the AS5600 encoder. Configures I2C and validates communication.
-
-**Parameters:**
-- `config`: Pointer to configuration structure
-- `handle`: Pointer to store the device handle
-
-**Returns:** `ESP_OK` on success, error code otherwise
-
----
-
-#### `as5600_deinit`
-```c
-esp_err_t as5600_deinit(as5600_handle_t handle);
-```
-Deinitialize the encoder and free resources.
-
----
-
-#### `as5600_get_raw_angle`
-```c
-esp_err_t as5600_get_raw_angle(as5600_handle_t handle, uint16_t *angle);
-```
-Get the raw 12-bit angle value (0-4095).
-
----
-
-#### `as5600_get_angle_rad`
-```c
-esp_err_t as5600_get_angle_rad(as5600_handle_t handle, float *angle_rad);
-```
-Get the angle in radians (0 to 2π).
-
----
-
-#### `as5600_get_cumulative_angle`
-```c
-esp_err_t as5600_get_cumulative_angle(as5600_handle_t handle, float *angle_rad);
-```
-Get cumulative angle that tracks multiple rotations. Essential for velocity control.
-
----
-
-#### `as5600_get_velocity`
-```c
-esp_err_t as5600_get_velocity(as5600_handle_t handle, float *velocity);
-```
-Get angular velocity in radians per second.
-
----
-
-#### `as5600_update`
-```c
-esp_err_t as5600_update(as5600_handle_t handle);
-```
-Update internal state. Must be called periodically for accurate velocity calculation.
-
----
-
-#### `as5600_get_magnet_status`
-```c
-esp_err_t as5600_get_magnet_status(as5600_handle_t handle,
-                                    bool *detected,
-                                    bool *too_strong,
-                                    bool *too_weak);
-```
-Check magnet positioning status. Useful for debugging encoder issues.
-
----
-
-## BLDC Motor Control
-
-The BLDC motor component implements SimpleFOC-style field-oriented control for brushless DC motors.
-
-### Header File
-
-```c
-#include "bldc_motor.h"
-```
-
-### Enumerations
-
-```c
-typedef enum {
-    MOTOR_MODE_DISABLED = 0,  // Motor disabled, no output
-    MOTOR_MODE_OPEN_LOOP,     // Open loop voltage control
-    MOTOR_MODE_VELOCITY,      // Closed-loop velocity control
-    MOTOR_MODE_ANGLE,         // Closed-loop position control
-} motor_mode_t;
-
-typedef enum {
-    MOTOR_DIR_CW = 1,         // Clockwise rotation
-    MOTOR_DIR_CCW = -1,       // Counter-clockwise rotation
-} motor_direction_t;
-```
-
-### Configuration
-
-```c
-typedef struct {
-    float kp;           // Proportional gain
-    float ki;           // Integral gain
-    float kd;           // Derivative gain
-    float output_ramp;  // Maximum rate of change (limits acceleration)
-    float limit;        // Output limit
-} pid_config_t;
-
-typedef struct {
-    // PWM pins for 3-phase driver
-    gpio_num_t pin_in1;
-    gpio_num_t pin_in2;
-    gpio_num_t pin_in3;
-    gpio_num_t pin_en;       // Enable pin
-
-    // Motor parameters
-    uint8_t pole_pairs;      // Number of magnetic pole pairs
-    float voltage_limit;     // Maximum voltage to apply
-    float velocity_limit;    // Maximum velocity in rad/s
-    motor_direction_t direction;
-
-    // PWM configuration
-    uint32_t pwm_frequency;  // Typically 20kHz
-
-    // Control parameters
-    pid_config_t velocity_pid;
-    pid_config_t angle_pid;
-    lpf_config_t velocity_lpf;
-
-    // Encoder handle
-    as5600_handle_t encoder;
-} bldc_motor_config_t;
-```
-
-### Functions
-
-#### `bldc_motor_init`
-```c
-esp_err_t bldc_motor_init(const bldc_motor_config_t *config,
-                          bldc_motor_handle_t *handle);
-```
-Initialize the BLDC motor controller. Configures PWM channels and links to encoder.
-
----
-
-#### `bldc_motor_enable` / `bldc_motor_disable`
-```c
-esp_err_t bldc_motor_enable(bldc_motor_handle_t handle);
-esp_err_t bldc_motor_disable(bldc_motor_handle_t handle);
-```
-Enable or disable the motor driver output.
-
----
-
-#### `bldc_motor_set_mode`
-```c
-esp_err_t bldc_motor_set_mode(bldc_motor_handle_t handle, motor_mode_t mode);
-```
-Set the motor control mode.
-
----
-
-#### `bldc_motor_set_velocity`
-```c
-esp_err_t bldc_motor_set_velocity(bldc_motor_handle_t handle, float velocity);
-```
-Set target velocity in rad/s (velocity mode only).
-
----
-
-#### `bldc_motor_get_velocity`
-```c
-esp_err_t bldc_motor_get_velocity(bldc_motor_handle_t handle, float *velocity);
-```
-Get current motor velocity in rad/s from encoder feedback.
-
----
-
-#### `bldc_motor_loop`
-```c
-esp_err_t bldc_motor_loop(bldc_motor_handle_t handle);
-```
-Execute one iteration of the control loop. **Must be called at a fixed frequency** (typically 100Hz or higher).
-
----
-
-#### `bldc_motor_emergency_stop`
-```c
-esp_err_t bldc_motor_emergency_stop(bldc_motor_handle_t handle);
-```
-Immediately stop the motor and disable output.
-
----
-
-#### `bldc_motor_calibrate`
-```c
-esp_err_t bldc_motor_calibrate(bldc_motor_handle_t handle);
-```
-Calibrate the encoder zero position. The motor will briefly move during calibration.
-
----
-
-## Servo Control
-
-The servo control component provides PWM-based control for standard hobby servos.
-
-### Header File
-
-```c
-#include "servo_control.h"
-```
-
-### Configuration
-
-```c
-typedef struct {
-    gpio_num_t gpio_pin;        // PWM output GPIO
-    ledc_channel_t pwm_channel; // LEDC channel
-    ledc_timer_t pwm_timer;     // LEDC timer
-    uint32_t pwm_freq;          // PWM frequency (typically 50Hz)
-    uint16_t min_pulse_us;      // Minimum pulse width (e.g., 500µs)
-    uint16_t max_pulse_us;      // Maximum pulse width (e.g., 2500µs)
-    uint16_t center_pulse_us;   // Center pulse width (e.g., 1500µs)
-    int16_t max_angle;          // Maximum angle in degrees from center
-    int16_t trim_offset;        // Steering trim offset
-} servo_config_t;
-```
-
-### Functions
-
-#### `servo_init`
-```c
-esp_err_t servo_init(const servo_config_t *config, servo_handle_t *handle);
-```
-Initialize servo with specified configuration.
-
----
-
-#### `servo_set_angle`
-```c
-esp_err_t servo_set_angle(servo_handle_t handle, float angle);
-```
-Set servo angle in degrees. Negative = left, Positive = right.
-
----
-
-#### `servo_get_angle`
-```c
-esp_err_t servo_get_angle(servo_handle_t handle, float *angle);
-```
-Get current servo angle.
-
----
-
-#### `servo_center`
-```c
-esp_err_t servo_center(servo_handle_t handle);
-```
-Move servo to center position.
-
----
-
-#### `servo_set_trim`
-```c
-esp_err_t servo_set_trim(servo_handle_t handle, int16_t trim_degrees);
-```
-Set trim offset to compensate for mechanical alignment.
+| Status update | 0 | 2 | 20 Hz | Feeds task watchdog |
+| LCD update | 0 | 1 | ~60 Hz | TTGO only |
+| Web server | 0 | - | Event-driven | HTTP requests |
+| MQTT publish | 0 | 2 | Configurable | Telemetry |
 
 ---
 
 ## Web Server
 
-The web server component provides HTTP endpoints for rover control and status monitoring.
+The web server component provides HTTP endpoints for rover control, status monitoring, and diagnostics.
 
 ### Header File
 
@@ -512,30 +192,64 @@ The web server component provides HTTP endpoints for rover control and status mo
 
 ### Data Structures
 
+#### `rover_command_t`
 ```c
 typedef struct {
     float speed;           // -100 to 100 (percentage)
-    float steering;        // -100 to 100 (percentage)
+    float steering;        // -100 to 100 (percentage, negative = left)
     bool emergency_stop;   // Emergency stop flag
 } rover_command_t;
+```
 
+#### `rover_status_t`
+```c
 typedef struct {
+    // Basic status
     float battery_voltage;
-    float motor_velocity;
-    float steering_angle;
-    bool motor_enabled;
     bool camera_active;
     int wifi_rssi;
-    bool button_left;      // Left button state (TTGO only)
-    bool button_right;     // Right button state (TTGO only)
+    bool button_left;       // Left button state (TTGO only)
+    bool button_right;      // Right button state (TTGO only)
 
-    // Build information (auto-generated at build time)
+    // Diagnostic data
+    const char* wifi_ssid;
+    const char* wifi_ip;
+    const char* mac_addr;
+    uint8_t wifi_channel;
+    uint8_t connected_clients;
+    int8_t wifi_tx_power;
+    uint32_t free_heap;
+    uint32_t min_free_heap;
+    uint32_t total_heap;
+    uint32_t free_internal;
+    uint32_t uptime_secs;
+    float cpu_freq_mhz;
+    uint8_t task_count;
+    uint8_t tasks_core0;
+    uint8_t tasks_core1;
+    uint8_t tasks_no_affinity;
+
+    // Service status
+    bool rest_api_enabled;
+    bool mqtt_enabled;
+    bool mqtt_connected;
+    bool internet_connected;
+
+    // Time
+    const char* local_time;
+    bool ntp_synced;
+
+    // Build information
+    const char* build_version;      // e.g., "2.0.1"
     const char* build_fingerprint;  // Git commit hash (short)
     const char* build_time;         // Build timestamp (ISO 8601)
     const char* build_branch;       // Git branch name
-    bool build_dirty;               // Working directory had uncommitted changes
+    bool build_dirty;               // Uncommitted changes at build time
 } rover_status_t;
+```
 
+#### `web_server_config_t`
+```c
 typedef void (*command_callback_t)(const rover_command_t *cmd);
 
 typedef struct {
@@ -554,11 +268,35 @@ Start the HTTP server with the specified configuration.
 
 ---
 
+#### `web_server_stop`
+```c
+esp_err_t web_server_stop(void);
+```
+Stop the HTTP server.
+
+---
+
 #### `web_server_update_status`
 ```c
 esp_err_t web_server_update_status(const rover_status_t *status);
 ```
 Update the status data returned by the `/status` endpoint.
+
+---
+
+#### `web_server_get_last_command`
+```c
+esp_err_t web_server_get_last_command(rover_command_t *cmd);
+```
+Get the most recently received command.
+
+---
+
+#### `web_server_is_running`
+```c
+bool web_server_is_running(void);
+```
+Check if the server is currently running.
 
 ---
 
@@ -570,14 +308,27 @@ Get time since last command was received. Used for watchdog timeout.
 
 ---
 
+#### `web_server_get_handle`
+```c
+httpd_handle_t web_server_get_handle(void);
+```
+Get HTTP server handle for adding custom endpoints.
+
+---
+
 ### HTTP Endpoints
 
 | Endpoint | Method | Description |
 |----------|--------|-------------|
-| `/` | GET | Serves the web control interface |
-| `/stream` | GET | MJPEG video stream (if camera enabled) |
-| `/control` | POST | Receive control commands (JSON) |
+| `/` | GET | Web control interface |
+| `/stream` | GET | MJPEG video stream (ESP32-CAM only) |
+| `/control` | POST | Send control commands (JSON) |
 | `/status` | GET | Return rover status (JSON) |
+| `/camera` | GET/POST | Get/set camera stream state |
+| `/logs` | GET | Get buffered logs |
+| `/logs/stream` | GET | SSE stream of live logs |
+| `/logs` | DELETE | Clear log buffer |
+| `/ota` | POST | Upload firmware update |
 
 ### Control Command JSON Format
 
@@ -593,54 +344,49 @@ Get time since last command was received. Used for watchdog timeout.
 
 ```json
 {
-    "velocity": 5.2,            // Current motor velocity (rad/s)
-    "battery": 7.4,             // Battery voltage
-    "steering": 15.0,           // Current steering angle
-    "motor": true,              // Motor enabled
-    "camera": false,            // Camera active
-    "rssi": -45,                // WiFi signal strength
-    "btnL": false,              // Left button pressed (TTGO only)
-    "btnR": true,               // Right button pressed (TTGO only)
-    "buildFingerprint": "5dcefb4", // Git commit hash (short)
-    "buildTime": "2026-01-25T06:48:35Z", // Build timestamp (ISO 8601)
-    "buildBranch": "main",      // Git branch name
-    "buildDirty": false         // Working directory had uncommitted changes
+    "target": "esp32cam",
+    "battery": 7.4,
+    "camera": true,
+    "rssi": -45,
+    "btnL": false,
+    "btnR": true,
+    "diag": {
+        "ssid": "MyNetwork",
+        "ip": "192.168.1.50",
+        "mac": "AA:BB:CC:DD:EE:FF",
+        "channel": 6,
+        "clients": 1,
+        "txPower": 20,
+        "freeHeap": 150000,
+        "minFreeHeap": 120000,
+        "totalHeap": 320000,
+        "freeInternal": 100000,
+        "uptime": 3600,
+        "cpuFreq": 240,
+        "taskCount": 12,
+        "tasksCore0": 8,
+        "tasksCore1": 4,
+        "tasksNoAffinity": 0,
+        "localTime": "14:30:45",
+        "ntpSynced": true,
+        "internet": true,
+        "restApi": true,
+        "mqttEnabled": true,
+        "mqttConnected": false,
+        "buildVersion": "2.0.1",
+        "buildFingerprint": "e4b11fc",
+        "buildTime": "2026-01-25T09:54:04Z",
+        "buildBranch": "main",
+        "buildDirty": false
+    }
 }
 ```
-
-### Build Fingerprint Fields
-
-The `/status` endpoint includes build information fields that uniquely identify the firmware version running on the device. These fields are automatically generated at build time from git repository information.
-
-**Fields:**
-- **buildFingerprint**: Short git commit hash (7 characters). This is the primary identifier for linking a deployed firmware to its source code.
-- **buildTime**: ISO 8601 timestamp of when the firmware was built (UTC timezone).
-- **buildBranch**: Git branch name from which the firmware was built.
-- **buildDirty**: Boolean indicating whether the working directory had uncommitted changes at build time.
-
-**Example usage:**
-```bash
-# Query build fingerprint via REST API
-curl http://192.168.4.1/status | jq '.buildFingerprint'
-# Output: "5dcefb4"
-
-# Match to git commit
-git log --oneline | grep 5dcefb4
-# Output: 5dcefb4 Add build fingerprint system to track firmware versions
-```
-
-**Benefits:**
-- **Version Tracking**: Instantly identify which code version is running on a device
-- **Debugging**: Match deployed firmware to exact source code for troubleshooting
-- **Quality Assurance**: Verify correct firmware was deployed after OTA updates
-- **Audit Trail**: Track firmware rollout across multiple devices
-- **Safety**: The `buildDirty` flag warns if firmware was built from modified code
 
 ---
 
 ## Camera Module
 
-The camera module wraps the ESP32 camera driver for the OV2640 sensor.
+The camera module wraps the ESP32 camera driver for the OV2640 sensor (ESP32-CAM only).
 
 ### Header File
 
@@ -648,13 +394,87 @@ The camera module wraps the ESP32 camera driver for the OV2640 sensor.
 #include "camera.h"
 ```
 
+### Configuration
+
+```c
+typedef struct {
+    // Pin configuration
+    int pin_pwdn;
+    int pin_reset;
+    int pin_xclk;
+    int pin_sccb_sda;
+    int pin_sccb_scl;
+    int pin_d7, pin_d6, pin_d5, pin_d4;
+    int pin_d3, pin_d2, pin_d1, pin_d0;
+    int pin_vsync;
+    int pin_href;
+    int pin_pclk;
+
+    // Camera settings
+    uint32_t xclk_freq;
+    pixformat_t pixel_format;
+    framesize_t frame_size;
+    int jpeg_quality;
+    int fb_count;
+} camera_config_params_t;
+```
+
 ### Functions
 
-#### `camera_init`
+#### `camera_module_init`
 ```c
-esp_err_t camera_init(void);
+esp_err_t camera_module_init(const camera_config_params_t *config);
 ```
-Initialize the camera with configuration from `config.h`.
+Initialize the camera with the specified configuration.
+
+---
+
+#### `camera_module_deinit`
+```c
+esp_err_t camera_module_deinit(void);
+```
+Deinitialize camera and free resources.
+
+---
+
+#### `camera_capture_frame`
+```c
+camera_fb_t* camera_capture_frame(void);
+```
+Capture a JPEG frame. Returns NULL if streaming is disabled.
+
+---
+
+#### `camera_return_frame`
+```c
+void camera_return_frame(camera_fb_t *fb);
+```
+Return frame buffer after use.
+
+---
+
+#### `camera_set_resolution`
+```c
+esp_err_t camera_set_resolution(framesize_t frame_size);
+```
+Set camera resolution.
+
+---
+
+#### `camera_set_quality`
+```c
+esp_err_t camera_set_quality(int quality);
+```
+Set JPEG quality (0-63, lower is better).
+
+---
+
+#### `camera_set_vflip` / `camera_set_hmirror`
+```c
+esp_err_t camera_set_vflip(bool flip);
+esp_err_t camera_set_hmirror(bool mirror);
+```
+Set vertical flip or horizontal mirror.
 
 ---
 
@@ -666,19 +486,27 @@ Check if camera was successfully initialized.
 
 ---
 
-#### `camera_capture_frame`
+#### `camera_stream_set_enabled` / `camera_stream_is_enabled`
 ```c
-esp_err_t camera_capture_frame(uint8_t **data, size_t *len);
+void camera_stream_set_enabled(bool enabled);
+bool camera_stream_is_enabled(void);
 ```
-Capture a JPEG frame. Caller must call `camera_release_frame()` when done.
+Enable/disable camera streaming. When disabled, `camera_capture_frame()` returns NULL. Useful for freeing resources during OTA updates.
 
 ---
 
-#### `camera_release_frame`
+### Flash LED Control
+
 ```c
-void camera_release_frame(void);
+esp_err_t flash_led_init(void);
+void flash_led_on(void);
+void flash_led_off(void);
+void flash_led_set(bool on);
+bool flash_led_get_state(void);
+void flash_led_blink(int count, int on_ms, int off_ms);
 ```
-Release the captured frame buffer.
+
+Control the on-board flash LED (GPIO 4).
 
 ---
 
@@ -701,17 +529,17 @@ typedef struct {
     int pin_dc;         // Data/Command pin
     int pin_cs;         // Chip select pin
     int pin_rst;        // Reset pin
-    int pin_backlight;  // Backlight control pin (-1 to disable)
+    int pin_backlight;  // Backlight control pin
 } lcd_display_config_t;
 ```
 
-### Status Structure
+### Status Structures
 
+#### `lcd_rover_status_t`
 ```c
 typedef struct {
     int speed_percent;      // Speed -100 to +100
     int steering_degrees;   // Steering angle in degrees
-    float velocity_rads;    // Actual velocity in rad/s
     float battery_volts;    // Battery voltage
     bool connected;         // WiFi client connected
     bool estop;             // Emergency stop active
@@ -719,7 +547,36 @@ typedef struct {
     bool button_right;      // Right button pressed
     const char* wifi_ssid;  // WiFi SSID
     const char* wifi_ip;    // IP address
+    const char* mac_addr;   // MAC address string
+    const char* mdns_hostname; // mDNS hostname
+    uint32_t uptime_secs;   // Uptime in seconds
 } lcd_rover_status_t;
+```
+
+#### `lcd_wifi_diag_t`
+```c
+typedef struct {
+    const char* ssid;
+    const char* ip_addr;
+    const char* mdns_hostname;
+    uint8_t channel;
+    uint8_t connected_stations;
+    int8_t tx_power;
+    uint32_t free_heap;
+    uint32_t min_free_heap;
+    uint32_t total_heap;
+    uint32_t free_internal;
+    uint32_t free_psram;
+    uint32_t uptime_secs;
+    float battery_volts;
+    bool rest_api_enabled;
+    bool mqtt_enabled;
+    bool mqtt_connected;
+    const char* local_time;
+    bool ntp_synced;
+    const char* build_version;
+    const char* build_fingerprint;
+} lcd_wifi_diag_t;
 ```
 
 ### Functions
@@ -730,22 +587,13 @@ esp_err_t lcd_display_init(const lcd_display_config_t *config);
 ```
 Initialize the LCD display with SPI at 26MHz.
 
-**Note:** SPI clock is limited to 26MHz for non-IOMUX pin compatibility.
-
 ---
 
 #### `lcd_display_update`
 ```c
 esp_err_t lcd_display_update(const lcd_rover_status_t *status);
 ```
-Update the display with current rover status. Shows:
-- Connection status header (green/red)
-- Button indicators (L/R)
-- Speed bar (bi-directional)
-- Steering bar (bi-directional)
-- Velocity reading
-- Battery voltage with bar
-- WiFi info footer
+Update the display with current rover status.
 
 ---
 
@@ -753,7 +601,23 @@ Update the display with current rover status. Shows:
 ```c
 esp_err_t lcd_display_splash(void);
 ```
-Show startup splash screen with "ESP32 ROVER" branding.
+Show startup splash screen.
+
+---
+
+#### `lcd_display_diagnostics`
+```c
+esp_err_t lcd_display_diagnostics(const lcd_wifi_diag_t *diag);
+```
+Show diagnostic screen with WiFi and system info.
+
+---
+
+#### `lcd_display_sleep_screen`
+```c
+esp_err_t lcd_display_sleep_screen(void);
+```
+Show sleep screen with animated Snorlax before entering deep sleep.
 
 ---
 
@@ -773,6 +637,14 @@ Clear the display to black.
 
 ---
 
+#### `lcd_display_reset_state`
+```c
+void lcd_display_reset_state(void);
+```
+Reset display state (call when exiting diagnostic mode).
+
+---
+
 ### Display Layout
 
 ```
@@ -785,75 +657,324 @@ Clear the display to black.
 │ ▓▓▓▓▓▓▓▓▓▓▓▓░░░░░░░░░░░░░░ │  Speed bar
 │ STEER        +12°           │
 │ ▓▓▓▓▓▓▓▓▓▓▓▓░░░░░░░░░░░░░░ │  Steering bar
-│ VEL          3.2 r/s        │
 │ BAT          7.4V ████████  │  Battery bar
 ├─────────────────────────────┤
 │ ESP32-Rover                 │  Footer (30px)
 │ 192.168.4.1                 │
+│ Uptime: 01:23:45            │
 └─────────────────────────────┘
 ```
 
 ---
 
-## Configuration Reference
+## MQTT Service
 
-### main/config.h
+The MQTT service provides telemetry publishing for remote monitoring.
 
-The `config.h` file contains all hardware-specific configuration. It automatically selects pin mappings based on the build target.
-
-#### Target Selection
+### Header File
 
 ```c
-// Set one of these (at top of config.h or via compiler flag):
-#define ROVER_TARGET_ESP32CAM  1  // For ESP32-CAM AI-Thinker
-// OR
-#define ROVER_TARGET_TTGO      1  // For TTGO T-Display
-
-// If neither is set, defaults to TTGO
+#include "mqtt_service.h"
 ```
 
-#### Common Configuration (all targets)
+### Configuration
 
 ```c
-// WiFi Configuration
-#define ROVER_WIFI_MODE_AP  1        // 1 = AP mode, 0 = Station mode
-#define WIFI_SSID           "ESP32-Rover"
-#define WIFI_PASSWORD       "rover1234"
-
-// Motor Parameters (adjust for your motor)
-#define MOTOR_POLE_PAIRS    7
-#define MOTOR_VOLTAGE_LIMIT 6.0f
-#define MOTOR_VELOCITY_LIMIT 20.0f   // rad/s
-
-// PID Tuning
-#define MOTOR_PID_P         0.2f
-#define MOTOR_PID_I         2.0f
-#define MOTOR_PID_D         0.0f
-
-// Servo
-#define STEERING_MAX_ANGLE  45       // degrees
-
-// Safety
-#define WATCHDOG_TIMEOUT_MS 500      // Stop if no command received
+typedef struct {
+    const char *broker_host;        // MQTT broker hostname or IP
+    uint16_t broker_port;           // MQTT broker port (default 1883)
+    const char *username;           // MQTT username (can be NULL)
+    const char *password;           // MQTT password (can be NULL)
+    const char *client_id;          // MQTT client ID
+    const char *topic_prefix;       // Topic prefix for all messages
+    uint32_t publish_interval_ms;   // Interval between status publishes
+    int qos;                        // QoS level (0, 1, or 2)
+} mqtt_service_config_t;
 ```
 
-#### TTGO-Specific Configuration
+### Functions
+
+#### `mqtt_service_init`
+```c
+esp_err_t mqtt_service_init(const mqtt_service_config_t *config);
+```
+Initialize and start the MQTT service.
+
+---
+
+#### `mqtt_service_stop`
+```c
+esp_err_t mqtt_service_stop(void);
+```
+Stop the MQTT service.
+
+---
+
+#### `mqtt_service_update_status`
+```c
+esp_err_t mqtt_service_update_status(const rover_status_t *status);
+```
+Update the rover status for MQTT publishing.
+
+---
+
+#### `mqtt_service_is_connected`
+```c
+bool mqtt_service_is_connected(void);
+```
+Check if MQTT service is connected to the broker.
+
+---
+
+## Log Buffer
+
+The log buffer component captures serial logs in a ring buffer for web UI access.
+
+### Header File
 
 ```c
-// LCD Display
-#define LCD_PIN_SCLK        GPIO_NUM_18
-#define LCD_PIN_MOSI        GPIO_NUM_19
-#define LCD_PIN_DC          GPIO_NUM_16
-#define LCD_PIN_CS          GPIO_NUM_5
-#define LCD_PIN_RST         GPIO_NUM_23
-#define LCD_PIN_BACKLIGHT   GPIO_NUM_4
-#define ENABLE_LCD_DISPLAY  1
-
-// Buttons
-#define BUTTON_LEFT_PIN     GPIO_NUM_0
-#define BUTTON_RIGHT_PIN    GPIO_NUM_35
-#define ENABLE_BUTTONS      1
+#include "log_buffer.h"
 ```
+
+### Constants
+
+```c
+#define LOG_BUFFER_SIZE      (16 * 1024)  // 16KB buffer
+#define LOG_ENTRY_MAX_SIZE   512          // Max single entry size
+
+// Log levels (matching ESP-IDF)
+#define LOG_LEVEL_NONE       0
+#define LOG_LEVEL_ERROR      1
+#define LOG_LEVEL_WARN       2
+#define LOG_LEVEL_INFO       3
+#define LOG_LEVEL_DEBUG      4
+#define LOG_LEVEL_VERBOSE    5
+```
+
+### Statistics Structure
+
+```c
+typedef struct {
+    size_t entry_count;       // Number of log entries in buffer
+    size_t bytes_used;        // Bytes currently used in buffer
+    size_t bytes_dropped;     // Total bytes dropped due to buffer full
+    size_t buffer_size;       // Total buffer size
+} log_buffer_stats_t;
+```
+
+### Functions
+
+#### `log_buffer_init`
+```c
+esp_err_t log_buffer_init(void);
+```
+Initialize log buffer and install vprintf hook. Should be called early in app_main() to capture boot logs.
+
+---
+
+#### `log_buffer_deinit`
+```c
+void log_buffer_deinit(void);
+```
+Deinitialize log buffer and restore original vprintf.
+
+---
+
+#### `log_buffer_is_initialized`
+```c
+bool log_buffer_is_initialized(void);
+```
+Check if log buffer is initialized.
+
+---
+
+#### `log_buffer_get_text`
+```c
+esp_err_t log_buffer_get_text(char **out_text, size_t *out_len, uint8_t min_level);
+```
+Get all logs as formatted text. Caller must free the returned string.
+
+---
+
+#### `log_buffer_get_stats`
+```c
+esp_err_t log_buffer_get_stats(log_buffer_stats_t *stats);
+```
+Get log buffer statistics.
+
+---
+
+#### `log_buffer_clear`
+```c
+void log_buffer_clear(void);
+```
+Clear all buffered logs.
+
+---
+
+#### `log_buffer_get_read_position` / `log_buffer_read_next`
+```c
+size_t log_buffer_get_read_position(void);
+bool log_buffer_read_next(size_t *position, char *json_out, size_t max_len, uint8_t min_level);
+```
+SSE streaming support. Get read position and read next entry as JSON.
+
+---
+
+## Resource Guard
+
+The resource guard component provides runtime checks to prevent resource exhaustion crashes.
+
+### Header File
+
+```c
+#include "resource_guard.h"
+```
+
+### Thresholds
+
+```c
+#define RESOURCE_GUARD_MIN_FREE_HEAP        (32 * 1024)  // 32KB minimum
+#define RESOURCE_GUARD_MIN_FREE_INTERNAL    (16 * 1024)  // 16KB minimum
+#define RESOURCE_GUARD_MIN_STACK_WATERMARK  512          // 512 bytes
+#define RESOURCE_GUARD_MAX_TASKS            32           // Max tasks
+#define RESOURCE_GUARD_WARN_HEAP_PERCENT    80           // Warn threshold
+```
+
+### Result Structures
+
+```c
+typedef struct {
+    // Heap statistics
+    size_t total_heap;
+    size_t free_heap;
+    size_t min_free_heap;
+    size_t free_internal;
+    size_t largest_free_block;
+
+    // Task statistics
+    uint32_t task_count;
+    uint32_t tasks_core0;
+    uint32_t tasks_core1;
+
+    // Check results
+    bool heap_ok;
+    bool internal_ok;
+    bool fragmentation_ok;
+    bool task_count_ok;
+    bool all_ok;
+} resource_check_result_t;
+
+typedef struct {
+    const char *task_name;
+    uint32_t stack_watermark;
+    uint32_t stack_size;
+    bool stack_ok;
+} task_stack_result_t;
+```
+
+### Functions
+
+#### `resource_guard_init`
+```c
+esp_err_t resource_guard_init(void);
+```
+Initialize resource guard (called automatically).
+
+---
+
+#### `resource_guard_check_all`
+```c
+esp_err_t resource_guard_check_all(resource_check_result_t *result);
+```
+Perform all resource checks. Returns `ESP_OK` if all pass.
+
+---
+
+#### `resource_guard_check_heap`
+```c
+bool resource_guard_check_heap(resource_check_result_t *result);
+```
+Check heap resources only.
+
+---
+
+#### `resource_guard_can_alloc`
+```c
+bool resource_guard_can_alloc(size_t size);
+```
+Check if allocation of given size is safe.
+
+---
+
+#### `resource_guard_check_stack`
+```c
+bool resource_guard_check_stack(void *task_handle, task_stack_result_t *result);
+```
+Check task stack usage. Pass NULL for current task.
+
+---
+
+#### `resource_guard_check_all_stacks`
+```c
+int resource_guard_check_all_stacks(void);
+```
+Check all task stacks and log warnings. Returns count of low watermarks.
+
+---
+
+#### `resource_guard_get_heap_usage_percent`
+```c
+uint8_t resource_guard_get_heap_usage_percent(void);
+```
+Get current heap usage percentage (0-100).
+
+---
+
+#### `resource_guard_log_status`
+```c
+void resource_guard_log_status(void);
+```
+Log current resource status to console.
+
+---
+
+### Unity Test Macros
+
+```c
+TEST_ASSERT_RESOURCE_OK()           // Assert all resources OK
+TEST_ASSERT_HEAP_OK()               // Assert heap only
+TEST_ASSERT_CAN_ALLOC(size)         // Assert allocation is safe
+TEST_ASSERT_STACK_OK(handle)        // Assert task stack OK
+```
+
+---
+
+## Build Info
+
+Auto-generated build information is available via the `build_info.h` header.
+
+### Header File
+
+```c
+#include "build_info.h"
+```
+
+### Defines
+
+```c
+#define BUILD_GIT_HASH       "e4b11fc"              // Short commit hash
+#define BUILD_GIT_HASH_FULL  "e4b11fc..."           // Full commit hash
+#define BUILD_GIT_BRANCH     "main"                 // Branch name
+#define BUILD_GIT_DIRTY      true/false             // Uncommitted changes
+#define BUILD_TIME           "2026-01-25T09:54:04Z" // ISO 8601 timestamp
+#define BUILD_TIMESTAMP      1769334844UL           // Unix epoch
+#define BUILD_IDF_VERSION    "v5.2.2"               // ESP-IDF version
+#define BUILD_FINGERPRINT    "e4b11fc"              // Same as short hash
+#define BUILD_VERSION        "2.0.1"                // From git tags
+```
+
+This header is regenerated at each build by `scripts/generate_build_info.sh`.
 
 ---
 
@@ -865,16 +986,15 @@ All functions return `esp_err_t`:
 - `ESP_ERR_INVALID_ARG`: Invalid parameter
 - `ESP_ERR_NO_MEM`: Memory allocation failed
 - `ESP_ERR_INVALID_STATE`: Invalid state for operation
-- `ESP_ERR_TIMEOUT`: I2C communication timeout
-- `ESP_ERR_NOT_SUPPORTED`: SPI clock speed not supported
+- `ESP_ERR_TIMEOUT`: Communication timeout
 - `ESP_FAIL`: General failure
 
 Example error handling:
 
 ```c
-esp_err_t ret = bldc_motor_init(&config, &motor_handle);
+esp_err_t ret = web_server_init(&config);
 if (ret != ESP_OK) {
-    ESP_LOGE(TAG, "Motor init failed: %s", esp_err_to_name(ret));
+    ESP_LOGE(TAG, "Web server init failed: %s", esp_err_to_name(ret));
     return ret;
 }
 ```
@@ -884,25 +1004,28 @@ if (ret != ESP_OK) {
 ## Thread Safety
 
 - **Web server**: Commands are protected by mutex
-- **Motor control**: Runs on dedicated core with fixed timing
 - **Status updates**: Protected by mutex for cross-core access
 - **LCD display**: Runs on Core 0, single-threaded access
 - **Button reading**: GPIO reads are atomic
+- **Log buffer**: Thread-safe ring buffer with mutex protection
+- **MQTT service**: Internal mutex for status updates
 
 ---
 
 ## Memory Usage
 
-Typical memory footprint:
+Typical memory footprint (varies by configuration):
 
 | Component | RAM (bytes) |
 |-----------|-------------|
-| AS5600 | ~100 |
-| BLDC Motor | ~500 |
-| Servo | ~100 |
 | Web Server | ~8000 |
 | Web UI HTML | ~7000 |
 | LCD Display | ~2000 |
-| **Total** | ~18KB |
+| Log Buffer | ~16000 |
+| MQTT Service | ~2000 |
+| Camera buffers | ~40000 (ESP32-CAM) |
+| **Total** | ~35KB (TTGO), ~75KB (ESP32-CAM) |
 
-Free heap after initialization: ~197KB (TTGO with LCD)
+Free heap after initialization:
+- TTGO: ~180KB
+- ESP32-CAM: ~150KB (with PSRAM available for camera buffers)
