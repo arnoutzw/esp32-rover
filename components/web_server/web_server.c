@@ -396,7 +396,6 @@ static esp_err_t status_handler(httpd_req_t *req)
         "\"diag\":{"
             "\"ssid\":\"%s\","
             "\"ip\":\"%s\","
-            "\"mac\":\"%s\","
             "\"channel\":%d,"
             "\"clients\":%d,"
             "\"txPower\":%d,"
@@ -405,15 +404,9 @@ static esp_err_t status_handler(httpd_req_t *req)
             "\"totalHeap\":%lu,"
             "\"freeInternal\":%lu,"
             "\"uptime\":%lu,"
-            "\"cpuFreq\":%.0f,"
-            "\"tasks\":%d,"
-            "\"tasksCore0\":%d,"
-            "\"tasksCore1\":%d,"
-            "\"tasksNoAffinity\":%d,"
             "\"restApi\":%s,"
             "\"mqttEnabled\":%s,"
             "\"mqttConnected\":%s,"
-            "\"internet\":%s,"
             "\"localTime\":\"%s\","
             "\"ntpSynced\":%s,"
             "\"buildFingerprint\":\"%s\","
@@ -430,7 +423,6 @@ static esp_err_t status_handler(httpd_req_t *req)
         status.button_right ? "true" : "false",
         status.wifi_ssid ? status.wifi_ssid : "",
         status.wifi_ip ? status.wifi_ip : "",
-        status.mac_addr ? status.mac_addr : "",
         status.wifi_channel,
         status.connected_clients,
         status.wifi_tx_power,
@@ -439,15 +431,9 @@ static esp_err_t status_handler(httpd_req_t *req)
         (unsigned long)status.total_heap,
         (unsigned long)status.free_internal,
         (unsigned long)status.uptime_secs,
-        status.cpu_freq_mhz,
-        status.task_count,
-        status.tasks_core0,
-        status.tasks_core1,
-        status.tasks_no_affinity,
         status.rest_api_enabled ? "true" : "false",
         status.mqtt_enabled ? "true" : "false",
         status.mqtt_connected ? "true" : "false",
-        status.internet_connected ? "true" : "false",
         status.local_time ? status.local_time : "--:--:--",
         status.ntp_synced ? "true" : "false",
         status.build_fingerprint ? status.build_fingerprint : "unknown",

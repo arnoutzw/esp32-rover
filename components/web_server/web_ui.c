@@ -531,10 +531,6 @@ static const char web_ui_html[] = R"rawliteral(
                                     <span class="diag-label">IP</span>
                                     <span class="diag-value" id="diag-ip">--</span>
                                 </div>
-                                <div class="diag-item diag-full-row">
-                                    <span class="diag-label">MAC</span>
-                                    <span class="diag-value" id="diag-mac">--</span>
-                                </div>
                             </div>
                         </div>
                         <div class="diag-section">
@@ -563,13 +559,8 @@ static const char web_ui_html[] = R"rawliteral(
                             <div class="diag-section-title">System</div>
                             <div class="diag-grid">
                                 <div class="diag-item">
-                                    <span class="diag-label">CPU</span>
-                                    <span class="diag-value" id="diag-cpu">--</span>
-                                </div>
-                                <div class="diag-item">
-                                    <span class="diag-label">Tasks</span>
-                                    <span class="diag-value" id="diag-tasks">--</span>
-                                    <span class="diag-sub" id="diag-tasks-cores">--</span>
+                                    <span class="diag-label">Build</span>
+                                    <span class="diag-value" id="diag-build">--</span>
                                 </div>
                                 <div class="diag-item">
                                     <span class="diag-label">Battery</span>
@@ -591,10 +582,6 @@ static const char web_ui_html[] = R"rawliteral(
                                 <div class="diag-item">
                                     <span class="diag-label">MQTT</span>
                                     <span class="diag-value" id="diag-mqtt">--</span>
-                                </div>
-                                <div class="diag-item">
-                                    <span class="diag-label">Internet</span>
-                                    <span class="diag-value" id="diag-internet">--</span>
                                 </div>
                                 <div class="diag-item">
                                     <span class="diag-label">Local Time</span>
@@ -859,7 +846,6 @@ static const char web_ui_html[] = R"rawliteral(
                         document.getElementById('diag-txpower').textContent = d.txPower + ' dBm';
                         document.getElementById('diag-clients').textContent = d.clients;
                         document.getElementById('diag-ip').textContent = d.ip || '--';
-                        document.getElementById('diag-mac').textContent = d.mac || '--';
 
                         // Memory section
                         const usedHeap = d.totalHeap - d.freeHeap;
@@ -874,9 +860,7 @@ static const char web_ui_html[] = R"rawliteral(
                         document.getElementById('diag-watermark').textContent = formatKB(d.minHeap);
 
                         // System section
-                        document.getElementById('diag-cpu').textContent = d.cpuFreq + ' MHz';
-                        document.getElementById('diag-tasks').textContent = d.tasks;
-                        document.getElementById('diag-tasks-cores').textContent = 'C0:' + d.tasksCore0 + ' C1:' + d.tasksCore1;
+                        document.getElementById('diag-build').textContent = d.buildFingerprint || '--';
                         document.getElementById('diag-battery').textContent = data.battery.toFixed(2) + 'V';
                         document.getElementById('diag-uptime').textContent = formatUptime(d.uptime);
 
@@ -897,10 +881,6 @@ static const char web_ui_html[] = R"rawliteral(
                             mqttEl.className = 'diag-value warn';
                         }
 
-                        // Internet connectivity (REQ-10)
-                        const internetEl = document.getElementById('diag-internet');
-                        internetEl.textContent = d.internet ? 'Connected' : 'Offline';
-                        internetEl.className = 'diag-value' + (d.internet ? '' : ' error');
 
                         // Local time (REQ-13)
                         const timeEl = document.getElementById('diag-localtime');

@@ -711,12 +711,6 @@ esp_err_t lcd_display_diagnostics(const lcd_wifi_diag_t *diag)
     }
     y += 10;
 
-    // MAC Address
-    lcd_draw_string(4, y, "MAC:", COLOR_LIGHTGRAY, COLOR_BLACK, 1);
-    if (diag->mac_addr) {
-        lcd_draw_string(34, y, diag->mac_addr, COLOR_YELLOW, COLOR_BLACK, 1);
-    }
-    y += 12;
 
     // Memory Section
     lcd_fill_rect(0, y, LCD_WIDTH, 10, COLOR_DARKGRAY);
@@ -757,16 +751,11 @@ esp_err_t lcd_display_diagnostics(const lcd_wifi_diag_t *diag)
     lcd_draw_string(4, y + 2, "-- System --", COLOR_CYAN, COLOR_DARKGRAY, 1);
     y += 12;
 
-    // CPU frequency
-    lcd_draw_string(4, y, "CPU:", COLOR_LIGHTGRAY, COLOR_BLACK, 1);
-    snprintf(buf, sizeof(buf), "%.0fMHz", diag->cpu_freq_mhz);
-    lcd_draw_string(34, y, buf, COLOR_GREEN, COLOR_BLACK, 1);
-    y += 10;
-
-    // Tasks per core (REQ-09)
-    lcd_draw_string(4, y, "Tasks:", COLOR_LIGHTGRAY, COLOR_BLACK, 1);
-    snprintf(buf, sizeof(buf), "C0:%d C1:%d", diag->tasks_core0, diag->tasks_core1);
-    lcd_draw_string(46, y, buf, COLOR_CYAN, COLOR_BLACK, 1);
+    // Build fingerprint (REQ-41)
+    lcd_draw_string(4, y, "Build:", COLOR_LIGHTGRAY, COLOR_BLACK, 1);
+    if (diag->build_fingerprint) {
+        lcd_draw_string(46, y, diag->build_fingerprint, COLOR_YELLOW, COLOR_BLACK, 1);
+    }
     y += 10;
 
     // Battery and Uptime on same line
@@ -807,11 +796,6 @@ esp_err_t lcd_display_diagnostics(const lcd_wifi_diag_t *diag)
     }
     y += 10;
 
-    // Internet connectivity (REQ-10)
-    lcd_draw_string(4, y, "Internet:", COLOR_LIGHTGRAY, COLOR_BLACK, 1);
-    lcd_draw_string(64, y, diag->internet_connected ? "Connected" : "Offline",
-                   diag->internet_connected ? COLOR_GREEN : COLOR_RED, COLOR_BLACK, 1);
-    y += 12;
 
     // Local time (REQ-13)
     lcd_draw_string(4, y, "Time:", COLOR_LIGHTGRAY, COLOR_BLACK, 1);

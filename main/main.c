@@ -1228,7 +1228,6 @@ static void lcd_update_task(void *pvParameters)
             lcd_wifi_diag_t diag = {
                 .ssid = wifi_get_current_ssid(),
                 .ip_addr = wifi_get_ip_str(),
-                .mac_addr = mac_str,
                 .mdns_hostname = MDNS_HOSTNAME,
                 .channel = WIFI_AP_CHANNEL,
                 .connected_stations = get_connected_station_count(),
@@ -1239,11 +1238,6 @@ static void lcd_update_task(void *pvParameters)
                 .free_internal = heap_caps_get_free_size(MALLOC_CAP_INTERNAL),
                 .free_psram = heap_caps_get_free_size(MALLOC_CAP_SPIRAM),
                 .uptime_secs = uptime_secs,
-                .cpu_freq_mhz = CONFIG_ESP_DEFAULT_CPU_FREQ_MHZ,
-                .task_count = uxTaskGetNumberOfTasks(),
-                .tasks_core0 = task_counts.core0,
-                .tasks_core1 = task_counts.core1,
-                .tasks_no_affinity = task_counts.no_affinity,
 #if defined(ENABLE_BATTERY_ADC) && ENABLE_BATTERY_ADC
                 .battery_volts = read_battery_voltage(),
 #else
@@ -1261,9 +1255,9 @@ static void lcd_update_task(void *pvParameters)
                 .mqtt_enabled = false,
                 .mqtt_connected = false,
 #endif
-                .internet_connected = s_internet_connected,
                 .local_time = get_local_time_str(),
                 .ntp_synced = s_ntp_synced,
+                .build_fingerprint = BUILD_FINGERPRINT,
             };
             lcd_display_diagnostics(&diag);
         } else if (diag_mode == DIAG_MODE_OFF) {

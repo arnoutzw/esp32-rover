@@ -52,7 +52,6 @@ typedef struct {
 typedef struct {
     const char* ssid;           /**< AP SSID */
     const char* ip_addr;        /**< IP address */
-    const char* mac_addr;       /**< MAC address */
     const char* mdns_hostname;  /**< mDNS hostname (without .local) */
     uint8_t channel;            /**< WiFi channel */
     uint8_t connected_stations; /**< Number of connected stations */
@@ -64,17 +63,12 @@ typedef struct {
     uint32_t free_psram;        /**< Free PSRAM (if available) */
     uint32_t uptime_secs;       /**< Uptime in seconds */
     float battery_volts;        /**< Battery voltage */
-    float cpu_freq_mhz;         /**< CPU frequency */
-    uint8_t task_count;         /**< Total number of running tasks */
-    uint8_t tasks_core0;        /**< Tasks running on core 0 */
-    uint8_t tasks_core1;        /**< Tasks running on core 1 */
-    uint8_t tasks_no_affinity;  /**< Tasks with no core affinity */
     bool rest_api_enabled;      /**< REST API enabled */
     bool mqtt_enabled;          /**< MQTT enabled */
     bool mqtt_connected;        /**< MQTT broker connected */
-    bool internet_connected;    /**< Internet connectivity (REQ-10) */
     const char* local_time;     /**< Local time string (REQ-13) */
     bool ntp_synced;            /**< NTP time synchronized (REQ-13) */
+    const char* build_fingerprint; /**< Git commit hash (REQ-41) */
 } lcd_wifi_diag_t;
 
 /**
