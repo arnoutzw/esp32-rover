@@ -1,0 +1,6 @@
+Target: esp32cam
+Built: 20260125_123346
+Git Commit: bbd354b
+Git Branch: main
+Binary Size: 1240112 bytes
+SHA256: a886515f0a37bbdc980c223b6ae6f02ac3e9f461907a94fed0c5960aa60815a5

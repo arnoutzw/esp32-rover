@@ -49,6 +49,88 @@ source ./firmware/esp-idf/export.sh && python scripts/generate_config.py
 ./scripts/ota.sh ttgo 192.168.2.75
 ```
 
+## JTAG Flashing via ESP-PROG
+
+**Flash firmware directly via JTAG using openocd-esp32.**
+
+This method bypasses UART and flashes directly to the ESP32's SPI flash via JTAG, which is useful when:
+- UART is unavailable or unreliable
+- GPIO0 boot mode selection is difficult
+- You need faster, more reliable flashing
+
+### Prerequisites
+
+openocd-esp32 is included as a git submodule in `tools/openocd-esp32`. Build it with:
+
+```bash
+# Install build dependencies (macOS)
+brew install automake autoconf libtool pkg-config libusb libftdi texinfo
+
+# Install build dependencies (Linux)
+sudo apt-get install automake autoconf libtool pkg-config libusb-1.0-0-dev libftdi1-dev texinfo
+
+# Build openocd-esp32
+./scripts/build-openocd.sh
+```
+
+### ESP-PROG JTAG Wiring
+
+Connect ESP-PROG to ESP32-CAM:
+
+| ESP-PROG | ESP32-CAM |
+|----------|-----------|
+| TDI      | GPIO12    |
+| TCK      | GPIO13    |
+| TMS      | GPIO14    |
+| TDO      | GPIO15    |
+| GND      | GND       |
+| 3V3      | 3V3       |
+
+### Flash Command
+
+```bash
+# Flash latest binary for target
+./scripts/jtag-flash.sh esp32cam
+./scripts/jtag-flash.sh ttgo
+
+# Flash specific binary
+./scripts/jtag-flash.sh esp32cam path/to/firmware.bin
+```
+
+Or manually:
+
+```bash
+./tools/openocd-esp32/src/openocd \
+  -s ./tools/openocd-esp32/tcl \
+  -f interface/ftdi/esp_ftdi.cfg \
+  -f target/esp32.cfg \
+  -c "program_esp binaries/esp32cam/latest.bin 0x0 verify reset exit"
+```
+
+### Example Output
+
+```
+** Programming Started **
+Info : Flash mapping 0: 0x10020 -> 0x3f400020, 281 KB
+Info : Flash mapping 1: 0x60020 -> 0x400d0020, 836 KB
+Info : Auto-detected flash bank 'esp32.cpu0.flash' size 4096 KB
+Info : PROF: Erased 1241088 bytes in 4871.83 ms
+Info : PROF: Wrote 1241088 bytes in 4086.12 ms (data transfer time included)
+** Programming Finished in 10149 ms **
+** Verify Started **
+Info : PROF: Flash verified in 642.407 ms
+** Verify OK **
+** Resetting Target **
+```
+
+| Step | Status |
+|------|--------|
+| Flash detected | 4096 KB |
+| Erased | ~1.2 MB in ~4.8s |
+| Programmed | ~1.2 MB in ~4.1s |
+| Verified | OK |
+| Total time | ~10 seconds |
+
 ## Target Configuration
 
 The `target` field in `config/rover_config.yaml` controls mDNS hostname generation:
