@@ -499,10 +499,10 @@ static const char web_ui_html[] = R"rawliteral(
                     </div>
                 </div>
 
-                <!-- REQ-SW-032: Live Telemetry Chart -->
+                <!-- REQ-SW-032/033: Live Telemetry Chart (Speed + Steering) -->
                 <div class="chart-container">
                     <div class="chart-header">
-                        <h3>STEERING TELEMETRY</h3>
+                        <h3>CONTROL TELEMETRY</h3>
                         <div class="chart-controls">
                             <button id="chart-6s" class="active" onclick="setChartWindow(6)">6s</button>
                             <button id="chart-30s" onclick="setChartWindow(30)">30s</button>
@@ -884,9 +884,9 @@ static const char web_ui_html[] = R"rawliteral(
                         timeEl.className = 'diag-value' + (d.ntpSynced ? '' : ' warn');
                     }
 
-                    // REQ-SW-032: Update steering telemetry chart
-                    if (data.steeringHistory) {
-                        updateSteeringChart(data.steeringHistory);
+                    // REQ-SW-032/033: Update telemetry chart with speed and steering
+                    if (data.steeringHistory || data.speedHistory) {
+                        updateTelemetryChart(data.steeringHistory, data.speedHistory);
                     }
 
                     setConnected(true);
@@ -1029,12 +1029,12 @@ static const char web_ui_html[] = R"rawliteral(
         }
 
         // =============================================================================
-        // REQ-SW-032: Live Steering Telemetry Chart
+        // REQ-SW-032/033: Live Telemetry Chart (Speed + Steering dual Y-axis)
         // =============================================================================
-        let steeringChart = null;
+        let telemetryChart = null;
         let chartWindowSeconds = 6;  // Default window size
 
-        function initSteeringChart() {
+        function initTelemetryChart() {
             const ctx = document.getElementById('steering-chart');
             if (!ctx) return;
 
@@ -1044,24 +1044,44 @@ static const char web_ui_html[] = R"rawliteral(
                 return;
             }
 
-            steeringChart = new Chart(ctx, {
+            telemetryChart = new Chart(ctx, {
                 type: 'line',
                 data: {
                     labels: [],
-                    datasets: [{
-                        label: 'Steering %',
-                        data: [],
-                        borderColor: '#3282b8',
-                        backgroundColor: 'rgba(50, 130, 184, 0.1)',
-                        borderWidth: 2,
-                        fill: true,
-                        tension: 0.2,
-                        pointRadius: 0
-                    }]
+                    datasets: [
+                        {
+                            // REQ-SW-033: Speed dataset (left Y-axis)
+                            label: 'Speed %',
+                            data: [],
+                            borderColor: '#e94560',
+                            backgroundColor: 'rgba(233, 69, 96, 0.1)',
+                            borderWidth: 2,
+                            fill: false,
+                            tension: 0.2,
+                            pointRadius: 0,
+                            yAxisID: 'y'
+                        },
+                        {
+                            // REQ-SW-032: Steering dataset (right Y-axis)
+                            label: 'Steering %',
+                            data: [],
+                            borderColor: '#3282b8',
+                            backgroundColor: 'rgba(50, 130, 184, 0.1)',
+                            borderWidth: 2,
+                            fill: false,
+                            tension: 0.2,
+                            pointRadius: 0,
+                            yAxisID: 'y1'
+                        }
+                    ]
                 },
                 options: {
                     responsive: true,
                     maintainAspectRatio: false,
+                    interaction: {
+                        mode: 'index',
+                        intersect: false
+                    },
                     animation: {
                         duration: 0  // Disable animation for real-time updates
                     },
@@ -1075,7 +1095,6 @@ static const char web_ui_html[] = R"rawliteral(
                                 color: '#666',
                                 maxTicksLimit: 6,
                                 callback: function(value, index, ticks) {
-                                    // Show relative time in seconds
                                     const label = this.getLabelForValue(value);
                                     return label ? label + 's' : '';
                                 }
@@ -1085,23 +1104,58 @@ static const char web_ui_html[] = R"rawliteral(
                             }
                         },
                         y: {
+                            // Left Y-axis for Speed
+                            type: 'linear',
+                            display: true,
+                            position: 'left',
                             min: -100,
                             max: 100,
                             title: {
-                                display: false
+                                display: true,
+                                text: 'Speed',
+                                color: '#e94560',
+                                font: { size: 10 }
                             },
                             ticks: {
-                                color: '#666',
+                                color: '#e94560',
                                 stepSize: 50
                             },
                             grid: {
                                 color: 'rgba(255,255,255,0.1)'
                             }
+                        },
+                        y1: {
+                            // Right Y-axis for Steering
+                            type: 'linear',
+                            display: true,
+                            position: 'right',
+                            min: -100,
+                            max: 100,
+                            title: {
+                                display: true,
+                                text: 'Steering',
+                                color: '#3282b8',
+                                font: { size: 10 }
+                            },
+                            ticks: {
+                                color: '#3282b8',
+                                stepSize: 50
+                            },
+                            grid: {
+                                drawOnChartArea: false  // Don't draw grid for right axis
+                            }
                         }
                     },
                     plugins: {
                         legend: {
-                            display: false
+                            display: true,
+                            position: 'top',
+                            labels: {
+                                color: '#888',
+                                boxWidth: 12,
+                                padding: 8,
+                                font: { size: 10 }
+                            }
                         },
                         tooltip: {
                             enabled: true,
@@ -1109,7 +1163,8 @@ static const char web_ui_html[] = R"rawliteral(
                             intersect: false,
                             callbacks: {
                                 label: function(context) {
-                                    return 'Steering: ' + context.parsed.y.toFixed(1) + '%';
+                                    const label = context.dataset.label || '';
+                                    return label + ': ' + context.parsed.y.toFixed(1) + '%';
                                 }
                             }
                         }
@@ -1118,22 +1173,49 @@ static const char web_ui_html[] = R"rawliteral(
             });
         }
 
-        function updateSteeringChart(historyData) {
-            if (!steeringChart || !historyData || historyData.length === 0) return;
+        function updateTelemetryChart(steeringHistory, speedHistory) {
+            if (!telemetryChart) return;
 
-            // Get current time from the most recent sample
+            // Handle empty or missing data
+            const hasSteeringData = steeringHistory && steeringHistory.length > 0;
+            const hasSpeedData = speedHistory && speedHistory.length > 0;
+
+            if (!hasSteeringData && !hasSpeedData) return;
+
+            // Use steering history for timestamps (they're synced)
+            const historyData = hasSteeringData ? steeringHistory : speedHistory;
             const latestTime = historyData[historyData.length - 1].t;
             const windowMs = chartWindowSeconds * 1000;
             const cutoffTime = latestTime - windowMs;
 
-            // Filter to window and convert to relative time
-            const filteredData = historyData.filter(d => d.t >= cutoffTime);
-            const labels = filteredData.map(d => ((d.t - latestTime) / 1000).toFixed(1));
-            const values = filteredData.map(d => d.v);
+            // Filter steering data to window
+            let filteredSteering = [];
+            let labels = [];
+            if (hasSteeringData) {
+                filteredSteering = steeringHistory.filter(d => d.t >= cutoffTime);
+                labels = filteredSteering.map(d => ((d.t - latestTime) / 1000).toFixed(1));
+            }
 
-            steeringChart.data.labels = labels;
-            steeringChart.data.datasets[0].data = values;
-            steeringChart.update('none');  // Update without animation
+            // Filter speed data to window
+            let filteredSpeed = [];
+            if (hasSpeedData) {
+                filteredSpeed = speedHistory.filter(d => d.t >= cutoffTime);
+                // Use speed timestamps for labels if steering not available
+                if (labels.length === 0) {
+                    labels = filteredSpeed.map(d => ((d.t - latestTime) / 1000).toFixed(1));
+                }
+            }
+
+            // Update chart data
+            telemetryChart.data.labels = labels;
+            telemetryChart.data.datasets[0].data = filteredSpeed.map(d => d.v);  // Speed
+            telemetryChart.data.datasets[1].data = filteredSteering.map(d => d.v);  // Steering
+            telemetryChart.update('none');  // Update without animation
+        }
+
+        // Legacy function for backward compatibility
+        function updateSteeringChart(historyData) {
+            updateTelemetryChart(historyData, null);
         }
 
         function setChartWindow(seconds) {
@@ -1148,7 +1230,7 @@ static const char web_ui_html[] = R"rawliteral(
 
         // Initialize chart when page loads
         document.addEventListener('DOMContentLoaded', function() {
-            initSteeringChart();
+            initTelemetryChart();
         });
     </script>
 </body>

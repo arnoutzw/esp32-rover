@@ -5,7 +5,7 @@
 | Field | Value |
 |-------|-------|
 | **Document ID** | ESP32-ROVER-SRS-001 |
-| **Version** | 2.2.0 |
+| **Version** | 2.3.0 |
 | **Status** | Approved |
 | **Last Updated** | 2026-01-25 |
 | **Author** | ESP32 Rover Development Team |
@@ -20,6 +20,7 @@
 | 2.0.0 | 2026-01-20 | Team | Added CI/CD, version control, LCD improvements |
 | 2.1.0 | 2026-01-25 | Team | Restructured to professional format with traceability |
 | 2.2.0 | 2026-01-25 | Team | Added REQ-SW-032 Live Telemetry Chart |
+| 2.3.0 | 2026-01-25 | Team | Added REQ-SW-033 Dual-Axis Telemetry Chart |
 
 ### Approval Signatures
 
@@ -786,6 +787,45 @@ When velocity sensors are implemented (REQ-VEL-01), this chart will be extended 
 
 ---
 
+#### REQ-SW-033: Dual-Axis Telemetry Chart (Speed + Steering)
+
+| Field | Value |
+|-------|-------|
+| **Priority** | Medium |
+| **Type** | Functional |
+| **Description** | The web UI telemetry chart SHALL display both speed and steering inputs simultaneously on a single chart with dual Y-axes and distinct colors for each data series. |
+| **Rationale** | Combined visualization of speed and steering enables correlation analysis between throttle and turning inputs, improving debugging and control tuning. Dual Y-axes allow independent scaling for each metric. |
+| **Acceptance Criteria** | • Single Chart.js chart displays both speed and steering data<br>• Speed data uses left Y-axis with distinct color (e.g., orange/red)<br>• Steering data uses right Y-axis with distinct color (e.g., blue)<br>• Both axes range from -100% to +100%<br>• `/status` endpoint includes `speedHistory` array alongside existing `steeringHistory`<br>• Ring buffer stores last 600 samples of speed (60s at 10Hz)<br>• Time window buttons (6s, 30s, 60s) apply to both series<br>• Legend shows both series with color coding<br>• Chart updates synchronously for both data series |
+| **Verification Method** | D (Visual demonstration), T (Chart update test) |
+| **Dependencies** | REQ-SW-032 (Live Telemetry Chart), REQ-SW-011 (REST API), REQ-SW-012 (Control endpoint) |
+| **Status** | Approved |
+
+**Implementation Files**:
+- `firmware/components/web_server/web_ui.c` - Dual-axis chart configuration
+- `firmware/components/web_server/web_server.c` - Speed history buffer and JSON serialization
+
+**JSON Response Extension** (`/status`):
+```json
+{
+  "steeringHistory": [
+    {"t": 123456, "v": -25.5},
+    ...
+  ],
+  "speedHistory": [
+    {"t": 123456, "v": 50.0},
+    ...
+  ]
+}
+```
+
+**Chart Configuration**:
+- Left Y-axis: Speed (%) - color: #e94560 (coral red)
+- Right Y-axis: Steering (%) - color: #3282b8 (blue)
+- Both axes: min -100, max 100
+- Legend position: top
+
+---
+
 ### 5.5 Safety & Control
 
 #### REQ-SW-023: Command Watchdog Timer
@@ -1230,6 +1270,7 @@ xtensa-esp32-elf-gdb -ex "target remote :3333" build/esp32-rover.elf
 | REQ-SW-030 | REQ-SW-002 | I, T | main/CMakeLists.txt, main.c | ✓ |
 | REQ-SW-031 | REQ-SW-011 | I, T | scripts/generate_build_info.sh | ✓ |
 | REQ-SW-032 | REQ-SW-011, REQ-SW-015, REQ-SW-012 | D, T | components/web_server/ | ✓ |
+| REQ-SW-033 | REQ-SW-032, REQ-SW-011, REQ-SW-012 | D, T | components/web_server/ | ⏳ |
 | REQ-NFR-001 | REQ-SW-012 | A, T | - | ✓ |
 | REQ-NFR-002 | REQ-SW-007 | A | - | ✓ |
 | REQ-NFR-003 | REQ-SW-009 | T | - | ✓ |
@@ -1522,6 +1563,7 @@ xtensa-esp32-elf-gdb -ex "target remote :3333" build/esp32-rover.elf
 | VT-F-022 | REQ-SW-029 | Integration | Device | Task watchdog reboots on hang | Critical |
 | VT-F-023 | REQ-SW-031 | Integration | Device | Build fingerprint accessible | High |
 | VT-F-024 | REQ-SW-032 | Integration | Device + Browser | Live telemetry chart updates | Medium |
+| VT-F-025 | REQ-SW-033 | Integration | Device + Browser | Dual-axis chart shows speed+steering | Medium |
 
 ### 9.2 Non-Functional Validation Tests
 
