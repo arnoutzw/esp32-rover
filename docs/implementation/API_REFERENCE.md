@@ -14,6 +14,7 @@ This document provides detailed API documentation for all firmware components.
 - [Log Buffer](#log-buffer)
 - [Resource Guard](#resource-guard)
 - [Build Info](#build-info)
+- [Development Tools](#development-tools)
 
 ---
 
@@ -1029,3 +1030,104 @@ Typical memory footprint (varies by configuration):
 Free heap after initialization:
 - TTGO: ~180KB
 - ESP32-CAM: ~150KB (with PSRAM available for camera buffers)
+
+---
+
+## Development Tools
+
+### Bug Report & Feature Request Tools
+
+The project includes tools for filing bug reports and feature requests in a structured format that enables AI-assisted investigation and implementation.
+
+#### GUI Tool (file_report.py)
+
+Desktop application using tkinter for filing reports locally.
+
+```bash
+# Open main menu
+python scripts/file_report.py
+
+# Open bug report form directly
+python scripts/file_report.py --bug
+
+# Open feature request form directly
+python scripts/file_report.py --feature
+
+# Pre-fill version info for bug reports
+python scripts/file_report.py --version 2.0.3 --hash abc1234
+```
+
+**Features:**
+- Bug report form with version, git hash, title, description, steps to reproduce
+- Feature request form with structured fields (what, why, how)
+- Fetch build info from device via REST API
+- Saves reports as markdown in `docs/bugreport/` and `docs/feature_requests/`
+
+#### Web Tool (file_report_web.py)
+
+Flask web application providing the same functionality accessible via browser (locally or remotely via VPN).
+
+```bash
+# Setup (first time)
+cd esp32-rover-firmware
+python3 -m venv .venv
+source .venv/bin/activate
+pip install flask
+
+# Run the web server
+python3 scripts/file_report_web.py
+
+# With custom host/port
+python3 scripts/file_report_web.py --host 0.0.0.0 --port 8080
+```
+
+**Access:** `http://localhost:5000` (or via VPN for remote access)
+
+**Features:**
+- Same functionality as GUI tool but browser-based
+- Dark theme matching ESP32 Rover web UI
+- Fetch build info from device via REST API
+- Mobile-friendly responsive design
+
+#### Report File Structure
+
+**Bug Reports:** `docs/bugreport/v{VERSION}/{HASH}/Bugreport_*.md`
+```markdown
+# Bug Report: [Title]
+
+## Build Information
+| Field | Value |
+|-------|-------|
+| **Version** | v2.0.3 |
+| **Git Hash** | abc1234 |
+| **Status** | Open |
+
+## Description
+[Bug description]
+
+## Steps to Reproduce
+[Reproduction steps]
+```
+
+**Feature Requests:** `docs/feature_requests/Feature_*.md`
+```markdown
+# Feature Request: [Title]
+
+| Field | Value |
+|-------|-------|
+| **Requested** | 2026-01-25 23:35:38 |
+| **Status** | New |
+
+## What I Want
+[Feature description]
+
+## Why I Need It
+[Justification]
+
+## How I Imagine It Working
+[Expected behavior]
+```
+
+**Status Values:**
+- Bug reports: `Open` → `Fixed (hash)`
+- Feature requests: `New` → `Implemented (hash)`

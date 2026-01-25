@@ -707,6 +707,84 @@ typedef struct {
 - **Use collapsible panels** - Keeps the main UI clean while providing detailed info on demand
 - **Match visual design** - Same color coding (green/yellow/red) creates consistency
 
+### Feature: CPU Usage Monitoring (REQ-SW-035)
+
+**Goal**: Display CPU usage percentage alongside RAM usage in the web UI diagnostics panel.
+
+**Implementation Challenge**: FreeRTOS provides `vTaskGetRunTimeStats()` but calculating CPU "busy" percentage requires:
+1. Tracking idle task runtime over time
+2. Calculating delta between measurements
+3. Averaging across both cores on dual-core ESP32
+
+**Solution**:
+
+1. **Enable runtime stats in sdkconfig**:
+```
+CONFIG_FREERTOS_USE_TRACE_FACILITY=y
+CONFIG_FREERTOS_GENERATE_RUN_TIME_STATS=y
+```
+
+2. **Track idle task runtime deltas**:
+```c
+static uint32_t s_last_idle_runtime_core0 = 0;
+static uint32_t s_last_idle_runtime_core1 = 0;
+static uint32_t s_last_total_runtime = 0;
+
+static uint8_t calculate_cpu_usage(void) {
+#if configGENERATE_RUN_TIME_STATS
+    TaskHandle_t idle_core0 = xTaskGetIdleTaskHandleForCore(0);
+    TaskHandle_t idle_core1 = xTaskGetIdleTaskHandleForCore(1);
+
+    TaskStatus_t task_status;
+    uint32_t idle_runtime_core0 = 0, idle_runtime_core1 = 0;
+
+    // Get current idle task runtimes
+    vTaskGetInfo(idle_core0, &task_status, pdFALSE, eRunning);
+    idle_runtime_core0 = task_status.ulRunTimeCounter;
+    vTaskGetInfo(idle_core1, &task_status, pdFALSE, eRunning);
+    idle_runtime_core1 = task_status.ulRunTimeCounter;
+
+    // Use esp_timer for elapsed time (microseconds)
+    uint32_t current_time = (uint32_t)(esp_timer_get_time() / 1000);
+    uint32_t elapsed = current_time - s_last_total_runtime;
+
+    if (elapsed > 0 && s_last_total_runtime > 0) {
+        // Calculate idle deltas
+        uint32_t idle_delta_0 = idle_runtime_core0 - s_last_idle_runtime_core0;
+        uint32_t idle_delta_1 = idle_runtime_core1 - s_last_idle_runtime_core1;
+        uint32_t total_idle = idle_delta_0 + idle_delta_1;
+
+        // CPU usage = 100% - idle% (averaged across 2 cores)
+        uint32_t total_time = elapsed * 2;  // 2 cores
+        uint32_t busy_time = (total_time > total_idle) ? (total_time - total_idle) : 0;
+        return (uint8_t)((busy_time * 100) / total_time);
+    }
+
+    // Save for next calculation
+    s_last_idle_runtime_core0 = idle_runtime_core0;
+    s_last_idle_runtime_core1 = idle_runtime_core1;
+    s_last_total_runtime = current_time;
+
+    return 0;
+#else
+    return 0;
+#endif
+}
+```
+
+3. **Add to status JSON and web UI** with matching horizontal bar.
+
+**Key Insight**: The `ulRunTimeCounter` in FreeRTOS gives absolute runtime since boot. You must:
+- Calculate deltas between measurements (not absolute values)
+- Use `esp_timer_get_time()` for elapsed wall-clock time
+- Account for dual-core by summing idle time from both cores
+- Update values even on first call (return 0 until second call)
+
+**Lesson Learned**:
+- **sdkconfig.defaults vs sdkconfig** - Settings in defaults are only applied if sdkconfig is regenerated. Delete sdkconfig for a clean build.
+- **esp_timer vs uxTaskGetSystemState** - The total runtime from `uxTaskGetSystemState` didn't match wall-clock time. `esp_timer_get_time()` gives reliable microseconds since boot.
+- **Dual-core considerations** - ESP32 has two cores, each with its own idle task. Sum idle from both cores and divide by 2 for average CPU usage.
+
 ### Feature: Battery Voltage Low-Pass Filter
 
 **Symptom**: Battery voltage on LCD/web UI flickered due to ADC noise.
@@ -1220,6 +1298,7 @@ async function fetchStatus() {
 | `17db3d6` | Fix LCD backlight turning off on emergency stop |
 | `4a68d55` | Improve button responsiveness with GPIO interrupts |
 | `e583ef9` | Increase LCD refresh rate to 60Hz and boost SPI speed |
+| `17aa451` | Add CPU usage monitoring to web UI diagnostics (REQ-SW-035) |
 
 ---
 
