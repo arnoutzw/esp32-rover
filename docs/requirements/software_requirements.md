@@ -1514,7 +1514,7 @@ xtensa-esp32-elf-gdb -ex "target remote :3333" build/esp32-rover.elf
 | [Mechanical Requirements](mechanical_requirements.md) | 1.1.0 | Chassis, battery, motor mechanical specs |
 | [API Reference](../implementation/API_REFERENCE.md) | - | Component APIs and configuration |
 | [Web UI User Manual](../user/WEBUI_USER_MANUAL.md) | - | User guide for web control interface |
-| [ESP-PROG JTAG Guide](../implementation/esp-prog-jtag-guide.md) | - | Hardware debugging setup instructions |
+| [ESP-PROG JTAG Guide](esp-prog-jtag-guide.md) | - | Hardware debugging setup instructions |
 | [Development Lessons](../implementation/DEVELOPMENT_LESSONS.md) | - | Lessons learned during development |
 
 ### 10.2 Standards

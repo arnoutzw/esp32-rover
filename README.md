@@ -328,7 +328,7 @@ openocd -f interface/ftdi/esp32_devkitj_v1.cfg -f target/esp32.cfg
 xtensa-esp32-elf-gdb -ex "target remote :3333" build/esp32-rover.elf
 ```
 
-See [ESP-PROG JTAG Guide](docs/implementation/esp-prog-jtag-guide.md) for detailed wiring instructions.
+See [ESP-PROG JTAG Guide](esp-prog-jtag-guide.md) for detailed wiring instructions.
 
 ## Architecture
 
@@ -373,7 +373,7 @@ Critical tasks are monitored by ESP-IDF's Task Watchdog Timer (TWDT):
 - [Software Requirements](docs/requirements/software_requirements.md) - Full requirements specification
 - [API Reference](docs/implementation/API_REFERENCE.md) - Component APIs and configuration
 - [Web UI User Manual](docs/user/WEBUI_USER_MANUAL.md) - Control interface guide
-- [ESP-PROG JTAG Guide](docs/implementation/esp-prog-jtag-guide.md) - Hardware debugging setup
+- [ESP-PROG JTAG Guide](esp-prog-jtag-guide.md) - Hardware debugging setup
 - [Development Lessons](docs/implementation/DEVELOPMENT_LESSONS.md) - Lessons learned
 
 ## Unit Tests
