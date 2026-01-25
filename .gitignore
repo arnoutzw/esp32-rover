@@ -36,3 +36,6 @@ test/src/*.o
 
 # Secrets (contains passwords and credentials)
 config/secrets.yaml
+
+# Auto-generated build info header
+firmware/components/build_info/include/build_info.h

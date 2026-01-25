@@ -14,6 +14,7 @@
 #include <stdio.h>
 #include <stdint.h>
 #include <limits.h>
+#include "build_info.h"
 
 static const char *TAG = "LCD_DISPLAY";
 
@@ -434,11 +435,18 @@ esp_err_t lcd_display_splash(void)
     lcd_draw_string(20, 40, "ESP32", COLOR_CYAN, COLOR_BLACK, 2);
     lcd_draw_string(20, 70, "ROVER", COLOR_GREEN, COLOR_BLACK, 2);
 
-    // Version
-    lcd_draw_string(20, 110, "v1.0", COLOR_WHITE, COLOR_BLACK, 1);
+    // Version and build fingerprint
+    char version_str[32];
+    snprintf(version_str, sizeof(version_str), "v%s", BUILD_VERSION);
+    lcd_draw_string(20, 105, version_str, COLOR_GREEN, COLOR_BLACK, 1);
+
+    // Build fingerprint (commit hash)
+    char build_str[32];
+    snprintf(build_str, sizeof(build_str), "@ %s", BUILD_FINGERPRINT);
+    lcd_draw_string(20, 118, build_str, COLOR_YELLOW, COLOR_BLACK, 1);
 
     // Status
-    lcd_draw_string(20, 140, "Starting...", COLOR_YELLOW, COLOR_BLACK, 1);
+    lcd_draw_string(20, 140, "Starting...", COLOR_LIGHTGRAY, COLOR_BLACK, 1);
 
     return ESP_OK;
 }

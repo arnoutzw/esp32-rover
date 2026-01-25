@@ -26,6 +26,7 @@ set(COMPONENT_REQUIRES
     lwip
     app_update
     resource_guard
+    build_info
 )
 
 # Add camera component only for ESP32-CAM builds
@@ -65,15 +66,4 @@ if(JTAG_DEBUG)
     message(STATUS "JTAG debug mode ENABLED - GPIO 12-15 available for JTAG")
 endif()
 
-# Generate build_info.h with git commit hash and timestamp
-set(BUILD_INFO_HEADER "${CMAKE_CURRENT_BINARY_DIR}/build_info.h")
-add_custom_command(
-    OUTPUT "${BUILD_INFO_HEADER}"
-    COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/../../scripts/generate_build_info.sh "${BUILD_INFO_HEADER}"
-    WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/../..
-    COMMENT "Generating build_info.h"
-    VERBATIM
-)
-add_custom_target(generate_build_info DEPENDS "${BUILD_INFO_HEADER}")
-add_dependencies(${COMPONENT_LIB} generate_build_info)
-target_include_directories(${COMPONENT_LIB} PRIVATE ${CMAKE_CURRENT_BINARY_DIR})
+# Build info is now provided by the build_info component
