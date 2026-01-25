@@ -3,7 +3,7 @@
 | Field | Value |
 |-------|-------|
 | **Requested** | 2026-01-25 23:25:49 |
-| **Status** | New |
+| **Status** | Implemented (17aa451) |
 
 ## What I Want
 
