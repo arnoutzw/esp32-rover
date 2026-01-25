@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.0.3] - 2026-01-25
+
+### Changed
+- **Code Refactoring**:
+  - Extracted diagnostic mode state machine into `update_diag_mode_state()` helper function
+  - Extracted sleep mode state machine into `update_sleep_mode_state()` helper function
+  - Refactored `status_handler()` to use cJSON library for cleaner JSON construction
+  - Added `build_status_json()` and `get_wifi_mode_str()` helper functions
+  - Reduced code complexity and improved maintainability
+
 ### Removed
 - **Log Buffer System Removal**:
   - Removed `log_buffer` component directory and all source files
@@ -15,6 +25,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Removed `ENABLE_LOG_BUFFER` configuration option from config.h and CMakeLists.txt
   - Logs still output via UART as normal for debugging with serial monitor
   - Saves ~16-20KB RAM (16KB ring buffer + task stack + metadata)
+
+### Documentation
+- Split `CLAUDE/instructions.md` into separate `context.md` (project memory) and `rules.md` (behavioral rules)
+- Added Context Consultation Rule mandating AI assistants consult context.md
+- Added comprehensive Electrical and Mechatronics Requirements Specifications
+- Added Bug Report Analysis rule requiring RCA and FIX_PLAN
+- Added Plan Management rule for implementation plans
+- Optimized context.md for token efficiency (~100 tokens saved)
 
 ## [2.0.1] - 2026-01-25
 
