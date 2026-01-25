@@ -8,6 +8,8 @@ static const char web_ui_html[] = R"rawliteral(
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
     <title>ESP32 Rover Control</title>
+    <!-- REQ-SW-032: Chart.js for live telemetry visualization -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
     <style>
         * {
             margin: 0;
@@ -346,6 +348,52 @@ static const char web_ui_html[] = R"rawliteral(
         .diag-full-row {
             grid-column: span 2;
         }
+        /* REQ-SW-032: Telemetry chart styles */
+        .chart-container {
+            background: #16213e;
+            border-radius: 10px;
+            padding: 15px;
+            margin-top: 10px;
+        }
+        .chart-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 10px;
+        }
+        .chart-header h3 {
+            font-size: 0.9em;
+            color: #888;
+            margin: 0;
+        }
+        .chart-controls {
+            display: flex;
+            gap: 5px;
+        }
+        .chart-controls button {
+            padding: 4px 8px;
+            font-size: 0.75em;
+            background: #2d2d44;
+            color: #888;
+            border: 1px solid #444;
+            border-radius: 4px;
+            cursor: pointer;
+        }
+        .chart-controls button.active {
+            background: #3282b8;
+            color: #fff;
+            border-color: #3282b8;
+        }
+        .chart-controls button:hover {
+            background: #444;
+        }
+        .chart-controls button.active:hover {
+            background: #2a6f9e;
+        }
+        .chart-wrapper {
+            position: relative;
+            height: 150px;
+        }
         @media (max-width: 768px) {
             .main-content {
                 flex-direction: column;
@@ -448,6 +496,21 @@ static const char web_ui_html[] = R"rawliteral(
                             <span class="hw-button" id="btn-left">L</span>
                             <span class="hw-button" id="btn-right">R</span>
                         </div>
+                    </div>
+                </div>
+
+                <!-- REQ-SW-032: Live Telemetry Chart -->
+                <div class="chart-container">
+                    <div class="chart-header">
+                        <h3>STEERING TELEMETRY</h3>
+                        <div class="chart-controls">
+                            <button id="chart-6s" class="active" onclick="setChartWindow(6)">6s</button>
+                            <button id="chart-30s" onclick="setChartWindow(30)">30s</button>
+                            <button id="chart-60s" onclick="setChartWindow(60)">60s</button>
+                        </div>
+                    </div>
+                    <div class="chart-wrapper">
+                        <canvas id="steering-chart"></canvas>
                     </div>
                 </div>
 
@@ -821,6 +884,11 @@ static const char web_ui_html[] = R"rawliteral(
                         timeEl.className = 'diag-value' + (d.ntpSynced ? '' : ' warn');
                     }
 
+                    // REQ-SW-032: Update steering telemetry chart
+                    if (data.steeringHistory) {
+                        updateSteeringChart(data.steeringHistory);
+                    }
+
                     setConnected(true);
                 }
             } catch (e) {
@@ -959,6 +1027,129 @@ static const char web_ui_html[] = R"rawliteral(
             document.getElementById('btn-cam').addEventListener('click', toggleCamera);
             fetchCameraState();
         }
+
+        // =============================================================================
+        // REQ-SW-032: Live Steering Telemetry Chart
+        // =============================================================================
+        let steeringChart = null;
+        let chartWindowSeconds = 6;  // Default window size
+
+        function initSteeringChart() {
+            const ctx = document.getElementById('steering-chart');
+            if (!ctx) return;
+
+            // Check if Chart.js is loaded
+            if (typeof Chart === 'undefined') {
+                console.warn('Chart.js not loaded - telemetry chart disabled');
+                return;
+            }
+
+            steeringChart = new Chart(ctx, {
+                type: 'line',
+                data: {
+                    labels: [],
+                    datasets: [{
+                        label: 'Steering %',
+                        data: [],
+                        borderColor: '#3282b8',
+                        backgroundColor: 'rgba(50, 130, 184, 0.1)',
+                        borderWidth: 2,
+                        fill: true,
+                        tension: 0.2,
+                        pointRadius: 0
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    animation: {
+                        duration: 0  // Disable animation for real-time updates
+                    },
+                    scales: {
+                        x: {
+                            display: true,
+                            title: {
+                                display: false
+                            },
+                            ticks: {
+                                color: '#666',
+                                maxTicksLimit: 6,
+                                callback: function(value, index, ticks) {
+                                    // Show relative time in seconds
+                                    const label = this.getLabelForValue(value);
+                                    return label ? label + 's' : '';
+                                }
+                            },
+                            grid: {
+                                color: 'rgba(255,255,255,0.1)'
+                            }
+                        },
+                        y: {
+                            min: -100,
+                            max: 100,
+                            title: {
+                                display: false
+                            },
+                            ticks: {
+                                color: '#666',
+                                stepSize: 50
+                            },
+                            grid: {
+                                color: 'rgba(255,255,255,0.1)'
+                            }
+                        }
+                    },
+                    plugins: {
+                        legend: {
+                            display: false
+                        },
+                        tooltip: {
+                            enabled: true,
+                            mode: 'index',
+                            intersect: false,
+                            callbacks: {
+                                label: function(context) {
+                                    return 'Steering: ' + context.parsed.y.toFixed(1) + '%';
+                                }
+                            }
+                        }
+                    }
+                }
+            });
+        }
+
+        function updateSteeringChart(historyData) {
+            if (!steeringChart || !historyData || historyData.length === 0) return;
+
+            // Get current time from the most recent sample
+            const latestTime = historyData[historyData.length - 1].t;
+            const windowMs = chartWindowSeconds * 1000;
+            const cutoffTime = latestTime - windowMs;
+
+            // Filter to window and convert to relative time
+            const filteredData = historyData.filter(d => d.t >= cutoffTime);
+            const labels = filteredData.map(d => ((d.t - latestTime) / 1000).toFixed(1));
+            const values = filteredData.map(d => d.v);
+
+            steeringChart.data.labels = labels;
+            steeringChart.data.datasets[0].data = values;
+            steeringChart.update('none');  // Update without animation
+        }
+
+        function setChartWindow(seconds) {
+            chartWindowSeconds = seconds;
+
+            // Update button states
+            document.querySelectorAll('.chart-controls button').forEach(btn => {
+                btn.classList.remove('active');
+            });
+            document.getElementById('chart-' + seconds + 's').classList.add('active');
+        }
+
+        // Initialize chart when page loads
+        document.addEventListener('DOMContentLoaded', function() {
+            initSteeringChart();
+        });
     </script>
 </body>
 </html>
