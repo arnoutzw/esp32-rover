@@ -7,7 +7,8 @@
 | **Version** | v2.0.2 |
 | **Git Hash** | 97b1285 |
 | **Reported** | 2026-01-25 21:39:39 |
-| **Status** | Open |
+| **Status** | Fixed |
+| **Fixed In** | v2.0.3+3 (b32a316) |
 
 ## Description
 
@@ -23,7 +24,13 @@ check on the lcd screen the response
 
 ## Investigation
 
-*This section will be filled by the AI assistant during investigation.*
+See [RCA_v2.0.2_97b1285.md](RCA_v2.0.2_97b1285.md) for root cause analysis.
+
+**Root Cause:** ISR-based button reading has a race condition when buttons are pressed simultaneously. The first button's edge triggers the ISR before the second button is fully pressed.
+
+**Fix:** Added direct GPIO polling for display purposes (bypassing ISR-cached values) while keeping ISR for state machine edge detection.
+
+**Fix Commit:** b32a316 - "fix: use direct GPIO reading for button display"
 
 ---
 
