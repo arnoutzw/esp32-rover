@@ -1,0 +1,124 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+env:
+  IDF_VERSION: v5.2.2
+
+jobs:
+  # ============================================================================
+  # Build Release Binaries
+  # ============================================================================
+  build-release:
+    name: Build Release Binaries
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        target: [esp32cam, ttgo]
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          fetch-depth: 0
+
+      - name: Setup ESP-IDF
+        uses: espressif/esp-idf-ci-action@v1
+        with:
+          esp_idf_version: ${{ env.IDF_VERSION }}
+          target: esp32
+
+      - name: Build firmware
+        run: |
+          export ROVER_TARGET=${{ matrix.target }}
+          cd firmware
+          cp sdkconfig.defaults.${{ matrix.target }} sdkconfig.defaults
+          idf.py build
+
+      - name: Rename binary
+        run: |
+          mv firmware/build/esp32-rover.bin esp32-rover-${{ matrix.target }}-${{ github.ref_name }}.bin
+
+      - name: Generate checksum
+        run: |
+          shasum -a 256 esp32-rover-${{ matrix.target }}-${{ github.ref_name }}.bin > esp32-rover-${{ matrix.target }}-${{ github.ref_name }}.sha256
+
+      - name: Upload binary artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: binary-${{ matrix.target }}
+          path: |
+            esp32-rover-${{ matrix.target }}-${{ github.ref_name }}.bin
+            esp32-rover-${{ matrix.target }}-${{ github.ref_name }}.sha256
+
+  # ============================================================================
+  # Create GitHub Release
+  # ============================================================================
+  create-release:
+    name: Create GitHub Release
+    runs-on: ubuntu-latest
+    needs: build-release
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Download ESP32-CAM binary
+        uses: actions/download-artifact@v4
+        with:
+          name: binary-esp32cam
+          path: release-binaries/
+
+      - name: Download TTGO binary
+        uses: actions/download-artifact@v4
+        with:
+          name: binary-ttgo
+          path: release-binaries/
+
+      - name: Create combined checksum file
+        run: |
+          cd release-binaries
+          cat *.sha256 > SHA256SUMS.txt
+
+      - name: Generate release notes
+        id: release_notes
+        run: |
+          # Get previous tag
+          PREV_TAG=$(git describe --tags --abbrev=0 ${{ github.ref_name }}^ 2>/dev/null || echo "")
+
+          if [ -n "$PREV_TAG" ]; then
+            echo "## Changes since $PREV_TAG" > release_notes.md
+            echo "" >> release_notes.md
+            git log ${PREV_TAG}..${{ github.ref_name }} --pretty=format:"- %s" >> release_notes.md
+          else
+            echo "Initial release" > release_notes.md
+          fi
+
+          echo "" >> release_notes.md
+          echo "## Binaries" >> release_notes.md
+          echo "" >> release_notes.md
+          echo "| Target | File | SHA256 |" >> release_notes.md
+          echo "|--------|------|--------|" >> release_notes.md
+
+          for f in release-binaries/*.bin; do
+            filename=$(basename "$f")
+            target=$(echo "$filename" | sed 's/esp32-rover-\(.*\)-v.*/\1/')
+            checksum=$(shasum -a 256 "$f" | cut -d' ' -f1)
+            echo "| $target | $filename | \`${checksum:0:16}...\` |" >> release_notes.md
+          done
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v1
+        with:
+          files: |
+            release-binaries/*.bin
+            release-binaries/SHA256SUMS.txt
+          body_path: release_notes.md
+          draft: false
+          prerelease: ${{ contains(github.ref_name, 'rc') || contains(github.ref_name, 'beta') }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

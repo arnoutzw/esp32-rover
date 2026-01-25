@@ -1,0 +1,239 @@
+name: ESP32 Rover CI
+
+on:
+  push:
+    branches: [develop, main]
+  pull_request:
+    branches: [develop, main]
+
+env:
+  IDF_VERSION: v5.2.2
+
+jobs:
+  # ============================================================================
+  # Linting Job - Static Analysis
+  # ============================================================================
+  lint:
+    name: Static Analysis
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install shellcheck
+        run: sudo apt-get install -y shellcheck
+
+      - name: Run shellcheck on scripts
+        run: |
+          echo "Checking shell scripts..."
+          shellcheck -x scripts/build.sh scripts/ota.sh scripts/setup.sh scripts/lint.sh scripts/generate_build_info.sh || true
+
+      - name: Install cppcheck
+        run: sudo apt-get install -y cppcheck
+
+      - name: Run cppcheck on C code
+        run: |
+          echo "Checking C code..."
+          cppcheck --enable=warning,style,performance,portability \
+            --std=c11 \
+            -I firmware/main \
+            --suppress=missingIncludeSystem \
+            --suppress=unusedFunction \
+            --error-exitcode=0 \
+            firmware/main/*.c
+
+  # ============================================================================
+  # Unit Tests Job
+  # ============================================================================
+  test:
+    name: Unit Tests
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          submodules: false  # Don't need ESP-IDF for host tests
+
+      - name: Build and run unit tests
+        run: |
+          cd test
+          make clean
+          make test
+
+      - name: Upload test output
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: test-output
+          path: test/test_output.log
+          retention-days: 7
+
+  # ============================================================================
+  # Code Coverage Job
+  # ============================================================================
+  coverage:
+    name: Code Coverage
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          submodules: false
+
+      - name: Install lcov
+        run: sudo apt-get install -y lcov
+
+      - name: Run tests with coverage
+        run: |
+          cd test
+          make coverage-html
+
+      - name: Upload coverage report
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-report
+          path: test/coverage_report/
+          retention-days: 30
+
+  # ============================================================================
+  # Build Job - ESP32-CAM
+  # ============================================================================
+  build-esp32cam:
+    name: Build ESP32-CAM
+    runs-on: ubuntu-latest
+    needs: [lint, test]
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          fetch-depth: 0  # Full history for version info
+
+      - name: Cache ESP-IDF tools
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.espressif
+            ~/.cache/pip
+          key: esp-idf-${{ env.IDF_VERSION }}-esp32cam-${{ hashFiles('firmware/CMakeLists.txt', 'firmware/main/CMakeLists.txt') }}
+          restore-keys: |
+            esp-idf-${{ env.IDF_VERSION }}-esp32cam-
+            esp-idf-${{ env.IDF_VERSION }}-
+
+      - name: Cache build directory
+        uses: actions/cache@v4
+        with:
+          path: firmware/build
+          key: build-esp32cam-${{ github.sha }}
+          restore-keys: |
+            build-esp32cam-
+
+      - name: Setup ESP-IDF
+        uses: espressif/esp-idf-ci-action@v1
+        with:
+          esp_idf_version: ${{ env.IDF_VERSION }}
+          target: esp32
+
+      - name: Build firmware for ESP32-CAM
+        run: |
+          export ROVER_TARGET=esp32cam
+          cd firmware
+          cp sdkconfig.defaults.esp32cam sdkconfig.defaults
+          idf.py build
+
+      - name: Get build info
+        id: build_info
+        run: |
+          echo "commit_short=$(git rev-parse --short HEAD)" >> $GITHUB_OUTPUT
+          echo "binary_size=$(stat -c%s firmware/build/esp32-rover.bin)" >> $GITHUB_OUTPUT
+
+      - name: Upload ESP32-CAM binary
+        uses: actions/upload-artifact@v4
+        with:
+          name: firmware-esp32cam-${{ steps.build_info.outputs.commit_short }}
+          path: |
+            firmware/build/esp32-rover.bin
+            firmware/build/bootloader/bootloader.bin
+            firmware/build/partition_table/partition-table.bin
+          retention-days: 30
+
+  # ============================================================================
+  # Build Job - TTGO
+  # ============================================================================
+  build-ttgo:
+    name: Build TTGO
+    runs-on: ubuntu-latest
+    needs: [lint, test]
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          fetch-depth: 0
+
+      - name: Cache ESP-IDF tools
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.espressif
+            ~/.cache/pip
+          key: esp-idf-${{ env.IDF_VERSION }}-ttgo-${{ hashFiles('firmware/CMakeLists.txt', 'firmware/main/CMakeLists.txt') }}
+          restore-keys: |
+            esp-idf-${{ env.IDF_VERSION }}-ttgo-
+            esp-idf-${{ env.IDF_VERSION }}-
+
+      - name: Cache build directory
+        uses: actions/cache@v4
+        with:
+          path: firmware/build
+          key: build-ttgo-${{ github.sha }}
+          restore-keys: |
+            build-ttgo-
+
+      - name: Setup ESP-IDF
+        uses: espressif/esp-idf-ci-action@v1
+        with:
+          esp_idf_version: ${{ env.IDF_VERSION }}
+          target: esp32
+
+      - name: Build firmware for TTGO
+        run: |
+          export ROVER_TARGET=ttgo
+          cd firmware
+          cp sdkconfig.defaults.ttgo sdkconfig.defaults
+          idf.py build
+
+      - name: Get build info
+        id: build_info
+        run: |
+          echo "commit_short=$(git rev-parse --short HEAD)" >> $GITHUB_OUTPUT
+          echo "binary_size=$(stat -c%s firmware/build/esp32-rover.bin)" >> $GITHUB_OUTPUT
+
+      - name: Upload TTGO binary
+        uses: actions/upload-artifact@v4
+        with:
+          name: firmware-ttgo-${{ steps.build_info.outputs.commit_short }}
+          path: |
+            firmware/build/esp32-rover.bin
+            firmware/build/bootloader/bootloader.bin
+            firmware/build/partition_table/partition-table.bin
+          retention-days: 30
+
+  # ============================================================================
+  # Build Summary
+  # ============================================================================
+  build-summary:
+    name: Build Summary
+    runs-on: ubuntu-latest
+    needs: [build-esp32cam, build-ttgo, coverage]
+    if: always()
+    steps:
+      - name: Summary
+        run: |
+          echo "## Build Summary" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| Target | Status |" >> $GITHUB_STEP_SUMMARY
+          echo "|--------|--------|" >> $GITHUB_STEP_SUMMARY
+          echo "| ESP32-CAM | ${{ needs.build-esp32cam.result }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| TTGO | ${{ needs.build-ttgo.result }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Coverage | ${{ needs.coverage.result }} |" >> $GITHUB_STEP_SUMMARY

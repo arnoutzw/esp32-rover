@@ -10,7 +10,9 @@ set -e
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 FIRMWARE_DIR="$PROJECT_ROOT/firmware"
+BINARIES_DIR="$PROJECT_ROOT/binaries"
 IDF_PATH_LOCAL="$FIRMWARE_DIR/esp-idf"
+CURRENT_TARGET_FILE="$FIRMWARE_DIR/.current_target"
 cd "$FIRMWARE_DIR"
 
 # Colors for output
@@ -43,6 +45,8 @@ print_usage() {
     echo "  $0 esp32cam              # Build for ESP32-CAM"
     echo "  $0 ttgo flash            # Build and flash for TTGO"
     echo "  $0 esp32cam flash -p /dev/ttyUSB0  # Flash to specific port"
+    echo ""
+    echo "Note: Switching targets automatically performs a clean build"
     echo ""
     echo "First-time setup:"
     echo "  ./scripts/setup.sh       # Install ESP-IDF tools (run once)"
@@ -82,6 +86,77 @@ setup_target() {
 
     # Export the target define for CMake
     export ROVER_TARGET="$target"
+}
+
+check_target_switched() {
+    local current_target=$1
+    local previous_target=""
+
+    # Read the previous target if the file exists
+    if [ -f "$CURRENT_TARGET_FILE" ]; then
+        previous_target=$(cat "$CURRENT_TARGET_FILE")
+    fi
+
+    # If target changed, perform a clean build
+    if [ -n "$previous_target" ] && [ "$previous_target" != "$current_target" ]; then
+        echo -e "${YELLOW}Target switched from $previous_target to $current_target${NC}"
+        echo -e "${YELLOW}Performing clean build for new target...${NC}"
+        idf.py clean > /dev/null 2>&1 || true
+        rm -f sdkconfig
+    fi
+
+    # Save the current target
+    echo "$current_target" > "$CURRENT_TARGET_FILE"
+}
+
+archive_binary() {
+    local target=$1
+    local binary_path="$FIRMWARE_DIR/build/esp32-rover.bin"
+
+    # Check if binary exists
+    if [ ! -f "$binary_path" ]; then
+        return 0  # Binary not generated yet, skip archiving
+    fi
+
+    # Create binaries directory structure
+    mkdir -p "$BINARIES_DIR/$target"
+
+    # Create timestamp for the binary
+    local timestamp=$(date +"%Y%m%d_%H%M%S")
+    local git_commit=$(cd "$PROJECT_ROOT" && git rev-parse --short HEAD 2>/dev/null || echo "unknown")
+    local git_branch=$(cd "$PROJECT_ROOT" && git rev-parse --abbrev-ref HEAD 2>/dev/null || echo "unknown")
+
+    # Archive the binary with metadata
+    local archive_name="esp32-rover_${target}_${timestamp}_${git_commit}.bin"
+    local archive_path="$BINARIES_DIR/$target/$archive_name"
+
+    cp "$binary_path" "$archive_path"
+
+    # Calculate SHA256 checksum for integrity verification
+    local checksum=$(shasum -a 256 "$archive_path" 2>/dev/null | cut -d' ' -f1 || sha256sum "$archive_path" 2>/dev/null | cut -d' ' -f1)
+
+    # Create metadata file
+    local metadata_path="$BINARIES_DIR/$target/${archive_name%.bin}.txt"
+    cat > "$metadata_path" << EOF
+Target: $target
+Built: $timestamp
+Git Commit: $git_commit
+Git Branch: $git_branch
+Binary Size: $(stat -f%z "$archive_path" 2>/dev/null || stat -c%s "$archive_path") bytes
+SHA256: $checksum
+EOF
+
+    # Create separate checksum file for easy verification
+    local checksum_path="$BINARIES_DIR/$target/${archive_name%.bin}.sha256"
+    echo "$checksum  $archive_name" > "$checksum_path"
+
+    echo -e "${GREEN}Binary archived: $archive_name${NC}"
+    echo -e "${GREEN}SHA256: $checksum${NC}"
+
+    # Also create a symlink to the latest build
+    local latest_link="$BINARIES_DIR/$target/latest.bin"
+    rm -f "$latest_link"
+    ln -s "$archive_name" "$latest_link"
 }
 
 run_unit_tests() {
@@ -194,8 +269,33 @@ run_command() {
             fi
 
             echo -e "${YELLOW}Building project...${NC}"
+            local build_start=$(date +%s)
             idf.py build $extra_args
+            local build_end=$(date +%s)
+            local build_duration=$((build_end - build_start))
             echo -e "${GREEN}Build complete!${NC}"
+
+            # Archive the built binary
+            archive_binary "$ROVER_TARGET"
+
+            # Display and log build metrics
+            local binary_path="$FIRMWARE_DIR/build/esp32-rover.bin"
+            if [ -f "$binary_path" ]; then
+                local binary_size=$(stat -f%z "$binary_path" 2>/dev/null || stat -c%s "$binary_path" 2>/dev/null)
+                local binary_size_kb=$((binary_size / 1024))
+                echo ""
+                echo -e "${BLUE}Build Metrics:${NC}"
+                echo "  Duration: ${build_duration}s"
+                echo "  Binary size: ${binary_size_kb} KB (${binary_size} bytes)"
+
+                # Log metrics to CSV file
+                local metrics_file="$PROJECT_ROOT/build_metrics.csv"
+                if [ ! -f "$metrics_file" ]; then
+                    echo "date,target,duration_s,size_bytes,commit" > "$metrics_file"
+                fi
+                local commit=$(git rev-parse --short HEAD 2>/dev/null || echo "unknown")
+                echo "$(date +%Y-%m-%d_%H:%M:%S),$ROVER_TARGET,$build_duration,$binary_size,$commit" >> "$metrics_file"
+            fi
             ;;
         flash)
             echo -e "${YELLOW}Running unit tests before flash...${NC}"
@@ -207,6 +307,9 @@ run_command() {
             echo -e "${YELLOW}Building and flashing...${NC}"
             idf.py flash $extra_args
             echo -e "${GREEN}Flash complete!${NC}"
+
+            # Archive the built binary
+            archive_binary "$ROVER_TARGET"
             ;;
         monitor)
             echo -e "${YELLOW}Opening serial monitor...${NC}"
@@ -302,4 +405,5 @@ COMMAND=${2:-build}
 shift 2 2>/dev/null || shift 1 2>/dev/null || true
 
 setup_target "$TARGET"
+check_target_switched "$TARGET"
 run_command "$COMMAND" "$@"
