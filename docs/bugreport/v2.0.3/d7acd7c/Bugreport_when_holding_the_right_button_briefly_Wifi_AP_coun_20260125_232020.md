@@ -7,7 +7,7 @@
 | **Version** | v2.0.3 |
 | **Git Hash** | d7acd7c |
 | **Reported** | 2026-01-25 23:20:20 |
-| **Status** | Open |
+| **Status** | Fixed (52f257a) |
 
 ## Description
 
