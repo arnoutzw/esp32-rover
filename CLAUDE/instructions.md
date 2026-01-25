@@ -150,6 +150,52 @@ The build script automatically regenerates `config_generated.h` with the correct
 
 ## Development Rules
 
+### Plan Management
+
+**All implementation plans MUST be stored in `CLAUDE/plans/` directory.**
+
+When creating plans for features, refactoring, or multi-step implementations:
+
+1. **Create a plan file** in `CLAUDE/plans/` with a descriptive name (e.g., `wifi-retry-implementation.md`, `memory-optimization-plan.md`)
+
+2. **Plan file structure:**
+   ```markdown
+   # Plan: [Descriptive Title]
+
+   ## Overview
+   Brief description of what this plan accomplishes.
+
+   ## Priority & Rationale
+   - **Priority**: Critical / High / Medium / Low
+   - **Why this priority**: [Argumentation for the priority level]
+   - **Dependencies**: [Any prerequisites or blocking items]
+
+   ## Implementation Steps
+   Ordered list of concrete steps with clear acceptance criteria.
+
+   ## Files to Modify
+   Table of files and the changes needed.
+
+   ## Verification
+   How to verify the implementation is complete and correct.
+   ```
+
+3. **Priority levels with argumentation:**
+   - **Critical**: Safety issues, data loss risks, or complete feature breakage. *Must include justification.*
+   - **High**: Significant functionality impact or blocking other work. *Explain what is blocked.*
+   - **Medium**: Improvements that enhance quality but aren't urgent. *Describe the benefit.*
+   - **Low**: Nice-to-have enhancements. *Note why it can wait.*
+
+4. **Always prioritize existing plans**: Before starting new work, check `CLAUDE/plans/` for incomplete plans and prioritize them based on their documented priority and rationale.
+
+5. **Update plan status**: Mark plans as complete or archive them when finished.
+
+**Why this matters:**
+- Plans persist across sessions and context resets
+- Prioritization with argumentation ensures informed decision-making
+- Clear documentation prevents duplicate work
+- Progress can be tracked and resumed
+
 ### Git Branching Strategy
 
 **All development work happens on the `develop` branch. NEVER commit directly to `main`.**
