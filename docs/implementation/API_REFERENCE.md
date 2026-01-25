@@ -11,7 +11,6 @@ This document provides detailed API documentation for all firmware components.
 - [Camera Module](#camera-module)
 - [LCD Display](#lcd-display)
 - [MQTT Service](#mqtt-service)
-- [Log Buffer](#log-buffer)
 - [Resource Guard](#resource-guard)
 - [Build Info](#build-info)
 - [Development Tools](#development-tools)
@@ -49,7 +48,6 @@ esp32-rover-firmware/
 │   │   ├── lcd_display/         # ST7789 LCD driver (TTGO only)
 │   │   ├── web_server/          # HTTP server with control UI
 │   │   ├── mqtt_service/        # MQTT telemetry publisher
-│   │   ├── log_buffer/          # Serial log capture ring buffer
 │   │   ├── resource_guard/      # Memory/stack safety guards
 │   │   └── build_info/          # Auto-generated build information
 │   ├── esp-idf/                 # Embedded ESP-IDF v5.2.2 (submodule)
@@ -154,15 +152,15 @@ The target is controlled by preprocessor defines:
         │                    │                    │
         ▼                    ▼                    ▼
 ┌───────────────┐  ┌─────────────────┐  ┌─────────────────────┐
-│  web_server   │  │  mqtt_service   │  │   log_buffer        │
-│  (Core 0)     │  │  (Core 0)       │  │   (All cores)       │
+│  web_server   │  │  mqtt_service   │  │  resource_guard     │
+│  (Core 0)     │  │  (Core 0)       │  │  (Safety checks)    │
 └───────────────┘  └─────────────────┘  └─────────────────────┘
         │
         ▼
-┌───────────────┐  ┌─────────────────┐  ┌─────────────────────┐
-│    camera     │  │   lcd_display   │  │  resource_guard     │
-│  (ESP32-CAM)  │  │  (TTGO only)    │  │  (Safety checks)    │
-└───────────────┘  └─────────────────┘  └─────────────────────┘
+┌───────────────┐  ┌─────────────────┐
+│    camera     │  │   lcd_display   │
+│  (ESP32-CAM)  │  │  (TTGO only)    │
+└───────────────┘  └─────────────────┘
 ```
 
 ### Core Allocation
@@ -229,6 +227,7 @@ typedef struct {
     uint8_t tasks_core0;
     uint8_t tasks_core1;
     uint8_t tasks_no_affinity;
+    float cpu_usage_percent;    // CPU utilization (0-100%)
 
     // Service status
     bool rest_api_enabled;
@@ -326,9 +325,6 @@ Get HTTP server handle for adding custom endpoints.
 | `/control` | POST | Send control commands (JSON) |
 | `/status` | GET | Return rover status (JSON) |
 | `/camera` | GET/POST | Get/set camera stream state |
-| `/logs` | GET | Get buffered logs |
-| `/logs/stream` | GET | SSE stream of live logs |
-| `/logs` | DELETE | Clear log buffer |
 | `/ota` | POST | Upload firmware update |
 
 ### Control Command JSON Format
@@ -368,6 +364,7 @@ Get HTTP server handle for adding custom endpoints.
         "tasksCore0": 8,
         "tasksCore1": 4,
         "tasksNoAffinity": 0,
+        "cpuUsage": 15.5,
         "localTime": "14:30:45",
         "ntpSynced": true,
         "internet": true,
@@ -382,6 +379,23 @@ Get HTTP server handle for adding custom endpoints.
     }
 }
 ```
+
+---
+
+### Live Telemetry Chart
+
+The web UI includes a dual-axis telemetry chart for real-time monitoring of speed and steering commands.
+
+**Features:**
+- **Dual Y-axes**: Speed (-100% to +100%) on left axis, Steering (-45° to +45°) on right axis
+- **Configurable time windows**: 6 seconds, 30 seconds, or 60 seconds
+- **Real-time updates**: Chart updates via WebSocket with each status poll
+- **Instant window switching**: Time window changes immediately redraw with stored history
+
+**Implementation:**
+- Uses Chart.js library embedded in web UI
+- History data stored client-side for instant redraws on time window change
+- Speed shown as blue line, steering as orange line
 
 ---
 
@@ -646,6 +660,32 @@ Reset display state (call when exiting diagnostic mode).
 
 ---
 
+### Button Actions (TTGO Only)
+
+| Button | Short Press | Long Press (5 sec) |
+|--------|-------------|-------------------|
+| Left (GPIO 0) | Exit diagnostic mode | Enter deep sleep |
+| Right (GPIO 35) | Exit diagnostic mode | Switch to AP mode (STA mode only) |
+
+#### WiFi AP Mode Switch
+
+When connected in STA mode and the router becomes unavailable:
+1. Hold the **right button** for 5 seconds
+2. LCD displays countdown overlay during hold
+3. On release after 5 seconds: WiFi switches from STA to AP mode
+4. Connect to "ESP32-Rover" network to regain access
+
+This feature allows recovery when the configured WiFi network is unavailable.
+
+#### Deep Sleep Mode
+
+1. Hold the **left button** for 5 seconds
+2. LCD displays sleeping Snorlax with "Zzz..." animation
+3. Device enters deep sleep (~10µA power consumption)
+4. Press **right button** to wake and reboot
+
+---
+
 ### Display Layout
 
 ```
@@ -724,101 +764,6 @@ Update the rover status for MQTT publishing.
 bool mqtt_service_is_connected(void);
 ```
 Check if MQTT service is connected to the broker.
-
----
-
-## Log Buffer
-
-The log buffer component captures serial logs in a ring buffer for web UI access.
-
-### Header File
-
-```c
-#include "log_buffer.h"
-```
-
-### Constants
-
-```c
-#define LOG_BUFFER_SIZE      (16 * 1024)  // 16KB buffer
-#define LOG_ENTRY_MAX_SIZE   512          // Max single entry size
-
-// Log levels (matching ESP-IDF)
-#define LOG_LEVEL_NONE       0
-#define LOG_LEVEL_ERROR      1
-#define LOG_LEVEL_WARN       2
-#define LOG_LEVEL_INFO       3
-#define LOG_LEVEL_DEBUG      4
-#define LOG_LEVEL_VERBOSE    5
-```
-
-### Statistics Structure
-
-```c
-typedef struct {
-    size_t entry_count;       // Number of log entries in buffer
-    size_t bytes_used;        // Bytes currently used in buffer
-    size_t bytes_dropped;     // Total bytes dropped due to buffer full
-    size_t buffer_size;       // Total buffer size
-} log_buffer_stats_t;
-```
-
-### Functions
-
-#### `log_buffer_init`
-```c
-esp_err_t log_buffer_init(void);
-```
-Initialize log buffer and install vprintf hook. Should be called early in app_main() to capture boot logs.
-
----
-
-#### `log_buffer_deinit`
-```c
-void log_buffer_deinit(void);
-```
-Deinitialize log buffer and restore original vprintf.
-
----
-
-#### `log_buffer_is_initialized`
-```c
-bool log_buffer_is_initialized(void);
-```
-Check if log buffer is initialized.
-
----
-
-#### `log_buffer_get_text`
-```c
-esp_err_t log_buffer_get_text(char **out_text, size_t *out_len, uint8_t min_level);
-```
-Get all logs as formatted text. Caller must free the returned string.
-
----
-
-#### `log_buffer_get_stats`
-```c
-esp_err_t log_buffer_get_stats(log_buffer_stats_t *stats);
-```
-Get log buffer statistics.
-
----
-
-#### `log_buffer_clear`
-```c
-void log_buffer_clear(void);
-```
-Clear all buffered logs.
-
----
-
-#### `log_buffer_get_read_position` / `log_buffer_read_next`
-```c
-size_t log_buffer_get_read_position(void);
-bool log_buffer_read_next(size_t *position, char *json_out, size_t max_len, uint8_t min_level);
-```
-SSE streaming support. Get read position and read next entry as JSON.
 
 ---
 
@@ -1008,7 +953,6 @@ if (ret != ESP_OK) {
 - **Status updates**: Protected by mutex for cross-core access
 - **LCD display**: Runs on Core 0, single-threaded access
 - **Button reading**: GPIO reads are atomic
-- **Log buffer**: Thread-safe ring buffer with mutex protection
 - **MQTT service**: Internal mutex for status updates
 
 ---
@@ -1022,10 +966,9 @@ Typical memory footprint (varies by configuration):
 | Web Server | ~8000 |
 | Web UI HTML | ~7000 |
 | LCD Display | ~2000 |
-| Log Buffer | ~16000 |
 | MQTT Service | ~2000 |
 | Camera buffers | ~40000 (ESP32-CAM) |
-| **Total** | ~35KB (TTGO), ~75KB (ESP32-CAM) |
+| **Total** | ~19KB (TTGO), ~59KB (ESP32-CAM) |
 
 Free heap after initialization:
 - TTGO: ~180KB
