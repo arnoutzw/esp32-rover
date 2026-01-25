@@ -40,11 +40,25 @@ class TestStatusEndpoint:
 
         # Check for expected diagnostic fields
         expected_fields = [
-            'ssid', 'ip', 'rssi', 'buildFingerprint',
+            'ssid', 'ip', 'rssi', 'buildVersion', 'buildFingerprint',
             'buildTime', 'buildBranch', 'buildDirty'
         ]
         for field in expected_fields:
             assert field in diag, f"Missing diagnostic field: {field}"
+
+    def test_build_version_format(self, device_url, device_timeout):
+        """Test that build version is a valid semver-like string."""
+        response = requests.get(f"{device_url}/status", timeout=device_timeout)
+        data = response.json()
+        version = data['diag']['buildVersion']
+
+        # Version should be semver-like (e.g., "2.0.0" or "2.0.0+5" or "dev")
+        assert isinstance(version, str), "Build version should be a string"
+        assert len(version) >= 1, "Build version should not be empty"
+        # Allow "dev" for untagged builds or semver pattern
+        import re
+        assert version == 'dev' or re.match(r'^\d+\.\d+\.\d+(\+\d+)?$', version), \
+            f"Build version '{version}' should be 'dev' or semver format (e.g., '2.0.0' or '2.0.0+5')"
 
     def test_build_fingerprint_format(self, device_url, device_timeout):
         """Test that build fingerprint is a valid git short hash."""

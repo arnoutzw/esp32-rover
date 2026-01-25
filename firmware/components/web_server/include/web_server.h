@@ -53,6 +53,7 @@ typedef struct {
     bool ntp_synced;                // NTP time synchronized
 
     // Build information
+    const char* build_version;      // Project version (from git tags, e.g., "2.0.0")
     const char* build_fingerprint;  // Git commit hash (short)
     const char* build_time;         // Build timestamp (ISO 8601)
     const char* build_branch;       // Git branch name

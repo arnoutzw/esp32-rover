@@ -860,7 +860,9 @@ static const char web_ui_html[] = R"rawliteral(
                         document.getElementById('diag-watermark').textContent = formatKB(d.minHeap);
 
                         // System section
-                        document.getElementById('diag-build').textContent = d.buildFingerprint || '--';
+                        const version = d.buildVersion || 'dev';
+                        const fingerprint = d.buildFingerprint || '--';
+                        document.getElementById('diag-build').textContent = version + ' @ ' + fingerprint;
                         document.getElementById('diag-battery').textContent = data.battery.toFixed(2) + 'V';
                         document.getElementById('diag-uptime').textContent = formatUptime(d.uptime);
 

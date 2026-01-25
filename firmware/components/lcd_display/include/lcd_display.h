@@ -68,6 +68,7 @@ typedef struct {
     bool mqtt_connected;        /**< MQTT broker connected */
     const char* local_time;     /**< Local time string (REQ-13) */
     bool ntp_synced;            /**< NTP time synchronized (REQ-13) */
+    const char* build_version;  /**< Project version from git tags (REQ-41) */
     const char* build_fingerprint; /**< Git commit hash (REQ-41) */
 } lcd_wifi_diag_t;
 

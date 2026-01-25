@@ -751,10 +751,14 @@ esp_err_t lcd_display_diagnostics(const lcd_wifi_diag_t *diag)
     lcd_draw_string(4, y + 2, "-- System --", COLOR_CYAN, COLOR_DARKGRAY, 1);
     y += 12;
 
-    // Build fingerprint (REQ-41)
-    lcd_draw_string(4, y, "Build:", COLOR_LIGHTGRAY, COLOR_BLACK, 1);
+    // Version and Build fingerprint (REQ-41)
+    lcd_draw_string(4, y, "Ver:", COLOR_LIGHTGRAY, COLOR_BLACK, 1);
+    if (diag->build_version) {
+        lcd_draw_string(32, y, diag->build_version, COLOR_GREEN, COLOR_BLACK, 1);
+    }
+    lcd_draw_string(70, y, "@", COLOR_LIGHTGRAY, COLOR_BLACK, 1);
     if (diag->build_fingerprint) {
-        lcd_draw_string(46, y, diag->build_fingerprint, COLOR_YELLOW, COLOR_BLACK, 1);
+        lcd_draw_string(80, y, diag->build_fingerprint, COLOR_YELLOW, COLOR_BLACK, 1);
     }
     y += 10;
 

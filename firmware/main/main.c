@@ -870,6 +870,7 @@ static void status_update_task(void *pvParameters)
         status.ntp_synced = s_ntp_synced;
 
         // Build information
+        status.build_version = BUILD_VERSION;
         status.build_fingerprint = BUILD_FINGERPRINT;
         status.build_time = BUILD_TIME;
         status.build_branch = BUILD_GIT_BRANCH;
@@ -1257,6 +1258,7 @@ static void lcd_update_task(void *pvParameters)
 #endif
                 .local_time = get_local_time_str(),
                 .ntp_synced = s_ntp_synced,
+                .build_version = BUILD_VERSION,
                 .build_fingerprint = BUILD_FINGERPRINT,
             };
             lcd_display_diagnostics(&diag);

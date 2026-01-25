@@ -28,6 +28,17 @@ BUILD_TIMESTAMP=$(date +%s)
 # Get ESP-IDF version
 IDF_VERSION=$(git -C "${IDF_PATH:-esp-idf}" describe --tags 2>/dev/null || echo "unknown")
 
+# Get project version from latest git tag (e.g., v2.0.0 -> 2.0.0)
+# Falls back to "dev" if no tags exist
+GIT_VERSION=$(git describe --tags --abbrev=0 2>/dev/null | sed 's/^v//' || echo "dev")
+# If we're ahead of the tag, include commit count (e.g., 2.0.0-5-g1234abc -> 2.0.0+5)
+VERSION_AHEAD=$(git describe --tags 2>/dev/null | sed 's/^v//' | grep -o '\-[0-9]*\-' | tr -d '-' || echo "")
+if [ -n "$VERSION_AHEAD" ] && [ "$VERSION_AHEAD" != "0" ]; then
+    BUILD_VERSION="${GIT_VERSION}+${VERSION_AHEAD}"
+else
+    BUILD_VERSION="$GIT_VERSION"
+fi
+
 # Generate header file
 cat > "$OUTPUT_FILE" << EOF
 /**
@@ -57,6 +68,9 @@ cat > "$OUTPUT_FILE" << EOF
 // Build fingerprint (short identifier for this build)
 #define BUILD_FINGERPRINT    "$GIT_HASH"
 
+// Project version (from git tags, e.g., "2.0.0" or "2.0.0+5" if ahead of tag)
+#define BUILD_VERSION        "$BUILD_VERSION"
+
 #endif /* BUILD_INFO_H */
 EOF
 
@@ -65,3 +79,4 @@ echo "  Git Hash: $GIT_HASH"
 echo "  Git Branch: $GIT_BRANCH"
 echo "  Dirty: $GIT_DIRTY"
 echo "  Build Time: $BUILD_TIME"
+echo "  Version: $BUILD_VERSION"

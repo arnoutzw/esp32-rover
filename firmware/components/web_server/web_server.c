@@ -410,6 +410,7 @@ static esp_err_t status_handler(httpd_req_t *req)
             "\"mqttConnected\":%s,"
             "\"localTime\":\"%s\","
             "\"ntpSynced\":%s,"
+            "\"buildVersion\":\"%s\","
             "\"buildFingerprint\":\"%s\","
             "\"buildTime\":\"%s\","
             "\"buildBranch\":\"%s\","
@@ -438,6 +439,7 @@ static esp_err_t status_handler(httpd_req_t *req)
         status.mqtt_connected ? "true" : "false",
         status.local_time ? status.local_time : "--:--:--",
         status.ntp_synced ? "true" : "false",
+        status.build_version ? status.build_version : "dev",
         status.build_fingerprint ? status.build_fingerprint : "unknown",
         status.build_time ? status.build_time : "unknown",
         status.build_branch ? status.build_branch : "unknown",
