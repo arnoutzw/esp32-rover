@@ -1270,7 +1270,7 @@ xtensa-esp32-elf-gdb -ex "target remote :3333" build/esp32-rover.elf
 | REQ-SW-030 | REQ-SW-002 | I, T | main/CMakeLists.txt, main.c | ✓ |
 | REQ-SW-031 | REQ-SW-011 | I, T | scripts/generate_build_info.sh | ✓ |
 | REQ-SW-032 | REQ-SW-011, REQ-SW-015, REQ-SW-012 | D, T | components/web_server/ | ✓ |
-| REQ-SW-033 | REQ-SW-032, REQ-SW-011, REQ-SW-012 | D, T | components/web_server/ | ⏳ |
+| REQ-SW-033 | REQ-SW-032, REQ-SW-011, REQ-SW-012 | D, T | components/web_server/ | ✓ |
 | REQ-NFR-001 | REQ-SW-012 | A, T | - | ✓ |
 | REQ-NFR-002 | REQ-SW-007 | A | - | ✓ |
 | REQ-NFR-003 | REQ-SW-009 | T | - | ✓ |
