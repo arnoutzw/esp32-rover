@@ -806,6 +806,52 @@ The release script:
 5. Merges develop to main and creates a git tag
 6. Pushes to origin
 
+### CHANGELOG Update Rule
+
+**CHANGELOG.md MUST be updated for every release.**
+
+The CHANGELOG follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/) format:
+
+```markdown
+## [X.X.X] - YYYY-MM-DD
+
+### Added
+- New features
+
+### Changed
+- Changes to existing functionality
+
+### Fixed
+- Bug fixes
+
+### Removed
+- Removed features
+
+### Security
+- Security fixes
+
+### Documentation
+- Documentation updates
+```
+
+**When to update:**
+1. Before creating a release tag, add a new version section
+2. Move items from `[Unreleased]` to the new version section
+3. Include commit hashes for significant fixes (e.g., "Fixed battery flicker (5074ad7)")
+
+**What to include:**
+- All user-visible changes (features, fixes, improvements)
+- Reference requirement IDs where applicable (e.g., "REQ-SW-035")
+- Brief but clear descriptions of what changed and why
+
+**Workflow:**
+```bash
+# 1. Update CHANGELOG.md with new version section
+# 2. Commit the CHANGELOG update
+git add CHANGELOG.md && git commit -m "docs: update CHANGELOG for vX.X.X"
+# 3. Then create the tag and merge to main
+```
+
 ---
 
 ## Code Quality
