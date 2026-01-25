@@ -82,15 +82,21 @@ The actual build target is selected via `./scripts/build.sh esp32cam` or `./scri
 git checkout develop
 # ... make changes ...
 git add -A && git commit -m "Description of changes"
-git push origin develop
+git push origin develop  # Automatically push commits immediately
 
 # When user requests a release to main:
 git checkout main
 git merge develop
 git tag -a v1.X.X -m "Release description"
-git push origin main --tags
+git push origin main --tags  # Automatically push tags immediately
 git checkout develop
 ```
+
+**Important:** Always push commits and tags immediately after creating them. This ensures:
+- Changes are synced to remote immediately
+- CI/CD pipelines are triggered without delay
+- Team members have access to latest code
+- Release workflows execute automatically
 
 ### Clean Build Rule
 
