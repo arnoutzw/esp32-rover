@@ -14,10 +14,12 @@ A WiFi-controlled rover platform using ESP32 with camera streaming and web-based
 - **Diagnostics Panel**: System info, WiFi status, service status, logs
 - **Safety Features**: Command timeout watchdog, task watchdog, emergency stop
 - **Deep Sleep Mode**: Hold left button 5 seconds for power-saving sleep (~10µA)
+- **WiFi AP Mode Switch**: Hold right button 5 seconds to switch from STA to AP mode
 - **OTA Updates**: HTTP-based firmware updates with password protection
 - **MQTT Telemetry**: Optional diagnostic data publishing
 - **mDNS Discovery**: Access via `esp32-rover.local` or `ttgo-rover.local`
-- **Serial Log Capture**: View boot logs in web UI via SSE streaming
+- **Live Telemetry Charts**: Dual-axis speed/steering chart with configurable time windows
+- **CPU Usage Monitoring**: Real-time CPU utilization in diagnostics panel
 - **JTAG Debug Mode**: Build flag to free GPIO 12-15 for hardware debugging
 - **Self-Contained**: ESP-IDF v5.2.2 embedded in project
 
@@ -99,7 +101,7 @@ esp32-rover-firmware/
 │   │   ├── lcd_display/         # ST7789 LCD driver (TTGO only)
 │   │   ├── web_server/          # HTTP server with control UI
 │   │   ├── mqtt_service/        # MQTT telemetry publisher
-│   │   ├── log_buffer/          # Serial log capture ring buffer
+│   │   ├── build_info/          # Git version/build info embedding
 │   │   └── resource_guard/      # Memory/stack safety guards
 │   ├── esp-idf/                 # Embedded ESP-IDF v5.2.2 (submodule)
 │   └── sdkconfig.defaults.*     # Target-specific SDK configs
@@ -233,10 +235,10 @@ The main web UI provides:
 
 Access system diagnostics by scrolling down:
 - **WiFi**: SSID, IP, MAC, channel, signal strength
-- **System**: Heap memory, uptime, CPU frequency, task counts per core
+- **System**: Heap memory, CPU usage, uptime, task counts per core
 - **Services**: REST API, MQTT, Internet connectivity status
 - **Time**: NTP-synced local time
-- **Logs**: Live serial output with level filtering, download, and clear
+- **Telemetry**: Live dual-axis chart for speed and steering history
 
 ## Web API
 
@@ -247,9 +249,6 @@ Access system diagnostics by scrolling down:
 | `/control` | POST | Send control commands |
 | `/status` | GET | Get rover status (JSON) |
 | `/camera` | GET/POST | Get/set camera stream state |
-| `/logs` | GET | Get buffered logs |
-| `/logs/stream` | GET | SSE stream of live logs |
-| `/logs` | DELETE | Clear log buffer |
 | `/ota` | POST | Upload firmware update |
 
 ### Control Command Format
@@ -359,7 +358,7 @@ Critical tasks are monitored by ESP-IDF's Task Watchdog Timer (TWDT):
 |--------|-------------|-------------------|-------------------|
 | Both | - | Enter diagnostic mode | - |
 | Left (GPIO 0) | Exit diagnostic mode | - | Enter deep sleep |
-| Right (GPIO 35) | Exit diagnostic mode | - | Wake from deep sleep |
+| Right (GPIO 35) | Exit diagnostic mode | - | Switch to AP mode (STA only) |
 
 ### Deep Sleep Mode
 
@@ -367,6 +366,14 @@ Critical tasks are monitored by ESP-IDF's Task Watchdog Timer (TWDT):
 2. **Sleep Screen**: Displays sleeping Snorlax with "Zzz..." animation
 3. **Wake Up**: Press RIGHT button to wake and reboot
 4. **Power**: ~10µA in deep sleep vs ~180mA active
+
+### WiFi AP Mode Switch
+
+When connected to STA mode and can't reach the router:
+1. **Switch to AP**: Hold RIGHT button for 5 seconds
+2. **LCD Countdown**: Shows countdown overlay during hold
+3. **AP Activates**: Confirmation message, then AP mode starts
+4. **Connect**: Join "ESP32-Rover" network to regain access
 
 ## Documentation
 
@@ -409,12 +416,13 @@ See [CHANGELOG.md](CHANGELOG.md) for detailed version history, features, and cha
 
 ### Current Version
 
-The current stable version is **v2.0.1** (2026-01-25), featuring:
-- GitHub Actions CI/CD pipeline
-- LCD diagnostics improvements with uptime label
-- OTA pre-flight connectivity checks
-- Memory optimizations (~22KB DRAM savings on TTGO)
-- Optional log buffer feature toggle
+The current stable version is **v2.0.7** (2026-01-26), featuring:
+- Live dual-axis telemetry chart (speed + steering) with time window selection
+- WiFi AP mode switch via button hold (recover from STA mode)
+- CPU usage monitoring in web UI diagnostics
+- Web-based report filing tool for remote bug/feature requests
+- Battery indicator flicker fix
+- Various stability improvements
 
 For complete release notes, see [CHANGELOG.md](CHANGELOG.md).
 
