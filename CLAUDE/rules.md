@@ -6,33 +6,68 @@ This document defines the behavioral rules and standards that AI assistants MUST
 
 ## Table of Contents
 
-1. [Plan Management](#plan-management)
-2. [Git Workflow](#git-workflow)
+1. [Context Consultation Rule](#context-consultation-rule)
+2. [Plan Management](#plan-management)
+3. [Git Workflow](#git-workflow)
    - [Branching Strategy](#branching-strategy)
    - [Commit Before Build Rule](#commit-before-build-rule)
    - [Clean Build Rule](#clean-build-rule)
    - [Push Immediately Rule](#push-immediately-rule)
-3. [Build and Flash](#build-and-flash)
+4. [Build and Flash](#build-and-flash)
    - [Build Script Usage](#build-script-usage)
    - [Flash Verification](#flash-verification)
-4. [Documentation Requirements](#documentation-requirements)
+5. [Documentation Requirements](#documentation-requirements)
    - [Bug Documentation](#bug-documentation)
    - [Bug Report Analysis](#bug-report-analysis)
    - [Documentation Updates](#documentation-updates)
-5. [Release Management](#release-management)
+6. [Release Management](#release-management)
    - [Binary Archive Management](#binary-archive-management)
    - [CI/CD Pipeline](#cicd-pipeline)
    - [Release Process](#release-process)
-6. [Code Quality](#code-quality)
+7. [Code Quality](#code-quality)
    - [Static Analysis](#static-analysis)
    - [Code Coverage](#code-coverage)
-7. [Security](#security)
+8. [Security](#security)
    - [OTA Security](#ota-security)
    - [OTA Rollback Support](#ota-rollback-support)
-8. [Embedded Coding Standards](#embedded-coding-standards)
+9. [Embedded Coding Standards](#embedded-coding-standards)
    - [Critical Priority Rules](#critical-priority-rules)
    - [High Priority Rules](#high-priority-rules)
    - [Medium Priority Rules](#medium-priority-rules)
+
+---
+
+## Context Consultation Rule
+
+**ALWAYS consult `CLAUDE/context.md` to understand user prompts and enhance reasoning.**
+
+The `context.md` file serves as the project's mnemonic - a comprehensive memory of the entire project that helps AI assistants:
+
+1. **Understand user prompts**: When a user mentions components, files, APIs, or concepts, use `context.md` to quickly identify what they're referring to and where to find relevant code.
+
+2. **Enhance reasoning**: Before investigating or implementing changes, consult `context.md` to understand:
+   - Project structure and where files are located
+   - Component architecture and dependencies
+   - Hardware constraints (ESP32-CAM vs TTGO differences)
+   - Memory budgets and optimization requirements
+   - API contracts and data structures
+
+3. **Find relevant information faster**: Use the table of contents and sections to quickly locate:
+   - Pin maps when dealing with GPIO issues
+   - Status JSON structure when modifying REST API
+   - Test organization when adding/modifying tests
+   - Common commands when needing to build, flash, or debug
+
+4. **Maintain consistency**: Reference existing patterns documented in `context.md` to ensure new code follows established conventions.
+
+**When to consult `context.md`:**
+- At the start of any task to understand context
+- When user mentions unfamiliar terms or components
+- Before modifying files to understand their role in the architecture
+- When debugging to understand system behavior
+- When the user's prompt is ambiguous - use context to infer intent
+
+**This rule is foundational** - following it improves the quality and accuracy of all other work on this project.
 
 ---
 
