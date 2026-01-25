@@ -390,67 +390,144 @@ static esp_err_t status_handler(httpd_req_t *req)
     const char *target_str = "ttgo";
 #endif
 
+    // Determine WiFi mode string: 1=STA, 2=AP, 3=APSTA
+    const char *wifi_mode_str;
+    switch (status.wifi_mode) {
+        case 1:  wifi_mode_str = "sta"; break;
+        case 2:  wifi_mode_str = "ap"; break;
+        case 3:  wifi_mode_str = "apsta"; break;
+        default: wifi_mode_str = "unknown"; break;
+    }
+
     // Build JSON with all diagnostic data
-    snprintf(response, sizeof(response),
-        "{"
-        "\"target\":\"%s\","
-        "\"velocity\":%.1f,"
-        "\"battery\":%.2f,"
-        "\"camera\":%s,"
-        "\"rssi\":%d,"
-        "\"btnL\":%s,"
-        "\"btnR\":%s,"
-        "\"diag\":{"
-            "\"ssid\":\"%s\","
-            "\"ip\":\"%s\","
-            "\"channel\":%d,"
-            "\"clients\":%d,"
-            "\"txPower\":%d,"
-            "\"freeHeap\":%lu,"
-            "\"minHeap\":%lu,"
-            "\"totalHeap\":%lu,"
-            "\"freeInternal\":%lu,"
-            "\"uptime\":%lu,"
-            "\"restApi\":%s,"
-            "\"mqttEnabled\":%s,"
-            "\"mqttConnected\":%s,"
-            "\"localTime\":\"%s\","
-            "\"ntpSynced\":%s,"
-            "\"buildVersion\":\"%s\","
-            "\"buildFingerprint\":\"%s\","
-            "\"buildTime\":\"%s\","
-            "\"buildBranch\":\"%s\","
-            "\"buildDirty\":%s"
-        "}"
-        "}",
-        target_str,
-        0.0f,  // velocity - currently not measured, placeholder for UI compatibility
-        status.battery_voltage,
-        status.camera_active ? "true" : "false",
-        status.wifi_rssi,
-        status.button_left ? "true" : "false",
-        status.button_right ? "true" : "false",
-        status.wifi_ssid ? status.wifi_ssid : "",
-        status.wifi_ip ? status.wifi_ip : "",
-        status.wifi_channel,
-        status.connected_clients,
-        status.wifi_tx_power,
-        (unsigned long)status.free_heap,
-        (unsigned long)status.min_free_heap,
-        (unsigned long)status.total_heap,
-        (unsigned long)status.free_internal,
-        (unsigned long)status.uptime_secs,
-        status.rest_api_enabled ? "true" : "false",
-        status.mqtt_enabled ? "true" : "false",
-        status.mqtt_connected ? "true" : "false",
-        status.local_time ? status.local_time : "--:--:--",
-        status.ntp_synced ? "true" : "false",
-        status.build_version ? status.build_version : "dev",
-        status.build_fingerprint ? status.build_fingerprint : "unknown",
-        status.build_time ? status.build_time : "unknown",
-        status.build_branch ? status.build_branch : "unknown",
-        status.build_dirty ? "true" : "false"
-    );
+    // Include "clients" only in AP or APSTA mode (wifi_mode >= 2)
+    if (status.wifi_mode >= 2) {
+        // AP or APSTA mode - show clients count
+        snprintf(response, sizeof(response),
+            "{"
+            "\"target\":\"%s\","
+            "\"velocity\":%.1f,"
+            "\"battery\":%.2f,"
+            "\"camera\":%s,"
+            "\"rssi\":%d,"
+            "\"btnL\":%s,"
+            "\"btnR\":%s,"
+            "\"diag\":{"
+                "\"ssid\":\"%s\","
+                "\"ip\":\"%s\","
+                "\"wifiMode\":\"%s\","
+                "\"channel\":%d,"
+                "\"clients\":%d,"
+                "\"txPower\":%d,"
+                "\"freeHeap\":%lu,"
+                "\"minHeap\":%lu,"
+                "\"totalHeap\":%lu,"
+                "\"freeInternal\":%lu,"
+                "\"uptime\":%lu,"
+                "\"restApi\":%s,"
+                "\"mqttEnabled\":%s,"
+                "\"mqttConnected\":%s,"
+                "\"localTime\":\"%s\","
+                "\"ntpSynced\":%s,"
+                "\"buildVersion\":\"%s\","
+                "\"buildFingerprint\":\"%s\","
+                "\"buildTime\":\"%s\","
+                "\"buildBranch\":\"%s\","
+                "\"buildDirty\":%s"
+            "}"
+            "}",
+            target_str,
+            0.0f,  // velocity - currently not measured, placeholder for UI compatibility
+            status.battery_voltage,
+            status.camera_active ? "true" : "false",
+            status.wifi_rssi,
+            status.button_left ? "true" : "false",
+            status.button_right ? "true" : "false",
+            status.wifi_ssid ? status.wifi_ssid : "",
+            status.wifi_ip ? status.wifi_ip : "",
+            wifi_mode_str,
+            status.wifi_channel,
+            status.connected_clients,
+            status.wifi_tx_power,
+            (unsigned long)status.free_heap,
+            (unsigned long)status.min_free_heap,
+            (unsigned long)status.total_heap,
+            (unsigned long)status.free_internal,
+            (unsigned long)status.uptime_secs,
+            status.rest_api_enabled ? "true" : "false",
+            status.mqtt_enabled ? "true" : "false",
+            status.mqtt_connected ? "true" : "false",
+            status.local_time ? status.local_time : "--:--:--",
+            status.ntp_synced ? "true" : "false",
+            status.build_version ? status.build_version : "dev",
+            status.build_fingerprint ? status.build_fingerprint : "unknown",
+            status.build_time ? status.build_time : "unknown",
+            status.build_branch ? status.build_branch : "unknown",
+            status.build_dirty ? "true" : "false"
+        );
+    } else {
+        // STA mode - no clients field (not relevant)
+        snprintf(response, sizeof(response),
+            "{"
+            "\"target\":\"%s\","
+            "\"velocity\":%.1f,"
+            "\"battery\":%.2f,"
+            "\"camera\":%s,"
+            "\"rssi\":%d,"
+            "\"btnL\":%s,"
+            "\"btnR\":%s,"
+            "\"diag\":{"
+                "\"ssid\":\"%s\","
+                "\"ip\":\"%s\","
+                "\"wifiMode\":\"%s\","
+                "\"channel\":%d,"
+                "\"txPower\":%d,"
+                "\"freeHeap\":%lu,"
+                "\"minHeap\":%lu,"
+                "\"totalHeap\":%lu,"
+                "\"freeInternal\":%lu,"
+                "\"uptime\":%lu,"
+                "\"restApi\":%s,"
+                "\"mqttEnabled\":%s,"
+                "\"mqttConnected\":%s,"
+                "\"localTime\":\"%s\","
+                "\"ntpSynced\":%s,"
+                "\"buildVersion\":\"%s\","
+                "\"buildFingerprint\":\"%s\","
+                "\"buildTime\":\"%s\","
+                "\"buildBranch\":\"%s\","
+                "\"buildDirty\":%s"
+            "}"
+            "}",
+            target_str,
+            0.0f,  // velocity - currently not measured, placeholder for UI compatibility
+            status.battery_voltage,
+            status.camera_active ? "true" : "false",
+            status.wifi_rssi,
+            status.button_left ? "true" : "false",
+            status.button_right ? "true" : "false",
+            status.wifi_ssid ? status.wifi_ssid : "",
+            status.wifi_ip ? status.wifi_ip : "",
+            wifi_mode_str,
+            status.wifi_channel,
+            status.wifi_tx_power,
+            (unsigned long)status.free_heap,
+            (unsigned long)status.min_free_heap,
+            (unsigned long)status.total_heap,
+            (unsigned long)status.free_internal,
+            (unsigned long)status.uptime_secs,
+            status.rest_api_enabled ? "true" : "false",
+            status.mqtt_enabled ? "true" : "false",
+            status.mqtt_connected ? "true" : "false",
+            status.local_time ? status.local_time : "--:--:--",
+            status.ntp_synced ? "true" : "false",
+            status.build_version ? status.build_version : "dev",
+            status.build_fingerprint ? status.build_fingerprint : "unknown",
+            status.build_time ? status.build_time : "unknown",
+            status.build_branch ? status.build_branch : "unknown",
+            status.build_dirty ? "true" : "false"
+        );
+    }
 
     httpd_resp_set_type(req, "application/json");
     httpd_resp_set_hdr(req, "Access-Control-Allow-Origin", "*");

@@ -29,7 +29,8 @@ typedef struct {
     const char* wifi_ip;            // IP address
     const char* mac_addr;           // MAC address
     uint8_t wifi_channel;           // WiFi channel
-    uint8_t connected_clients;      // Number of connected stations
+    uint8_t wifi_mode;              // WiFi mode: 1=STA, 2=AP, 3=APSTA
+    uint8_t connected_clients;      // Number of connected AP stations (only valid in AP mode)
     int8_t wifi_tx_power;           // TX power in dBm
     uint32_t free_heap;             // Free heap memory
     uint32_t min_free_heap;         // Minimum free heap since boot

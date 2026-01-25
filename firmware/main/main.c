@@ -823,10 +823,17 @@ static void status_update_task(void *pvParameters)
         status.mac_addr = mac_str;
         status.wifi_channel = WIFI_AP_CHANNEL;
 
-        // Connected clients
-        wifi_sta_list_t sta_list;
-        if (esp_wifi_ap_get_sta_list(&sta_list) == ESP_OK) {
-            status.connected_clients = sta_list.num;
+        // WiFi mode and connected clients
+        wifi_mode_t wifi_mode;
+        if (esp_wifi_get_mode(&wifi_mode) == ESP_OK) {
+            status.wifi_mode = (uint8_t)wifi_mode;
+            // Only get AP client list if we're in AP or APSTA mode
+            if (wifi_mode == WIFI_MODE_AP || wifi_mode == WIFI_MODE_APSTA) {
+                wifi_sta_list_t sta_list;
+                if (esp_wifi_ap_get_sta_list(&sta_list) == ESP_OK) {
+                    status.connected_clients = sta_list.num;
+                }
+            }
         }
 
         // TX power
