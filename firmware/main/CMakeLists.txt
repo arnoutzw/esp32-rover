@@ -69,8 +69,8 @@ endif()
 set(BUILD_INFO_HEADER "${CMAKE_CURRENT_BINARY_DIR}/build_info.h")
 add_custom_command(
     OUTPUT "${BUILD_INFO_HEADER}"
-    COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/../generate_build_info.sh "${BUILD_INFO_HEADER}"
-    WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/..
+    COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/../../scripts/generate_build_info.sh "${BUILD_INFO_HEADER}"
+    WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/../..
     COMMENT "Generating build_info.h"
     VERBATIM
 )
