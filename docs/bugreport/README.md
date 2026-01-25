@@ -2,6 +2,29 @@
 
 Bug reports are organized by version and git commit hash for traceability.
 
+## Filing a Bug Report
+
+Use the GUI tool to file bug reports:
+
+```bash
+# Launch the bug report tool
+python scripts/file_bugreport.py
+
+# Or pre-fill version and hash
+python scripts/file_bugreport.py --version 2.0.3 --hash abc1234
+```
+
+The tool can also fetch build info directly from a connected device via the REST API.
+
+## AI Investigation Process
+
+When an AI assistant sees a new bug report in this folder, it will automatically:
+
+1. **Investigate** the bug by analyzing code, logs, and symptoms
+2. **Create RCA** (Root Cause Analysis) document explaining the issue
+3. **Create FIX_PLAN** document with implementation steps
+4. **Present findings** for user review before implementing fixes
+
 ## Directory Structure
 
 ```
@@ -32,6 +55,14 @@ bugreport/
 
 ## Creating a New Bug Report
 
+**Recommended: Use the GUI tool**
+
+```bash
+python scripts/file_bugreport.py
+```
+
+**Manual method:**
+
 1. Identify the firmware version and build hash from the device:
    ```bash
    curl -s http://<device-ip>/status | jq '.diag.buildVersion, .diag.buildFingerprint'
@@ -42,7 +73,7 @@ bugreport/
    mkdir -p docs/bugreport/v{VERSION}/{HASH}
    ```
 
-3. Create bug report files in that folder.
+3. Create a bug report markdown file in that folder.
 
 ## Linking to Fixes
 
