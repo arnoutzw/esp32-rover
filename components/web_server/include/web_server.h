@@ -51,6 +51,12 @@ typedef struct {
     // Time (REQ-13)
     const char* local_time;         // Local time string (HH:MM:SS)
     bool ntp_synced;                // NTP time synchronized
+
+    // Build information
+    const char* build_fingerprint;  // Git commit hash (short)
+    const char* build_time;         // Build timestamp (ISO 8601)
+    const char* build_branch;       // Git branch name
+    bool build_dirty;               // Working directory had uncommitted changes
 } rover_status_t;
 
 // Command callback type

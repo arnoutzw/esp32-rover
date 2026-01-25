@@ -369,7 +369,7 @@ static esp_err_t control_handler(httpd_req_t *req)
 // Status handler - return current status with full diagnostics
 static esp_err_t status_handler(httpd_req_t *req)
 {
-    char response[896];
+    char response[1024];
 
     rover_status_t status = {0};
     if (state_mutex && xSemaphoreTake(state_mutex, pdMS_TO_TICKS(10)) == pdTRUE) {
@@ -415,7 +415,11 @@ static esp_err_t status_handler(httpd_req_t *req)
             "\"mqttConnected\":%s,"
             "\"internet\":%s,"
             "\"localTime\":\"%s\","
-            "\"ntpSynced\":%s"
+            "\"ntpSynced\":%s,"
+            "\"buildFingerprint\":\"%s\","
+            "\"buildTime\":\"%s\","
+            "\"buildBranch\":\"%s\","
+            "\"buildDirty\":%s"
         "}"
         "}",
         target_str,
@@ -445,7 +449,11 @@ static esp_err_t status_handler(httpd_req_t *req)
         status.mqtt_connected ? "true" : "false",
         status.internet_connected ? "true" : "false",
         status.local_time ? status.local_time : "--:--:--",
-        status.ntp_synced ? "true" : "false"
+        status.ntp_synced ? "true" : "false",
+        status.build_fingerprint ? status.build_fingerprint : "unknown",
+        status.build_time ? status.build_time : "unknown",
+        status.build_branch ? status.build_branch : "unknown",
+        status.build_dirty ? "true" : "false"
     );
 
     httpd_resp_set_type(req, "application/json");

@@ -28,6 +28,7 @@
 #include "mdns.h"
 
 #include "config.h"
+#include "build_info.h"
 
 #if defined(ENABLE_TASK_WATCHDOG) && ENABLE_TASK_WATCHDOG
 #include "esp_task_wdt.h"
@@ -868,6 +869,12 @@ static void status_update_task(void *pvParameters)
         status.local_time = get_local_time_str();
         status.ntp_synced = s_ntp_synced;
 
+        // Build information
+        status.build_fingerprint = BUILD_FINGERPRINT;
+        status.build_time = BUILD_TIME;
+        status.build_branch = BUILD_GIT_BRANCH;
+        status.build_dirty = BUILD_GIT_DIRTY;
+
         // Update web server status
         web_server_update_status(&status);
 
@@ -1324,6 +1331,9 @@ void app_main(void)
 #endif
 
     ESP_LOGI(TAG, "ESP32-CAM Rover starting...");
+    ESP_LOGI(TAG, "Build: %s (%s%s)", BUILD_FINGERPRINT, BUILD_GIT_BRANCH, BUILD_GIT_DIRTY ? "-dirty" : "");
+    ESP_LOGI(TAG, "Build Time: %s", BUILD_TIME);
+    ESP_LOGI(TAG, "ESP-IDF: %s", BUILD_IDF_VERSION);
 
 #if defined(ROVER_TARGET_TTGO) && defined(ENABLE_DEEP_SLEEP) && ENABLE_DEEP_SLEEP
     // Check if we woke from deep sleep (REQ-30)
