@@ -568,6 +568,20 @@ static const char web_ui_html[] = R"rawliteral(
                             </div>
                         </div>
                         <div class="diag-section">
+                            <div class="diag-section-title">CPU</div>
+                            <div class="diag-grid">
+                                <div class="diag-item diag-full-row">
+                                    <span class="diag-label">CPU Used</span>
+                                    <span class="diag-value" id="diag-cpu">--</span>
+                                </div>
+                                <div class="diag-full-row">
+                                    <div class="diag-bar">
+                                        <div class="diag-bar-fill" id="diag-cpu-bar" style="width:0%;background:#44ff44;"></div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="diag-section">
                             <div class="diag-section-title">System</div>
                             <div class="diag-grid">
                                 <div class="diag-item">
@@ -852,6 +866,14 @@ static const char web_ui_html[] = R"rawliteral(
                                                   heapPct < 90 ? '#ffaa00' : '#ff4444';
                         document.getElementById('diag-internal').textContent = formatKB(d.freeInternal);
                         document.getElementById('diag-watermark').textContent = formatKB(d.minHeap);
+
+                        // REQ-SW-035: CPU section
+                        const cpuPct = d.cpuUsage || 0;
+                        document.getElementById('diag-cpu').textContent = cpuPct + '%';
+                        const cpuBar = document.getElementById('diag-cpu-bar');
+                        cpuBar.style.width = cpuPct + '%';
+                        cpuBar.style.background = cpuPct < 70 ? '#44ff44' :
+                                                  cpuPct < 90 ? '#ffaa00' : '#ff4444';
 
                         // System section
                         const version = d.buildVersion || 'dev';

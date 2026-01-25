@@ -501,6 +501,7 @@ static cJSON* build_status_json(const rover_status_t *status)
     cJSON_AddNumberToObject(diag, "totalHeap", status->total_heap);
     cJSON_AddNumberToObject(diag, "freeInternal", status->free_internal);
     cJSON_AddNumberToObject(diag, "uptime", status->uptime_secs);
+    cJSON_AddNumberToObject(diag, "cpuUsage", status->cpu_usage_percent);
     cJSON_AddBoolToObject(diag, "restApi", status->rest_api_enabled);
     cJSON_AddBoolToObject(diag, "mqttEnabled", status->mqtt_enabled);
     cJSON_AddBoolToObject(diag, "mqttConnected", status->mqtt_connected);

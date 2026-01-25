@@ -5,7 +5,7 @@
 | Field | Value |
 |-------|-------|
 | **Document ID** | ESP32-ROVER-SRS-001 |
-| **Version** | 2.4.0 |
+| **Version** | 2.5.0 |
 | **Status** | Approved |
 | **Last Updated** | 2026-01-25 |
 | **Author** | ESP32 Rover Development Team |
@@ -22,6 +22,7 @@
 | 2.2.0 | 2026-01-25 | Team | Added REQ-SW-032 Live Telemetry Chart |
 | 2.3.0 | 2026-01-25 | Team | Added REQ-SW-033 Dual-Axis Telemetry Chart |
 | 2.4.0 | 2026-01-25 | Team | Added REQ-SW-034 WiFi Mode Switch via Button |
+| 2.5.0 | 2026-01-25 | Team | Added REQ-SW-035 CPU Usage Display |
 
 ### Approval Signatures
 
@@ -919,6 +920,34 @@ power:
 
 ---
 
+#### REQ-SW-035: CPU Usage Display
+
+| Field | Value |
+|-------|-------|
+| **Priority** | Low |
+| **Type** | Functional |
+| **Description** | The firmware SHALL measure and display CPU busy percentage in the web UI diagnostics panel, using a horizontal bar identical in style to the RAM usage bar. |
+| **Rationale** | CPU usage monitoring is essential for understanding system stability and identifying performance bottlenecks. Visual representation matches existing RAM bar for UI consistency. |
+| **Acceptance Criteria** | • CPU usage calculated from FreeRTOS idle task runtime statistics<br>• Percentage represents busy time (100% - idle time)<br>• Displayed in diagnostics panel as horizontal bar (same style as RAM bar)<br>• Color coding: green (<70%), yellow (70-90%), red (>90%)<br>• Updated at status polling rate (10Hz)<br>• Value exposed via `/status` REST endpoint as `cpuUsage` field |
+| **Verification Method** | T (CPU load test), D (UI demonstration) |
+| **Dependencies** | REQ-SW-015 (Web UI), REQ-SW-011 (REST API), REQ-SW-017 (Diagnostics) |
+| **Status** | Approved |
+
+**Implementation Notes**:
+- Uses `CONFIG_FREERTOS_USE_TRACE_FACILITY=y` (already enabled)
+- Calculates CPU usage from idle task runtime delta over measurement interval
+- Formula: `cpu_usage = 100 - (idle_delta * 100 / total_delta)`
+- Both cores' idle tasks are considered for dual-core ESP32
+- Measurement window: 100ms for responsive updates
+
+**Configuration** (`sdkconfig.defaults`):
+```
+CONFIG_FREERTOS_USE_TRACE_FACILITY=y
+CONFIG_FREERTOS_GENERATE_RUN_TIME_STATS=y
+```
+
+---
+
 ### 5.7 Diagnostics & Logging
 
 #### REQ-SW-026: Serial Log Capture
@@ -1305,6 +1334,7 @@ xtensa-esp32-elf-gdb -ex "target remote :3333" build/esp32-rover.elf
 | REQ-SW-032 | REQ-SW-011, REQ-SW-015, REQ-SW-012 | D, T | components/web_server/ | ✓ |
 | REQ-SW-033 | REQ-SW-032, REQ-SW-011, REQ-SW-012 | D, T | components/web_server/ | ✓ |
 | REQ-SW-034 | REQ-SW-006, REQ-SW-018, REQ-SW-007, REQ-SW-008 | D, T | main/main.c | ⏳ |
+| REQ-SW-035 | REQ-SW-015, REQ-SW-011, REQ-SW-017 | D, T | main/main.c, web_server/, web_ui.c | ⏳ |
 | REQ-NFR-001 | REQ-SW-012 | A, T | - | ✓ |
 | REQ-NFR-002 | REQ-SW-007 | A | - | ✓ |
 | REQ-NFR-003 | REQ-SW-009 | T | - | ✓ |
@@ -1599,6 +1629,7 @@ xtensa-esp32-elf-gdb -ex "target remote :3333" build/esp32-rover.elf
 | VT-F-024 | REQ-SW-032 | Integration | Device + Browser | Live telemetry chart updates | Medium |
 | VT-F-025 | REQ-SW-033 | Integration | Device + Browser | Dual-axis chart shows speed+steering | Medium |
 | VT-F-026 | REQ-SW-034 | Integration | TTGO Device | Hold right button 5s switches to AP mode | Medium |
+| VT-F-027 | REQ-SW-035 | Integration | Device + Browser | CPU usage bar displays in diagnostics | Low |
 
 ### 9.2 Non-Functional Validation Tests
 

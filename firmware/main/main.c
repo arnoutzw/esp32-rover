@@ -276,6 +276,12 @@ static volatile bool s_internet_connected = false;  // Modified by connectivity 
 static volatile bool s_ntp_synced = false;  // Modified in NTP callback
 static char s_local_time_str[32] = "--:--:--";
 
+// REQ-SW-035: CPU usage tracking
+static uint8_t s_cpu_usage_percent = 0;
+static uint32_t s_last_idle_runtime_core0 = 0;
+static uint32_t s_last_idle_runtime_core1 = 0;
+static uint32_t s_last_total_runtime = 0;
+
 static void wifi_event_handler(void *arg, esp_event_base_t event_base,
                                int32_t event_id, void *event_data)
 {
@@ -832,6 +838,73 @@ static void get_task_core_counts(task_core_counts_t *counts)
     vPortFree(task_array);
 }
 
+// REQ-SW-035: Calculate CPU usage from idle task runtime
+// Returns CPU busy percentage (100% - idle%)
+static uint8_t calculate_cpu_usage(void)
+{
+#if configGENERATE_RUN_TIME_STATS
+    // Get current total runtime from the runtime counter
+    uint32_t current_total_runtime = 0;
+
+    // Get idle task handles for both cores
+    TaskHandle_t idle_core0 = xTaskGetIdleTaskHandleForCore(0);
+    TaskHandle_t idle_core1 = xTaskGetIdleTaskHandleForCore(1);
+
+    if (idle_core0 == NULL) {
+        return 0;  // Can't measure without idle task handle
+    }
+
+    // Get current runtime for idle tasks
+    TaskStatus_t idle_status_0, idle_status_1;
+    vTaskGetInfo(idle_core0, &idle_status_0, pdFALSE, eInvalid);
+    uint32_t idle_runtime_core0 = idle_status_0.ulRunTimeCounter;
+
+    uint32_t idle_runtime_core1 = 0;
+    if (idle_core1 != NULL) {
+        vTaskGetInfo(idle_core1, &idle_status_1, pdFALSE, eInvalid);
+        idle_runtime_core1 = idle_status_1.ulRunTimeCounter;
+    }
+
+    // Get total system runtime from all tasks
+    UBaseType_t num_tasks = uxTaskGetNumberOfTasks();
+    TaskStatus_t *task_array = pvPortMalloc(num_tasks * sizeof(TaskStatus_t));
+    if (task_array == NULL) {
+        return s_cpu_usage_percent;  // Return last known value
+    }
+
+    UBaseType_t actual_count = uxTaskGetSystemState(task_array, num_tasks, &current_total_runtime);
+    vPortFree(task_array);
+    (void)actual_count;  // Unused but required for uxTaskGetSystemState
+
+    // Calculate deltas since last measurement
+    uint32_t total_delta = current_total_runtime - s_last_total_runtime;
+    uint32_t idle_delta_0 = idle_runtime_core0 - s_last_idle_runtime_core0;
+    uint32_t idle_delta_1 = idle_runtime_core1 - s_last_idle_runtime_core1;
+
+    // Update tracking variables for next measurement
+    s_last_total_runtime = current_total_runtime;
+    s_last_idle_runtime_core0 = idle_runtime_core0;
+    s_last_idle_runtime_core1 = idle_runtime_core1;
+
+    // Calculate CPU usage: total_delta represents time across both cores
+    // idle time for both cores combined
+    if (total_delta > 0) {
+        uint32_t total_idle = idle_delta_0 + idle_delta_1;
+        // For dual-core, idle percentage = idle_time / total_time
+        // CPU usage = 100 - idle_percentage
+        uint8_t idle_percent = (uint8_t)((total_idle * 100) / total_delta);
+        // Clamp to valid range
+        if (idle_percent > 100) idle_percent = 100;
+        s_cpu_usage_percent = 100 - idle_percent;
+    }
+
+    return s_cpu_usage_percent;
+#else
+    // Runtime stats not enabled - return 0
+    return 0;
+#endif
+}
+
 // =============================================================================
 // Status Update Task
 // =============================================================================
@@ -918,6 +991,9 @@ static void status_update_task(void *pvParameters)
         status.min_free_heap = esp_get_minimum_free_heap_size();
         status.total_heap = heap_caps_get_total_size(MALLOC_CAP_DEFAULT);
         status.free_internal = heap_caps_get_free_size(MALLOC_CAP_INTERNAL);
+
+        // REQ-SW-035: CPU usage
+        status.cpu_usage_percent = calculate_cpu_usage();
 
         // System stats
         status.uptime_secs = (xTaskGetTickCount() - start_ticks) / configTICK_RATE_HZ;
