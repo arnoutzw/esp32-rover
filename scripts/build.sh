@@ -101,6 +101,8 @@ check_git_clean_state() {
     fi
 
     # Check for uncommitted changes
+    # Update the index first to ensure accurate comparison
+    git update-index -q --refresh
     if ! git diff-index --quiet HEAD --; then
         echo -e "${RED}Error: You have uncommitted changes${NC}"
         echo ""
