@@ -228,6 +228,32 @@ Please commit your changes before building:
 - Firmware versions can be reliably reproduced from git history
 - No more "dirty" builds with untraceable modifications
 
+### Build and Flash Verification Rule
+
+**ALWAYS use `./scripts/build.sh` for builds, never `idf.py build` directly.**
+
+The build script:
+- Archives the binary with git metadata (commit hash, timestamp)
+- Updates `latest.bin` symlink used by OTA script
+- Enforces clean git state
+- Generates `config_generated.h` automatically
+
+**After every OTA flash, verify the firmware fingerprint matches:**
+
+```bash
+# Get the expected commit hash from the build
+git rev-parse --short HEAD  # e.g., c184d71
+
+# Verify the device is running the correct firmware
+curl -s http://<device-ip>/status | jq '.diag.buildFingerprint'
+# Should output: "c184d71"
+```
+
+**If fingerprints don't match:**
+1. You may have flashed an old archived binary (check `binaries/<target>/latest.bin` symlink)
+2. The device may have rolled back to a previous OTA partition
+3. Rebuild with `./scripts/build.sh <target>` to create a fresh archived binary
+
 ### Bug Documentation
 
 **For every investigated bug with a confirmed fix, add a new entry to `docs/implementation/DEVELOPMENT_LESSONS.md`.**
