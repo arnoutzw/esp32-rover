@@ -1,5 +1,5 @@
-# Build output
-build/
+# Build output (ESP-IDF creates this in firmware/)
+firmware/build/
 sdkconfig
 sdkconfig.old
 
@@ -27,8 +27,11 @@ __pycache__/
 # Temporary files
 *.tmp
 *.log
+
+# Test build artifacts
 test/*.o
 test/test_runner
+test/src/*.o
 
 # Secrets (contains passwords and credentials)
-secrets.yaml
+config/secrets.yaml

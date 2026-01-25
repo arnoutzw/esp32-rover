@@ -8,8 +8,10 @@
 set -e
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-IDF_PATH_LOCAL="$SCRIPT_DIR/esp-idf"
-cd "$SCRIPT_DIR"
+PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+FIRMWARE_DIR="$PROJECT_ROOT/firmware"
+IDF_PATH_LOCAL="$FIRMWARE_DIR/esp-idf"
+cd "$FIRMWARE_DIR"
 
 # Colors for output
 RED='\033[0;31m'
@@ -43,7 +45,7 @@ print_usage() {
     echo "  $0 esp32cam flash -p /dev/ttyUSB0  # Flash to specific port"
     echo ""
     echo "First-time setup:"
-    echo "  ./setup.sh               # Install ESP-IDF tools (run once)"
+    echo "  ./scripts/setup.sh       # Install ESP-IDF tools (run once)"
     echo ""
 }
 
@@ -154,7 +156,7 @@ source "$IDF_PATH_LOCAL/export.sh" > /dev/null 2>&1 || {
     echo -e "${RED}Error: Failed to source ESP-IDF environment.${NC}"
     echo ""
     echo "Have you run the setup script?"
-    echo "  ./setup.sh"
+    echo "  ./scripts/setup.sh"
     echo ""
     exit 1
 }

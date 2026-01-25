@@ -8,7 +8,9 @@
 set -e
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-IDF_PATH="$SCRIPT_DIR/esp-idf"
+PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+FIRMWARE_DIR="$PROJECT_ROOT/firmware"
+IDF_PATH="$FIRMWARE_DIR/esp-idf"
 
 # Colors for output
 RED='\033[0;31m'
@@ -60,12 +62,12 @@ echo "To use the build tools, you have two options:"
 echo ""
 echo -e "${BLUE}Option 1: Use the build script (recommended)${NC}"
 echo "  The build script automatically sets up the environment:"
-echo "    ./build.sh ttgo build"
-echo "    ./build.sh esp32cam flash"
+echo "    ./scripts/build.sh ttgo build"
+echo "    ./scripts/build.sh esp32cam flash"
 echo ""
 echo -e "${BLUE}Option 2: Manual environment setup${NC}"
 echo "  Source the export script in your shell:"
-echo "    source esp-idf/export.sh"
+echo "    source firmware/esp-idf/export.sh"
 echo "  Then use idf.py directly:"
 echo "    idf.py build"
 echo ""

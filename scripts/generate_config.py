@@ -204,8 +204,8 @@ def generate_header(config: dict, secrets: dict) -> str:
 
 def main():
     # Parse arguments
-    config_file = sys.argv[1] if len(sys.argv) > 1 else "rover_config.yaml"
-    output_file = sys.argv[2] if len(sys.argv) > 2 else "main/config_generated.h"
+    config_file = sys.argv[1] if len(sys.argv) > 1 else "../config/rover_config.yaml"
+    output_file = sys.argv[2] if len(sys.argv) > 2 else "../firmware/main/config_generated.h"
 
     # Resolve paths relative to script location
     script_dir = os.path.dirname(os.path.abspath(__file__))

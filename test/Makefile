@@ -2,11 +2,11 @@
 # These tests run on the host machine (not on ESP32)
 
 CC = gcc
-CFLAGS = -Wall -Wextra -g -I. -I../main
+CFLAGS = -Wall -Wextra -g -I. -I../firmware/main
 LDFLAGS =
 
-# Source files
-SRCS = test_runner.c test_config.c test_diag_state_machine.c
+# Source files (in src/ subdirectory)
+SRCS = src/test_runner.c src/test_config.c src/test_diag_state_machine.c
 OBJS = $(SRCS:.c=.o)
 TARGET = test_runner
 
@@ -37,9 +37,9 @@ clean:
 rebuild: clean all
 
 # Dependencies
-test_runner.o: test_runner.c
-test_config.o: test_config.c unity.h ../main/config_generated.h
-test_diag_state_machine.o: test_diag_state_machine.c unity.h
+src/test_runner.o: src/test_runner.c
+src/test_config.o: src/test_config.c unity.h ../firmware/main/config_generated.h
+src/test_diag_state_machine.o: src/test_diag_state_machine.c unity.h
 
 .PHONY: help
 help:
