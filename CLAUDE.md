@@ -152,12 +152,14 @@ The build script automatically regenerates `config_generated.h` with the correct
 
 ### Git Branching Strategy
 
-**All development work happens on the `develop` branch.**
+**All development work happens on the `develop` branch. NEVER commit directly to `main`.**
 
-- Work on `develop` branch for all changes
+**Strict Rules:**
+- Work on `develop` branch for ALL changes (code, docs, config, everything)
 - Commit frequently to `develop` with descriptive messages
-- Only merge to `main` and create a version tag when the user explicitly requests it
-- Never commit directly to `main` unless instructed
+- **NEVER commit directly to `main`** - main only receives merges from develop
+- **NEVER checkout main to make changes** - only for merging/tagging releases
+- Only merge to `main` and create a version tag when the user explicitly requests a release
 
 **CRITICAL: Always Push Immediately After Every Commit**
 
@@ -165,24 +167,31 @@ Every `git commit` MUST be immediately followed by `git push`. This applies to:
 - All code changes (firmware, scripts, tests)
 - All documentation updates (markdown files, comments)
 - All configuration changes
-- Commits on any branch (develop, main, feature branches)
+- Commits on any branch (develop, feature branches)
 
 **Workflow:**
 ```bash
 # Normal development - ALWAYS commit AND push together
 git checkout develop
 # ... make changes ...
-git add -A && git commit -m "Description of changes" && git push
+git add -A && git commit -m "Description of changes" && git push origin develop
 
 # When user requests a release to main:
 git checkout main
-git merge develop
-git tag -a v1.X.X -m "Release description"
+git merge develop --no-ff -m "Release vX.X.X"
+git tag -a vX.X.X -m "Release description"
 git push origin main --tags  # Push commits AND tags immediately
 git checkout develop
+git push origin develop  # Ensure develop is also pushed
 ```
 
-**Why this matters:**
+**Why never commit to main directly:**
+- `main` should only contain tagged releases
+- Direct commits to main cause divergence between branches
+- Merging main back to develop creates confusing history
+- All changes must be tested on develop first
+
+**Why push immediately:**
 - Changes are synced to remote immediately
 - CI/CD pipelines are triggered without delay
 - Team members have access to latest code
