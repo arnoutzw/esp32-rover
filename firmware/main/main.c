@@ -62,15 +62,24 @@ static TaskHandle_t lcd_task_handle = NULL;
 
 #if defined(ENABLE_BUTTONS) && ENABLE_BUTTONS
 static bool s_buttons_initialized = false;
-static volatile bool s_button_left_pressed = false;
-static volatile bool s_button_right_pressed = false;
+
+// ISR-latched button states: ISR sets to true on press, cleared by polling
+// This ensures quick presses are captured even between display updates
+static volatile bool s_button_left_latched = false;
+static volatile bool s_button_right_latched = false;
 
 // GPIO interrupt handler for buttons - runs in ISR context
+// Sets latch on press edge, but does NOT clear on release (polling does that)
 static void IRAM_ATTR button_isr_handler(void* arg)
 {
-    // Read current button states directly (active LOW)
-    s_button_left_pressed = (gpio_get_level(BUTTON_LEFT_PIN) == 0);
-    s_button_right_pressed = (gpio_get_level(BUTTON_RIGHT_PIN) == 0);
+    // On any edge, check if button is pressed and set latch
+    // Latches are only SET here, never cleared - polling clears them
+    if (gpio_get_level(BUTTON_LEFT_PIN) == 0) {
+        s_button_left_latched = true;
+    }
+    if (gpio_get_level(BUTTON_RIGHT_PIN) == 0) {
+        s_button_right_latched = true;
+    }
 }
 
 static void init_buttons(void)
@@ -92,34 +101,58 @@ static void init_buttons(void)
     gpio_isr_handler_add(BUTTON_LEFT_PIN, button_isr_handler, NULL);
     gpio_isr_handler_add(BUTTON_RIGHT_PIN, button_isr_handler, NULL);
 
-    // Read initial state
-    s_button_left_pressed = (gpio_get_level(BUTTON_LEFT_PIN) == 0);
-    s_button_right_pressed = (gpio_get_level(BUTTON_RIGHT_PIN) == 0);
+    // Read initial state - set latches if buttons are already pressed
+    if (gpio_get_level(BUTTON_LEFT_PIN) == 0) s_button_left_latched = true;
+    if (gpio_get_level(BUTTON_RIGHT_PIN) == 0) s_button_right_latched = true;
 
     s_buttons_initialized = true;
-    ESP_LOGI(TAG, "Buttons initialized with interrupts (GPIO %d, %d)", BUTTON_LEFT_PIN, BUTTON_RIGHT_PIN);
+    ESP_LOGI(TAG, "Buttons initialized with ISR latch (GPIO %d, %d)", BUTTON_LEFT_PIN, BUTTON_RIGHT_PIN);
 }
 
+// Read button state for state machine use (edge detection, timing)
+// Uses ISR latch for low latency detection
 static bool read_button_left(void)
 {
-    return s_buttons_initialized && s_button_left_pressed;
+    return s_buttons_initialized && s_button_left_latched;
 }
 
 static bool read_button_right(void)
 {
-    return s_buttons_initialized && s_button_right_pressed;
+    return s_buttons_initialized && s_button_right_latched;
 }
 
-// Direct GPIO reading for display purposes - avoids ISR race condition
-// when both buttons are pressed simultaneously
-static bool read_button_left_direct(void)
+// Read button state for display - combines ISR latch with current GPIO state
+// Returns true if: button is latched (was pressed since last poll) OR currently pressed
+// Then clears the latch and re-reads GPIO to update for next poll cycle
+// This ensures: (1) quick presses are seen, (2) concurrent presses both show
+static bool read_button_left_for_display(void)
 {
-    return s_buttons_initialized && (gpio_get_level(BUTTON_LEFT_PIN) == 0);
+    if (!s_buttons_initialized) return false;
+
+    // Capture latch state and current GPIO state
+    bool was_latched = s_button_left_latched;
+    bool is_pressed = (gpio_get_level(BUTTON_LEFT_PIN) == 0);
+
+    // Update latch: clear if released, keep set if still pressed
+    s_button_left_latched = is_pressed;
+
+    // Return true if was latched OR is currently pressed
+    return was_latched || is_pressed;
 }
 
-static bool read_button_right_direct(void)
+static bool read_button_right_for_display(void)
 {
-    return s_buttons_initialized && (gpio_get_level(BUTTON_RIGHT_PIN) == 0);
+    if (!s_buttons_initialized) return false;
+
+    // Capture latch state and current GPIO state
+    bool was_latched = s_button_right_latched;
+    bool is_pressed = (gpio_get_level(BUTTON_RIGHT_PIN) == 0);
+
+    // Update latch: clear if released, keep set if still pressed
+    s_button_right_latched = is_pressed;
+
+    // Return true if was latched OR is currently pressed
+    return was_latched || is_pressed;
 }
 #endif
 
@@ -849,9 +882,9 @@ static void status_update_task(void *pvParameters)
         }
 
 #if defined(ENABLE_BUTTONS) && ENABLE_BUTTONS
-        // Button states - use direct GPIO reading for accurate simultaneous press detection
-        status.button_left = read_button_left_direct();
-        status.button_right = read_button_right_direct();
+        // Button states - hybrid ISR latch + GPIO poll for accurate concurrent press detection
+        status.button_left = read_button_left_for_display();
+        status.button_right = read_button_right_for_display();
 #endif
 
         // =================================================================
@@ -1353,10 +1386,10 @@ static void lcd_update_task(void *pvParameters)
             lcd_status.battery_volts = 0.0f;
 #endif
 
-            // Use direct GPIO reading for display to show both buttons when pressed simultaneously
-            // (ISR-cached btn_left/btn_right used above for state machine edge detection)
-            lcd_status.button_left = read_button_left_direct();
-            lcd_status.button_right = read_button_right_direct();
+            // Hybrid ISR latch + GPIO poll for display - ensures both buttons show when pressed
+            // concurrently, even if ISR fires before second button is fully pressed
+            lcd_status.button_left = read_button_left_for_display();
+            lcd_status.button_right = read_button_right_for_display();
             lcd_status.uptime_secs = uptime_secs;
 
             // Update display
