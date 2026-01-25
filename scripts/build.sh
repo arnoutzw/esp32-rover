@@ -88,6 +88,64 @@ setup_target() {
     export ROVER_TARGET="$target"
 }
 
+check_git_clean_state() {
+    echo -e "${BLUE}Checking git repository state...${NC}"
+
+    cd "$PROJECT_ROOT"
+
+    # Check if we're in a git repository
+    if ! git rev-parse --git-dir > /dev/null 2>&1; then
+        echo -e "${RED}Error: Not in a git repository${NC}"
+        echo "This project requires git for version tracking in firmware."
+        exit 1
+    fi
+
+    # Check for uncommitted changes
+    if ! git diff-index --quiet HEAD --; then
+        echo -e "${RED}Error: You have uncommitted changes${NC}"
+        echo ""
+        echo "Uncommitted changes:"
+        git status --short
+        echo ""
+        echo -e "${YELLOW}Please commit your changes before building:${NC}"
+        echo "  git add -A"
+        echo "  git commit -m \"Your commit message\""
+        echo "  git push origin develop"
+        echo ""
+        echo "This ensures every firmware build is traceable to a specific git commit."
+        exit 1
+    fi
+
+    # Check if current branch has unpushed commits
+    local current_branch=$(git rev-parse --abbrev-ref HEAD)
+    local local_commit=$(git rev-parse HEAD)
+    local remote_commit=$(git rev-parse origin/"$current_branch" 2>/dev/null || echo "")
+
+    if [ -n "$remote_commit" ] && [ "$local_commit" != "$remote_commit" ]; then
+        echo -e "${RED}Error: You have unpushed commits on branch '$current_branch'${NC}"
+        echo ""
+        echo "Unpushed commits:"
+        git log origin/"$current_branch"..HEAD --oneline
+        echo ""
+        echo -e "${YELLOW}Please push your commits before building:${NC}"
+        echo "  git push origin $current_branch"
+        echo ""
+        echo "This ensures the firmware git hash exists in the remote repository."
+        exit 1
+    fi
+
+    # Get current commit info
+    local commit_hash=$(git rev-parse --short HEAD)
+    local commit_branch=$(git rev-parse --abbrev-ref HEAD)
+
+    echo -e "${GREEN}✓ Git state is clean${NC}"
+    echo -e "${GREEN}✓ Commit: $commit_hash on branch '$commit_branch'${NC}"
+    echo -e "${GREEN}✓ All commits are pushed to origin${NC}"
+    echo ""
+
+    cd "$FIRMWARE_DIR"
+}
+
 check_target_switched() {
     local current_target=$1
     local previous_target=""
@@ -262,6 +320,9 @@ run_command() {
 
     case $cmd in
         build)
+            # Enforce clean git state before building
+            check_git_clean_state
+
             echo -e "${YELLOW}Running unit tests before build...${NC}"
             if ! run_unit_tests; then
                 echo -e "${RED}Build aborted: unit tests failed${NC}"
@@ -298,6 +359,9 @@ run_command() {
             fi
             ;;
         flash)
+            # Enforce clean git state before flashing
+            check_git_clean_state
+
             echo -e "${YELLOW}Running unit tests before flash...${NC}"
             if ! run_unit_tests; then
                 echo -e "${RED}Flash aborted: unit tests failed${NC}"
