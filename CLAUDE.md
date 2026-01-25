@@ -67,6 +67,31 @@ The actual build target is selected via `./scripts/build.sh esp32cam` or `./scri
 
 ## Development Rules
 
+### Git Branching Strategy
+
+**All development work happens on the `develop` branch.**
+
+- Work on `develop` branch for all changes
+- Commit frequently to `develop` with descriptive messages
+- Only merge to `main` and create a version tag when the user explicitly requests it
+- Never commit directly to `main` unless instructed
+
+**Workflow:**
+```bash
+# Normal development
+git checkout develop
+# ... make changes ...
+git add -A && git commit -m "Description of changes"
+git push origin develop
+
+# When user requests a release to main:
+git checkout main
+git merge develop
+git tag -a v1.X.X -m "Release description"
+git push origin main --tags
+git checkout develop
+```
+
 ### Bug Documentation
 
 **For every investigated bug with a confirmed fix, add a new entry to `docs/implementation/DEVELOPMENT_LESSONS.md`.**
