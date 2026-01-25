@@ -136,6 +136,7 @@ jobs:
 
       - name: Build firmware for ESP32-CAM
         run: |
+          ./scripts/generate_build_info.sh firmware/components/build_info/include/build_info.h
           export ROVER_TARGET=esp32cam
           cd firmware
           cp sdkconfig.defaults.esp32cam sdkconfig.defaults
@@ -198,6 +199,7 @@ jobs:
 
       - name: Build firmware for TTGO
         run: |
+          ./scripts/generate_build_info.sh firmware/components/build_info/include/build_info.h
           export ROVER_TARGET=ttgo
           cd firmware
           cp sdkconfig.defaults.ttgo sdkconfig.defaults
