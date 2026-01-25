@@ -390,7 +390,20 @@ See [test/README.md](test/README.md) for details.
 
 ## Changelog
 
-### v1.6 (Latest)
+### v1.7 (Latest)
+- Added Build Fingerprint System (REQ-41)
+  - Auto-generated git commit hash embedded in firmware
+  - Build timestamp, branch, and dirty flag tracking
+  - Exposed via REST API `/status` endpoint
+  - Logged at boot for version verification
+- Simplified diagnostics display
+  - Removed CPU MHz, MAC address, Tasks per core, Internet status
+  - Added Build field showing git commit hash
+  - Cleaner UI focused on essential information
+  - Applied to both web UI and LCD diagnostics
+- TTGO build: 1,007 KB (34% free)
+
+### v1.6
 - **BREAKING**: Removed motor/servo/encoder components from codebase
   - Removed `components/bldc_motor/`, `components/servo_control/`, `components/as5600/`
   - Web control interface preserved for future motor implementation
