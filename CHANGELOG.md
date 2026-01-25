@@ -8,6 +8,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **WiFi Mode Display in Status API**:
+  - New `wifiMode` field in status JSON (values: "sta", "ap", "apsta")
+  - `clients` field now only shown in AP/APSTA mode (not relevant in STA mode)
+  - Runtime WiFi mode detection via `esp_wifi_get_mode()`
+- **Target-Independent Configuration**:
+  - Removed `target` field from `rover_config.yaml`
+  - Build target now fully determined by `./scripts/build.sh <target>` command
+  - `config_generated.h` now auto-generated at build time with correct target settings
+  - mDNS hostname automatically matches build target (esp32cam→esp32-rover.local, ttgo→ttgo-rover.local)
 - GitHub Actions CI/CD pipeline for automated testing and builds
 - Code coverage measurement for unit tests
 - Static analysis with shellcheck and cppcheck
@@ -35,6 +44,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Prevents wasted time waiting for flash on unreachable devices
 
 ### Changed
+- `config_generated.h` moved to `.gitignore` (auto-generated, not tracked)
+- Build script now regenerates config automatically before each build
 - OTA password now required via environment variable (no default)
 - Binary archive includes SHA256 checksums
 - LCD diagnostics layout: battery and uptime now on separate lines

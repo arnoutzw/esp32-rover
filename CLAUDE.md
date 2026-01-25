@@ -135,6 +135,27 @@ Each entry should include:
 
 This ensures knowledge is preserved and similar issues can be avoided or quickly diagnosed in the future.
 
+### Documentation Updates
+
+**When making changes to firmware features, APIs, or configuration, update the relevant documentation.**
+
+Required updates for different change types:
+
+| Change Type | Update Required |
+|-------------|-----------------|
+| New feature or API change | `CHANGELOG.md` (under [Unreleased]), this file's Technical Deep Dive section |
+| Configuration change | `CHANGELOG.md`, `config/rover_config.yaml` comments, this file |
+| Bug fix | `CHANGELOG.md`, `docs/implementation/DEVELOPMENT_LESSONS.md` |
+| Status JSON change | `CHANGELOG.md`, Status JSON Structure section in this file |
+| New endpoint | REST API Quick Reference section in this file |
+| Build/tooling change | `CHANGELOG.md`, Common Commands section in this file |
+
+**Documentation files to keep synchronized:**
+- `CHANGELOG.md` - All user-visible changes
+- `CLAUDE.md` - Technical reference for AI assistants and developers
+- `docs/implementation/DEVELOPMENT_LESSONS.md` - Bug investigations and lessons learned
+- `config/rover_config.yaml` - Inline comments for configuration options
+
 ### Binary Archive Management
 
 **Automatically archive all built binaries and manage target switching cleanly.**
@@ -436,28 +457,39 @@ POST /ota           Firmware binary + password
 ```json
 {
   "target": "esp32cam|ttgo",
+  "velocity": 0.0,
   "battery": 7.4,
   "camera": true,
   "rssi": -45,
   "btnL": false,
   "btnR": true,
   "diag": {
-    "ssid": "...",
+    "ssid": "NetworkName",
     "ip": "192.168.x.x",
-    "mac": "AA:BB:CC:DD:EE:FF",
+    "wifiMode": "sta|ap|apsta",
+    "channel": 1,
+    "clients": 2,
+    "txPower": 19,
     "freeHeap": 150000,
+    "minHeap": 140000,
+    "totalHeap": 295000,
+    "freeInternal": 260000,
     "uptime": 3600,
-    "tasksCore0": 8,
-    "tasksCore1": 4,
-    "localTime": "14:30:45",
-    "ntpSynced": true,
-    "internet": true,
     "restApi": true,
     "mqttEnabled": true,
-    "mqttConnected": false
+    "mqttConnected": false,
+    "localTime": "14:30:45",
+    "ntpSynced": true,
+    "buildVersion": "2.0+34",
+    "buildFingerprint": "abc1234",
+    "buildTime": "2026-01-25T13:34:02Z",
+    "buildBranch": "develop",
+    "buildDirty": false
   }
 }
 ```
+
+**Note:** The `clients` field is only present when `wifiMode` is "ap" or "apsta" (Access Point mode). In "sta" (Station) mode, clients count is not relevant and omitted from the response.
 
 ### Test Organization
 
