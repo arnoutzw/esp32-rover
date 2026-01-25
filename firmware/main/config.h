@@ -151,12 +151,6 @@
 #define BATTERY_DIVIDER_RATIO   2.0f            // Voltage divider ratio
 #define ENABLE_BATTERY_ADC      1               // Enable battery ADC reading
 
-// Battery voltage thresholds (Li-ion single cell)
-#define BATTERY_VOLTAGE_EMPTY_V 3.0f        // 0% charge (cutoff to prevent damage)
-#define BATTERY_VOLTAGE_LOW_V   3.4f        // Low warning threshold (red)
-#define BATTERY_VOLTAGE_MED_V   3.7f        // Medium threshold (yellow)
-#define BATTERY_VOLTAGE_FULL_V  4.2f        // 100% charge (fully charged)
-
 // Camera pins not defined for TTGO (no camera)
 
 // Deep Sleep Power Save Configuration (TTGO only - has accessible buttons)
@@ -169,6 +163,38 @@
 // =============================================================================
 // Common Configuration (shared between targets)
 // =============================================================================
+
+// -----------------------------------------------------------------------------
+// Battery Voltage Thresholds (Li-ion single cell)
+// Used by LCD display for battery indicator colors and percentage
+// -----------------------------------------------------------------------------
+#define BATTERY_VOLTAGE_EMPTY_V 3.0f        // 0% charge (cutoff to prevent damage)
+#define BATTERY_VOLTAGE_LOW_V   3.4f        // Low warning threshold (red)
+#define BATTERY_VOLTAGE_MED_V   3.7f        // Medium threshold (yellow)
+#define BATTERY_VOLTAGE_FULL_V  4.2f        // 100% charge (fully charged)
+
+// -----------------------------------------------------------------------------
+// LCD Display Constants (used by lcd_display component for both targets)
+// Note: LCD is only enabled on TTGO, but component is compiled for all targets
+// -----------------------------------------------------------------------------
+#ifndef LCD_WIDTH
+#define LCD_WIDTH               135
+#endif
+#ifndef LCD_HEIGHT
+#define LCD_HEIGHT              240
+#endif
+#ifndef LCD_COL_OFFSET
+#define LCD_COL_OFFSET          52          // Column offset for ST7789 window
+#endif
+#ifndef LCD_ROW_OFFSET
+#define LCD_ROW_OFFSET          40          // Row offset for ST7789 window
+#endif
+#ifndef LCD_BACKLIGHT_PWM_FREQ_HZ
+#define LCD_BACKLIGHT_PWM_FREQ_HZ   5000    // PWM frequency for backlight
+#endif
+#ifndef LCD_SPI_CLOCK_HZ
+#define LCD_SPI_CLOCK_HZ        (40 * 1000 * 1000)  // 40 MHz SPI clock
+#endif
 
 // -----------------------------------------------------------------------------
 // Web Server Configuration
