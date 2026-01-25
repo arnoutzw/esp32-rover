@@ -403,6 +403,21 @@ See [test/README.md](test/README.md) for details.
 - **mDNS not working**: Ensure device on same network, try IP address
 - **JTAG won't connect**: Add pull-down resistor to GPIO 12, check wiring
 
+## Release History
+
+See [CHANGELOG.md](CHANGELOG.md) for detailed version history, features, and changes.
+
+### Current Version
+
+The current stable version is **v2.0.1** (2026-01-25), featuring:
+- GitHub Actions CI/CD pipeline
+- LCD diagnostics improvements with uptime label
+- OTA pre-flight connectivity checks
+- Memory optimizations (~22KB DRAM savings on TTGO)
+- Optional log buffer feature toggle
+
+For complete release notes, see [CHANGELOG.md](CHANGELOG.md).
+
 ## License
 
 MIT License
