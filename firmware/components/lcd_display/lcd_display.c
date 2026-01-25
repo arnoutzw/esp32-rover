@@ -783,8 +783,9 @@ esp_err_t lcd_display_diagnostics(const lcd_wifi_diag_t *diag)
     uint32_t hrs = mins / 60;
     secs %= 60;
     mins %= 60;
+    lcd_draw_string(70, y, "Up:", COLOR_LIGHTGRAY, COLOR_BLACK, 1);
     snprintf(buf, sizeof(buf), "%02lu:%02lu:%02lu", (unsigned long)hrs, (unsigned long)mins, (unsigned long)secs);
-    lcd_draw_string(85, y, buf, COLOR_GREEN, COLOR_BLACK, 1);
+    lcd_draw_string(94, y, buf, COLOR_GREEN, COLOR_BLACK, 1);
     y += 12;
 
     // Services Section
