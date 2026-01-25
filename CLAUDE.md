@@ -38,14 +38,15 @@ source ./firmware/esp-idf/export.sh
 # Regenerate config (after changing config/rover_config.yaml)
 source ./firmware/esp-idf/export.sh && python scripts/generate_config.py
 
-# OTA flash to ESP32-CAM (via mDNS)
-curl -X POST -H "X-OTA-Password: rover1234" --data-binary @firmware/build/esp32-rover.bin http://esp32-rover.local/ota
+# OTA flash to ESP32-CAM (auto rate-limited for stability)
+./scripts/ota.sh esp32cam
 
-# OTA flash to TTGO (via mDNS)
-curl -X POST -H "X-OTA-Password: rover1234" --data-binary @firmware/build/esp32-rover.bin http://ttgo-rover.local/ota
+# OTA flash to TTGO
+./scripts/ota.sh ttgo
 
-# OTA flash via direct IP
-curl -X POST -H "X-OTA-Password: rover1234" --data-binary @firmware/build/esp32-rover.bin http://<IP>/ota
+# OTA flash to specific IP
+./scripts/ota.sh esp32cam 192.168.2.88
+./scripts/ota.sh ttgo 192.168.2.75
 ```
 
 ## Target Configuration

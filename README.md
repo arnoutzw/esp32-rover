@@ -110,6 +110,7 @@ esp32-rover-firmware/
 ├── scripts/                     # Build and utility scripts
 │   ├── build.sh                 # Build script
 │   ├── setup.sh                 # First-time setup script
+│   ├── ota.sh                   # OTA flash script (rate-limited for ESP32-CAM)
 │   ├── generate_config.py       # Config header generator
 │   └── generate_build_info.sh   # Git version info generator
 ├── config/                      # Configuration files
@@ -295,17 +296,23 @@ Access system diagnostics by scrolling down:
 
 ## OTA Firmware Updates
 
-Update firmware over WiFi:
+Update firmware over WiFi using the OTA script:
 
 ```bash
-# Build new firmware
+# Build and flash to ESP32-CAM (auto rate-limited for stability)
 ./scripts/build.sh esp32cam
+./scripts/ota.sh esp32cam
 
-# Upload via curl
-curl -X POST -H "X-OTA-Password: rover1234" \
-     --data-binary @firmware/build/esp32-rover.bin \
-     http://esp32-rover.local/ota
+# Build and flash to TTGO
+./scripts/build.sh ttgo
+./scripts/ota.sh ttgo
+
+# Flash to specific IP address
+./scripts/ota.sh esp32cam 192.168.2.88
+./scripts/ota.sh ttgo 192.168.2.75
 ```
+
+**Note**: The OTA script automatically applies rate limiting (50 KB/s) for ESP32-CAM to prevent memory issues during transfer.
 
 **Tip**: Disable camera stream before OTA to free resources (use CAM ON/OFF button).
 
