@@ -1403,6 +1403,7 @@ static void lcd_update_task(void *pvParameters)
     wifi_switch_state_t wifi_switch_state = {0};
     bool wifi_switch_message_shown = false;  // Track if confirmation message is displayed
     TickType_t wifi_switch_message_time = 0;
+    bool wifi_switch_overlay_shown = false;  // Track if countdown overlay is displayed
 #endif
 
     lcd_rover_status_t lcd_status = {
@@ -1477,6 +1478,12 @@ static void lcd_update_task(void *pvParameters)
             char countdown_msg[32];
             snprintf(countdown_msg, sizeof(countdown_msg), "WiFi AP: %d...", countdown);
             lcd_display_overlay(countdown_msg);
+            wifi_switch_overlay_shown = true;
+        } else if (wifi_switch_overlay_shown) {
+            // Clear overlay when exiting ENTERING mode (button released before 5s)
+            lcd_display_reset_state();
+            lcd_display_clear();
+            wifi_switch_overlay_shown = false;
         }
 #endif
 
