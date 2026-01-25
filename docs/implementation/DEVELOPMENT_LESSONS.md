@@ -14,6 +14,7 @@ This document captures key bugfixes, feature implementations, and lessons learne
 - [Configuration System](#configuration-system)
 - [WiFi Connectivity](#wifi-connectivity)
 - [Web Server Concurrency](#web-server-concurrency)
+- [Web UI and JavaScript Integration](#web-ui-and-javascript-integration)
 - [Summary of Best Practices](#summary-of-best-practices)
 
 ---
@@ -1081,6 +1082,82 @@ BEFORE (blocking):                    AFTER (async):
 | Large file download | **Yes** | Takes seconds/minutes |
 | WebSocket handler | **Yes** | Long-lived connection |
 | POST with small body | No | Quick parsing and response |
+
+---
+
+## Web UI and JavaScript Integration
+
+### Issue: Web UI Diagnostics Not Refreshing
+
+**Symptom**: The diagnostics panel in the web UI showed static values that never updated. All metrics (uptime, memory, WiFi info) remained at their initial values. The connection status indicator worked, but telemetry values were frozen.
+
+**Root Cause**: The `/status` JSON response was missing the `velocity` field that the JavaScript expected. When the JavaScript tried to call `.toFixed(1)` on `undefined`, it threw a `TypeError`. This exception was caught by the `catch(e)` block which silently ignored the error, preventing all DOM updates in `fetchStatus()`.
+
+**JavaScript code expecting velocity**:
+```javascript
+// In fetchStatus() - line 832-833 of web_ui.c
+document.getElementById('tel-velocity').textContent =
+    data.velocity.toFixed(1) + ' rad/s';
+```
+
+**Original /status response (missing velocity)**:
+```json
+{
+  "target": "esp32cam",
+  "battery": 5.64,
+  "camera": true,
+  "diag": { ... }
+}
+```
+
+**Investigation Process**:
+1. Verified REST API `/status` endpoint was working via `curl` - returned valid JSON
+2. Examined web_ui.c JavaScript code for `fetchStatus()` function
+3. Found `setInterval(fetchStatus, STATUS_INTERVAL)` was correctly set up (100ms)
+4. Noticed `fetchStatus()` had a silent `catch(e)` block
+5. Compared JavaScript's expected fields against actual JSON response
+6. Found `data.velocity.toFixed(1)` would fail because `velocity` was undefined
+
+**Solution**: Added `velocity` field to the `/status` JSON response in `web_server.c`:
+
+```c
+// In status_handler() - web_server.c
+snprintf(response, sizeof(response),
+    "{"
+    "\"target\":\"%s\","
+    "\"velocity\":%.1f,"    // Added this line
+    "\"battery\":%.2f,"
+    ...
+    target_str,
+    0.0f,  // velocity - placeholder for UI compatibility
+    status.battery_voltage,
+    ...
+```
+
+**Lesson Learned**:
+- **Silent catch blocks hide errors** - At minimum, log to console in development
+- **Keep API contracts in sync** - When UI expects a field, backend must provide it
+- **Test incrementally** - A single undefined field can break an entire update function
+- **Defensive JavaScript** - Use optional chaining (`data.velocity?.toFixed(1)`) or default values (`(data.velocity || 0).toFixed(1)`)
+
+**Prevention Pattern**:
+```javascript
+// Better error handling in fetchStatus()
+async function fetchStatus() {
+    try {
+        const response = await fetch('/status');
+        if (response.ok) {
+            const data = await response.json();
+            // Use defensive access patterns
+            document.getElementById('tel-velocity').textContent =
+                (data.velocity ?? 0).toFixed(1) + ' rad/s';
+            // ... rest of updates
+        }
+    } catch (e) {
+        console.error('Status fetch failed:', e);  // Don't silently ignore!
+    }
+}
+```
 
 ---
 

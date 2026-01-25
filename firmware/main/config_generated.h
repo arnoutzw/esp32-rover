@@ -76,7 +76,7 @@
 #define OTA_PASSWORD "rover1234"
 
 // Task Watchdog Configuration (REQ-37)
-#define ENABLE_TASK_WATCHDOG 1
+#define ENABLE_TASK_WATCHDOG 0
 #define TASK_WDT_TIMEOUT_SEC 30
 #define TASK_WDT_PANIC_ON_TIMEOUT 1
 

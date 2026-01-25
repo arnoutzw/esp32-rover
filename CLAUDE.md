@@ -64,3 +64,18 @@ The actual build target is selected via `./scripts/build.sh esp32cam` or `./scri
 - `scripts/generate_config.py` - Generates `firmware/main/config_generated.h` from YAML
 - `firmware/main/config.h` - Hardware pin definitions
 - `firmware/main/config_generated.h` - Auto-generated config defines
+
+## Development Rules
+
+### Bug Documentation
+
+**For every investigated bug with a confirmed fix, add a new entry to `docs/implementation/DEVELOPMENT_LESSONS.md`.**
+
+Each entry should include:
+1. **Symptom**: What the user observed (error message, behavior)
+2. **Root Cause**: The underlying technical issue
+3. **Investigation Process**: How the bug was diagnosed
+4. **Solution**: The fix applied
+5. **Lesson Learned**: Key takeaway for future development
+
+This ensures knowledge is preserved and similar issues can be avoided or quickly diagnosed in the future.

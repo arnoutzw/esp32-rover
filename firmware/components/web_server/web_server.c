@@ -388,6 +388,7 @@ static esp_err_t status_handler(httpd_req_t *req)
     snprintf(response, sizeof(response),
         "{"
         "\"target\":\"%s\","
+        "\"velocity\":%.1f,"
         "\"battery\":%.2f,"
         "\"camera\":%s,"
         "\"rssi\":%d,"
@@ -416,6 +417,7 @@ static esp_err_t status_handler(httpd_req_t *req)
         "}"
         "}",
         target_str,
+        0.0f,  // velocity - currently not measured, placeholder for UI compatibility
         status.battery_voltage,
         status.camera_active ? "true" : "false",
         status.wifi_rssi,
