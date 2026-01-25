@@ -15,6 +15,7 @@ This document defines the behavioral rules and standards that AI assistants MUST
    - [Push Immediately Rule](#push-immediately-rule)
 4. [Build and Flash](#build-and-flash)
    - [Build Script Usage](#build-script-usage)
+   - [Clean Build Rule](#clean-build-rule)
    - [Flash Verification](#flash-verification)
    - [Build Hash Verification Rule](#build-hash-verification-rule)
 5. [Documentation Requirements](#documentation-requirements)
@@ -242,6 +243,32 @@ The build script:
 - Enforces clean git state
 - Generates `config_generated.h` automatically
 
+### Clean Build Rule
+
+**ALWAYS perform a clean build before flashing to prevent stale build artifacts.**
+
+Incremental builds can retain stale `build_info` with old git hashes even when source code has changed. To prevent flashing firmware with incorrect version information:
+
+```bash
+# ALWAYS use this pattern for builds intended for flashing:
+./scripts/build.sh <target> clean && ./scripts/build.sh <target>
+```
+
+**Why clean builds are mandatory:**
+- The `build_info` component caches git hash at compile time
+- Incremental builds may not regenerate `build_info.h` if only non-header files changed
+- This causes the binary to report an old commit hash while containing new code
+- Debugging becomes impossible when reported version doesn't match actual code
+
+**Observed failure mode:**
+1. Commit changes (e.g., `77b4f74`)
+2. Run incremental build: `./scripts/build.sh ttgo`
+3. Binary filename shows `77b4f74` but embedded hash is still `b32a316`
+4. OTA succeeds but device reports old version
+5. User thinks fix didn't work, wastes time debugging
+
+**Clean build adds ~20 seconds but prevents hours of confusion.**
+
 ### Flash Verification
 
 **After every OTA flash, verify the firmware fingerprint matches:**
@@ -274,47 +301,44 @@ EXPECTED_HASH=$(git rev-parse --short=7 HEAD)
 strings binaries/<target>/latest.bin | grep "$EXPECTED_HASH"
 
 # Should output something like:
-# v2.0.3-3-gb32a316
-# b32a316
+# v2.0.3-6-g77b4f74
+# 77b4f74
 ```
 
 **Verification steps (mandatory before OTA):**
 1. Note the current git commit hash after committing
-2. Run the build: `./scripts/build.sh <target>`
-3. Verify the binary filename contains the expected hash (e.g., `esp32-rover_ttgo_20260125_214954_b32a316.bin`)
+2. Run clean build: `./scripts/build.sh <target> clean && ./scripts/build.sh <target>`
+3. Verify the binary filename contains the expected hash
 4. Verify the hash is embedded in the binary using `strings` command
 5. Only proceed with OTA if hashes match
 
-**If hashes don't match or old hash is present:**
-- **DO NOT proceed with OTA flash** - flag a warning
-- Perform a clean rebuild: `./scripts/build.sh <target> clean && ./scripts/build.sh <target>`
-- Re-verify the hash in the new binary
-- Investigate if stale build artifacts may be causing the mismatch
+**If hashes don't match:**
+- **DO NOT proceed with OTA flash** - flag a warning to user
+- Investigate why clean build didn't produce correct hash
+- Never flash a binary with mismatched hash
 
-**Why this matters:**
-- Prevents flashing binaries with embedded hashes from previous builds
-- Catches incremental build issues where build_info isn't regenerated
-- Ensures the firmware running on device can be traced to exact source code
-- Avoids confusion when debugging issues on "wrong" firmware version
-
-**Example verification workflow:**
+**Complete build-flash workflow:**
 ```bash
-# After committing changes
-git rev-parse --short=7 HEAD
-# Output: b32a316
+# 1. Commit and push changes
+git add -A && git commit -m "description" && git push
 
-# Build
-./scripts/build.sh ttgo
+# 2. Note expected hash
+EXPECTED=$(git rev-parse --short=7 HEAD)
+echo "Expected hash: $EXPECTED"
 
-# Verify (must see the same hash)
-strings binaries/ttgo/latest.bin | grep "b32a316"
-# Expected output:
-# v2.0.3-3-gb32a316
-# b32a316
-
-# If you see a DIFFERENT hash (e.g., 97b1285), DO NOT FLASH
-# Instead, clean rebuild:
+# 3. Clean build (ALWAYS clean to prevent stale hash)
 ./scripts/build.sh ttgo clean && ./scripts/build.sh ttgo
+
+# 4. Verify hash in binary
+strings binaries/ttgo/latest.bin | grep "$EXPECTED"
+# Must see the hash - if not, DO NOT FLASH
+
+# 5. Flash via OTA
+OTA_PASSWORD=<password> ./scripts/ota.sh ttgo
+
+# 6. Verify device is running correct firmware
+sleep 5 && curl -s http://ttgo-rover.local/status | jq '.diag.buildFingerprint'
+# Must match expected hash
 ```
 
 ---

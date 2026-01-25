@@ -1,0 +1,6 @@
+Target: ttgo
+Built: 20260125_215841
+Git Commit: 77b4f74
+Git Branch: develop
+Binary Size: 1011232 bytes
+SHA256: a72aa5a6b68fd15775b097d509626e83d33c54307129401fa87aa4b63e841926
