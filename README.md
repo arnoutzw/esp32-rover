@@ -17,7 +17,9 @@ A WiFi-controlled rover using ESP32 with SimpleFOC BLDC motor control and servo 
 - **OTA Updates**: HTTP-based firmware updates with password protection
 - **MQTT Telemetry**: Optional diagnostic data publishing
 - **mDNS Discovery**: Access via `esp32-rover.local` or `ttgo-rover.local`
-- **Serial Log Capture**: View boot logs in web UI via SSE streaming
+- **Serial Log Capture**: View boot logs in web UI via SSE streaming, optional SD card storage
+- **Status LED Indicator**: On-board LED shows WiFi status (ESP32-CAM only)
+- **SD Card Debug Mode**: Enable SD card storage with 1-bit SDMMC (ESP32-CAM only)
 - **JTAG Debug Mode**: Build flag to free GPIO 12-15 for hardware debugging
 - **Self-Contained**: ESP-IDF v5.2.2 embedded in project
 
@@ -104,7 +106,9 @@ esp32-rover-firmware/
 │   ├── lcd_display/        # ST7789 LCD driver (TTGO)
 │   ├── web_server/         # HTTP server with UI
 │   ├── mqtt_service/       # MQTT telemetry publisher
-│   ├── log_buffer/         # Serial log capture ring buffer
+│   ├── log_buffer/         # Serial log capture with SD storage
+│   ├── status_led/         # WiFi status LED indicator
+│   ├── sd_card/            # SD card 1-bit SDMMC driver
 │   └── resource_guard/     # Memory/stack safety guards
 ├── esp-idf/                # Embedded ESP-IDF v5.2.2
 ├── docs/
@@ -155,6 +159,12 @@ motor:
 task_watchdog:
   enabled: true
   timeout_sec: 30
+
+# Status LED indicator (ESP32-CAM only)
+status_led:
+  enabled: true
+  sta_blink_period_ms: 1000  # 1Hz in STA mode
+  ap_blink_period_ms: 500    # 2Hz in AP mode
 ```
 
 After editing, regenerate the header:
@@ -203,12 +213,17 @@ mqtt_password: ""
 |------|----------|-------|
 | 12 | Motor IN1 | Boot-sensitive (keep LOW) |
 | 13 | Motor IN2 | BLDC phase B |
-| 14 | Motor IN3 / I2C SDA | Shared with encoder |
-| 15 | Motor EN / I2C SCL | Shared with encoder |
-| 2 | Servo PWM | Has onboard LED |
+| 14 | Motor IN3 / I2C SDA / SD CLK | Shared with encoder/SD |
+| 15 | Motor EN / I2C SCL / SD CMD | Shared with encoder/SD |
+| 2 | Servo PWM / SD D0 | Has onboard LED, shared with SD |
+| 33 | Status LED | On-board red LED (inverted logic) |
+| 4 | Flash LED | On-board white LED |
 | Many | Camera | See config.h for full pinout |
 
-**Note**: GPIO 12-15 are also JTAG pins. Use `JTAG_DEBUG=1` build flag to disable motor and enable JTAG debugging.
+**Notes**:
+- GPIO 12-15 are also JTAG pins. Use `JTAG_DEBUG=1` build flag to disable motor and enable JTAG debugging.
+- GPIO 2, 14, 15 are used for SD card in 1-bit mode. Use `SD_CARD_DEBUG=1` build flag to enable SD card (disables motor).
+- Status LED (GPIO 33) uses inverted logic: LOW = LED on, HIGH = LED off.
 
 ## Web Interface
 
@@ -303,9 +318,11 @@ curl -X POST -H "X-OTA-Password: rover1234" \
 
 **Tip**: Disable camera stream before OTA to free resources (use CAM ON/OFF button).
 
-## JTAG Debugging
+## Debug Modes (ESP32-CAM only)
 
-For hardware debugging on ESP32-CAM, build with JTAG mode to free GPIO 12-15:
+### JTAG Debugging
+
+For hardware debugging, build with JTAG mode to free GPIO 12-15:
 
 ```bash
 # Build with motor control disabled
@@ -320,6 +337,24 @@ xtensa-esp32-elf-gdb -ex "target remote :3333" build/esp32-rover.elf
 ```
 
 See [ESP-PROG JTAG Guide](docs/esp-prog-jtag-guide.md) for detailed wiring instructions.
+
+### SD Card Debug Mode
+
+Enable SD card in 1-bit SDMMC mode for log storage and debugging:
+
+```bash
+# Build with SD card enabled (motor disabled)
+SD_CARD_DEBUG=1 ROVER_TARGET=esp32cam idf.py build flash
+
+# Logs are automatically written to /sdcard/rover_logs.txt
+# Access via web UI at /logs or read from SD card directly
+```
+
+**Features**:
+- 1-bit SDMMC mode (uses GPIO 2, 14, 15)
+- Automatic log storage to SD card
+- Graceful failover to RAM if SD card fails
+- Mutually exclusive with motor control (shared pins)
 
 ## Architecture
 
@@ -391,6 +426,9 @@ See [test/README.md](test/README.md) for details.
 - **LCD not displaying**: Check SPI connections, verify `ENABLE_LCD_DISPLAY=1`
 - **Buttons not responding**: Check GPIO 0/35, verify `ENABLE_BUTTONS=1`
 - **WiFi connection issues**: Move closer to rover, check for interference
+- **Status LED not blinking**: LED uses inverted logic (LOW = on), check GPIO 33, ESP32-CAM only
+- **SD card not mounting**: Use `SD_CARD_DEBUG=1` build, check card format (FAT32), verify 1-bit mode pins
+- **Logs not on SD card**: Check SD mount, verify `/sdcard/rover_logs.txt` writable, check web UI `/logs`
 - **Servo jitter**: Ensure adequate 5V power supply
 - **Build fails**: Run `./setup.sh` first to install tools
 - **mDNS not working**: Ensure device on same network, try IP address
@@ -398,7 +436,28 @@ See [test/README.md](test/README.md) for details.
 
 ## Changelog
 
-### v1.4 (Latest)
+### v1.5 (Latest)
+- Added Status LED Indicator (REQ-39)
+  - On-board red LED (GPIO 33) shows WiFi status on ESP32-CAM
+  - Solid ON: Powered, no WiFi connection
+  - 2Hz blink: AP mode active
+  - 1Hz blink: STA mode with WiFi connected
+  - Uses inverted logic (LOW = LED on)
+- Added SD Card Debug Mode (REQ-40)
+  - `SD_CARD_DEBUG=1` build flag enables 1-bit SDMMC
+  - Mounts SD card to `/sdcard` for log storage
+  - Mutually exclusive with motor control (shared GPIO)
+- Updated Serial Log Capture (REQ-31)
+  - Dual-backend: RAM ring buffer + SD card file
+  - Automatic failover on SD mount failure
+  - Logs written to `/sdcard/rover_logs.txt`
+  - Graceful degradation on write errors
+- Added Resource Report Generator
+  - Build-time flash and memory analysis
+  - Component size breakdown
+  - Resource consumption warnings
+
+### v1.4
 - Added Task Watchdog Timer (REQ-37)
   - Monitors motor control and status tasks
   - Auto-reboot on 30-second timeout
