@@ -127,25 +127,35 @@ static bool s_battery_adc_initialized = false;
 // Alpha = 0.02 gives ~10 second time constant at 20Hz sampling
 // This means it takes about 10 seconds to reach 63% of a step change
 #define BATTERY_FILTER_ALPHA 0.02f
-static float s_battery_voltage_filtered = 0.0f;
-static bool s_battery_filter_initialized = false;
+static volatile float s_battery_voltage_filtered = 0.0f;  // Accessed from multiple tasks
+static volatile bool s_battery_filter_initialized = false;
 
 static void init_battery_adc(void)
 {
     if (s_battery_adc_initialized) return;
 
-    // Configure ADC unit
+    // Configure ADC unit (non-critical - device works without battery monitoring)
     adc_oneshot_unit_init_cfg_t init_config = {
         .unit_id = ADC_UNIT_1,
     };
-    ESP_ERROR_CHECK(adc_oneshot_new_unit(&init_config, &s_adc_handle));
+    esp_err_t ret = adc_oneshot_new_unit(&init_config, &s_adc_handle);
+    if (ret != ESP_OK) {
+        ESP_LOGW(TAG, "ADC unit init failed: %s - battery monitoring disabled", esp_err_to_name(ret));
+        return;
+    }
 
     // Configure ADC channel
     adc_oneshot_chan_cfg_t chan_config = {
         .bitwidth = ADC_BITWIDTH_12,
         .atten = ADC_ATTEN_DB_12,  // Full scale ~3.3V (with attenuation)
     };
-    ESP_ERROR_CHECK(adc_oneshot_config_channel(s_adc_handle, BATTERY_ADC_CHANNEL, &chan_config));
+    ret = adc_oneshot_config_channel(s_adc_handle, BATTERY_ADC_CHANNEL, &chan_config);
+    if (ret != ESP_OK) {
+        ESP_LOGW(TAG, "ADC channel config failed: %s - battery monitoring disabled", esp_err_to_name(ret));
+        adc_oneshot_del_unit(s_adc_handle);
+        s_adc_handle = NULL;
+        return;
+    }
 
     // Create calibration handle for more accurate readings (ESP32 uses line fitting)
     adc_cali_line_fitting_config_t cali_config = {
@@ -210,17 +220,17 @@ static float read_battery_voltage(void)
 
 // WiFi state tracking
 static bool s_wifi_is_sta_mode = false;
-static bool s_wifi_sta_connected = false;
+static volatile bool s_wifi_sta_connected = false;  // Modified in event handler callback
 static char s_wifi_ip_str[16] = "192.168.4.1";
 static EventGroupHandle_t s_wifi_event_group = NULL;
 #define WIFI_CONNECTED_BIT BIT0
 #define WIFI_FAIL_BIT      BIT1
 
 // REQ-10: Internet connectivity tracking
-static bool s_internet_connected = false;
+static volatile bool s_internet_connected = false;  // Modified by connectivity check task
 
 // REQ-13: NTP time tracking
-static bool s_ntp_synced = false;
+static volatile bool s_ntp_synced = false;  // Modified in NTP callback
 static char s_local_time_str[32] = "--:--:--";
 
 static void wifi_event_handler(void *arg, esp_event_base_t event_base,
@@ -266,6 +276,8 @@ static void wifi_event_handler(void *arg, esp_event_base_t event_base,
 
 #if WIFI_MODE_AP_ONLY
 // Start WiFi in AP mode (AP-only configuration)
+// NOTE: ESP_ERROR_CHECK is intentional here - WiFi failure is fatal since
+// the rover requires network connectivity for web-based control.
 static esp_err_t wifi_start_ap(bool netif_already_init)
 {
     ESP_LOGI(TAG, "Starting WiFi AP mode");
@@ -327,6 +339,8 @@ static esp_err_t wifi_start_ap(bool netif_already_init)
 
 #if WIFI_MODE_STA_FIRST || WIFI_MODE_STA_ONLY
 // Try to connect to STA network with timeout, return true if successful
+// NOTE: ESP_ERROR_CHECK is intentional here - WiFi failure is fatal since
+// the rover requires network connectivity for web-based control.
 static bool wifi_try_sta_connect(void)
 {
     ESP_LOGI(TAG, "Attempting to connect to WiFi network: %s", WIFI_STA_SSID);
@@ -483,7 +497,7 @@ bool wifi_is_internet_connected(void)
 // REQ-10: Internet Connectivity Check
 // =============================================================================
 
-static bool s_ping_success = false;
+static volatile bool s_ping_success = false;  // Modified in ping callback
 
 static void ping_success_callback(esp_ping_handle_t hdl, void *args)
 {
@@ -495,20 +509,22 @@ static void ping_end_callback(esp_ping_handle_t hdl, void *args)
     // Ping session ended
 }
 
-// Check internet connectivity by pinging 1.1.1.1
+// Check internet connectivity by pinging configured target (default 1.1.1.1 Cloudflare DNS)
 static bool check_internet_connectivity(void)
 {
-    ESP_LOGI(TAG, "Checking internet connectivity (ping 1.1.1.1)...");
+    ESP_LOGI(TAG, "Checking internet connectivity (ping %d.%d.%d.%d)...",
+             PING_TARGET_IP_1, PING_TARGET_IP_2, PING_TARGET_IP_3, PING_TARGET_IP_4);
 
     ip_addr_t target_addr;
-    IP4_ADDR(&target_addr.u_addr.ip4, 1, 1, 1, 1);
+    IP4_ADDR(&target_addr.u_addr.ip4, PING_TARGET_IP_1, PING_TARGET_IP_2,
+             PING_TARGET_IP_3, PING_TARGET_IP_4);
     target_addr.type = IPADDR_TYPE_V4;
 
     esp_ping_config_t ping_config = ESP_PING_DEFAULT_CONFIG();
     ping_config.target_addr = target_addr;
-    ping_config.count = 3;           // Send 3 pings
-    ping_config.interval_ms = 1000;  // 1 second interval
-    ping_config.timeout_ms = 2000;   // 2 second timeout per ping
+    ping_config.count = PING_PACKET_COUNT;
+    ping_config.interval_ms = PING_INTERVAL_MS;
+    ping_config.timeout_ms = PING_TIMEOUT_MS;
 
     esp_ping_callbacks_t callbacks = {
         .on_ping_success = ping_success_callback,
@@ -528,8 +544,8 @@ static bool check_internet_connectivity(void)
 
     esp_ping_start(ping_handle);
 
-    // Wait for ping to complete (3 pings * 2s timeout = 6s max, plus some buffer)
-    vTaskDelay(pdMS_TO_TICKS(7000));
+    // Wait for ping to complete
+    vTaskDelay(pdMS_TO_TICKS(PING_TOTAL_WAIT_MS));
 
     esp_ping_stop(ping_handle);
     esp_ping_delete_session(ping_handle);
@@ -1287,8 +1303,8 @@ static void lcd_update_task(void *pvParameters)
             lcd_status.steering_degrees = (int)cmd.steering;
             lcd_status.estop = cmd.emergency_stop;
 
-            // Check if client connected (command age < 1 second means active)
-            lcd_status.connected = (web_server_get_command_age_ms() < 1000);
+            // Check if client connected (command age < threshold means active)
+            lcd_status.connected = (web_server_get_command_age_ms() < CONNECTION_TIMEOUT_MS);
 
             // Battery voltage
 #if defined(ENABLE_BATTERY_ADC) && ENABLE_BATTERY_ADC

@@ -118,13 +118,26 @@
 
 // LCD Display Configuration (ST7789 135x240)
 // TTGO T-Display built-in LCD pins
-#define LCD_PIN_SCLK        GPIO_NUM_18
-#define LCD_PIN_MOSI        GPIO_NUM_19
-#define LCD_PIN_DC          GPIO_NUM_16
-#define LCD_PIN_CS          GPIO_NUM_5
-#define LCD_PIN_RST         GPIO_NUM_23
-#define LCD_PIN_BACKLIGHT   GPIO_NUM_4
-#define ENABLE_LCD_DISPLAY  1            // Enable LCD on TTGO
+#define LCD_PIN_SCLK            GPIO_NUM_18
+#define LCD_PIN_MOSI            GPIO_NUM_19
+#define LCD_PIN_DC              GPIO_NUM_16
+#define LCD_PIN_CS              GPIO_NUM_5
+#define LCD_PIN_RST             GPIO_NUM_23
+#define LCD_PIN_BACKLIGHT       GPIO_NUM_4
+#define ENABLE_LCD_DISPLAY      1           // Enable LCD on TTGO
+
+// LCD display geometry (ST7789 has 240x320 panel, we use 135x240 window)
+#define LCD_WIDTH               135
+#define LCD_HEIGHT              240
+#define LCD_COL_OFFSET          52          // Column offset for 135-wide window in 240-wide panel
+#define LCD_ROW_OFFSET          40          // Row offset for 240-tall window in 320-tall panel
+
+// LCD PWM backlight configuration
+#define LCD_BACKLIGHT_PWM_FREQ_HZ   5000    // PWM frequency for backlight
+#define LCD_BACKLIGHT_DUTY_MAX      255     // Maximum duty cycle (8-bit)
+
+// LCD SPI configuration
+#define LCD_SPI_CLOCK_HZ        (40 * 1000 * 1000)  // 40 MHz SPI clock
 
 // Front Button Configuration (TTGO T-Display built-in buttons)
 #define BUTTON_LEFT_PIN     GPIO_NUM_0   // Left button (active LOW)
@@ -133,10 +146,16 @@
 
 // Battery ADC Configuration (TTGO T-Display internal battery)
 // GPIO 34 is connected to battery through a 100K/100K voltage divider (2:1 ratio)
-#define BATTERY_ADC_PIN     GPIO_NUM_34
-#define BATTERY_ADC_CHANNEL ADC_CHANNEL_6   // GPIO 34 = ADC1 channel 6
-#define BATTERY_DIVIDER_RATIO 2.0f          // Voltage divider ratio
-#define ENABLE_BATTERY_ADC  1               // Enable battery ADC reading
+#define BATTERY_ADC_PIN         GPIO_NUM_34
+#define BATTERY_ADC_CHANNEL     ADC_CHANNEL_6   // GPIO 34 = ADC1 channel 6
+#define BATTERY_DIVIDER_RATIO   2.0f            // Voltage divider ratio
+#define ENABLE_BATTERY_ADC      1               // Enable battery ADC reading
+
+// Battery voltage thresholds (Li-ion single cell)
+#define BATTERY_VOLTAGE_EMPTY_V 3.0f        // 0% charge (cutoff to prevent damage)
+#define BATTERY_VOLTAGE_LOW_V   3.4f        // Low warning threshold (red)
+#define BATTERY_VOLTAGE_MED_V   3.7f        // Medium threshold (yellow)
+#define BATTERY_VOLTAGE_FULL_V  4.2f        // 100% charge (fully charged)
 
 // Camera pins not defined for TTGO (no camera)
 
@@ -172,6 +191,23 @@
 // -----------------------------------------------------------------------------
 #define ENABLE_WATCHDOG     1            // Enable command timeout watchdog
 #define ENABLE_ESTOP        1            // Enable emergency stop feature
+
+// -----------------------------------------------------------------------------
+// Internet Connectivity Check (REQ-10)
+// -----------------------------------------------------------------------------
+#define PING_TARGET_IP_1        1        // Ping target: 1.1.1.1 (Cloudflare DNS)
+#define PING_TARGET_IP_2        1
+#define PING_TARGET_IP_3        1
+#define PING_TARGET_IP_4        1
+#define PING_PACKET_COUNT       3        // Number of ping packets to send
+#define PING_INTERVAL_MS        1000     // Interval between pings
+#define PING_TIMEOUT_MS         2000     // Timeout per ping packet
+#define PING_TOTAL_WAIT_MS      7000     // Total wait time for ping completion
+
+// -----------------------------------------------------------------------------
+// Connection Status Thresholds
+// -----------------------------------------------------------------------------
+#define CONNECTION_TIMEOUT_MS   1000     // Consider disconnected after this time
 
 // -----------------------------------------------------------------------------
 // Debug Options

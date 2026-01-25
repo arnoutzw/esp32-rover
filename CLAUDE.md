@@ -460,6 +460,324 @@ Format: `date,target,duration_s,size_bytes,commit`
 
 ---
 
+## Embedded Coding Standards
+
+These rules are based on MISRA C, BARR-C, CERT C, and IEC 62443 standards, adapted for ESP-IDF and FreeRTOS embedded development.
+
+### Critical Priority
+
+#### 1. Error Handling Policy
+
+**Never use `ESP_ERROR_CHECK()` for non-critical initialization** - it crashes the entire device on failure.
+
+```c
+// BAD - crashes device if wifi init fails
+ESP_ERROR_CHECK(esp_wifi_init(&cfg));
+
+// GOOD - handles error gracefully
+esp_err_t ret = esp_wifi_init(&cfg);
+if (ret != ESP_OK) {
+    ESP_LOGE(TAG, "WiFi init failed: %s", esp_err_to_name(ret));
+    return ret;
+}
+```
+
+**Rules:**
+- Use `ESP_ERROR_CHECK()` only for truly fatal errors during startup (e.g., NVS init failure)
+- Always check return values from `esp_*` functions
+- Log all errors with context using `esp_err_to_name()`
+- Propagate errors up the call stack - don't silently continue
+
+#### 2. Memory Management Rules
+
+**Always check allocation returns for NULL before use.**
+
+```c
+// BAD - no NULL check
+TaskStatus_t *task_array = pvPortMalloc(num_tasks * sizeof(TaskStatus_t));
+task_array[0].xHandle = NULL;  // Crash if allocation failed
+
+// GOOD - check before use
+TaskStatus_t *task_array = pvPortMalloc(num_tasks * sizeof(TaskStatus_t));
+if (task_array == NULL) {
+    ESP_LOGE(TAG, "Failed to allocate task array");
+    return ESP_ERR_NO_MEM;
+}
+```
+
+**Rules:**
+- Check `malloc()`, `pvPortMalloc()`, `heap_caps_malloc()` returns for NULL
+- Pair every allocation with deallocation in error paths (no leaks)
+- Prefer static allocation for fixed-size buffers
+- Document memory ownership in function comments
+- Use `heap_caps_malloc(MALLOC_CAP_INTERNAL)` for DMA buffers
+
+#### 3. Input Validation Rules
+
+**Validate all external inputs at system boundaries.**
+
+```c
+// BAD - trusts input blindly
+int speed = atoi(req->uri_query["speed"]);
+motor_set_speed(speed);
+
+// GOOD - validate bounds
+int speed = atoi(speed_str);
+if (speed < -100 || speed > 100) {
+    httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "Speed must be -100..100");
+    return ESP_FAIL;
+}
+```
+
+**Rules:**
+- Validate all HTTP parameters (bounds, type, length)
+- Validate config values at startup
+- Check array indices before access
+- Sanitize strings before use in format functions (prevent format string attacks)
+
+#### 4. Watchdog Usage Policy
+
+**Ensure all long-running operations yield to the watchdog.**
+
+```c
+// BAD - blocks watchdog for too long
+while (processing) {
+    process_chunk();  // May take > 5 seconds
+}
+
+// GOOD - yield periodically
+while (processing) {
+    process_chunk();
+    vTaskDelay(pdMS_TO_TICKS(10));  // Yields to scheduler, feeds watchdog
+}
+```
+
+**Rules:**
+- Watchdog timeout is configured at `CFG_WATCHDOG_TIMEOUT_MS` (default 5000ms)
+- All loops must call `vTaskDelay()` or `taskYIELD()` within timeout period
+- Log warning if operation approaches watchdog timeout
+- Never disable watchdog in production code
+
+#### 5. Interrupt/ISR Rules
+
+**All ISR-modified variables MUST be `volatile`.**
+
+```c
+// BAD - compiler may optimize away reads
+static bool s_button_pressed = false;
+
+// GOOD - ensures memory is re-read each time
+static volatile bool s_button_pressed = false;
+```
+
+**Rules:**
+- Use `volatile` for all variables modified in ISR and read elsewhere
+- Use `IRAM_ATTR` for all ISR functions (keeps them in fast RAM)
+- Keep ISR code minimal: set flag, notify task, return
+- Never call blocking functions (`vTaskDelay`, `xSemaphoreTake`) from ISR
+- Use `FromISR` variants: `xTaskNotifyFromISR()`, `xQueueSendFromISR()`
+
+### High Priority
+
+#### 6. Naming Conventions
+
+**Follow these naming patterns consistently:**
+
+| Element | Convention | Example |
+|---------|------------|---------|
+| Static/file-scope variables | `s_` prefix | `s_battery_voltage` |
+| Global variables | `g_` prefix (avoid globals) | `g_system_state` |
+| Constants/defines | `UPPER_SNAKE_CASE` | `BATTERY_VOLTAGE_MIN` |
+| Functions | `module_verb_noun()` | `wifi_start_ap()` |
+| Types | `name_t` suffix | `rover_status_t` |
+| Handlers/callbacks | `*_handler` or `*_cb` suffix | `button_isr_handler` |
+| Boolean variables | `is_`, `has_`, `can_` prefix | `is_connected` |
+
+#### 7. Function Size/Complexity Limits
+
+**Keep functions small and focused.**
+
+**Rules:**
+- Maximum 100 lines of code per function
+- Maximum 4 levels of nesting
+- Single responsibility per function
+- Extract state machines to separate functions
+- If a function needs a comment block explaining sections, split it
+
+```c
+// BAD - 200+ line function with multiple responsibilities
+void lcd_update_task(void *param) {
+    // 50 lines of diagnostic mode handling
+    // 50 lines of sleep mode handling
+    // 100 lines of display update
+}
+
+// GOOD - extracted into focused functions
+static void handle_diagnostic_mode(void) { /* 30 lines */ }
+static void handle_sleep_mode(void) { /* 30 lines */ }
+static void update_display(void) { /* 40 lines */ }
+
+void lcd_update_task(void *param) {
+    handle_diagnostic_mode();
+    handle_sleep_mode();
+    update_display();
+}
+```
+
+#### 8. Return Value Checking
+
+**All `esp_err_t` returns must be checked.**
+
+```c
+// BAD - ignoring return value
+esp_wifi_get_mode(&wifi_mode);
+
+// GOOD - explicit check
+if (esp_wifi_get_mode(&wifi_mode) != ESP_OK) {
+    ESP_LOGW(TAG, "Failed to get WiFi mode");
+}
+
+// GOOD - intentionally ignored (documented)
+(void)esp_wifi_get_mode(&wifi_mode);  // Best-effort, non-critical
+```
+
+#### 9. Magic Number Prohibition
+
+**All numeric literals must be named constants.**
+
+```c
+// BAD - magic numbers scattered in code
+if (voltage < 3.0f) { /* low battery */ }
+spi_clock = 40 * 1000 * 1000;
+vTaskDelay(5000 / portTICK_PERIOD_MS);
+
+// GOOD - named constants
+#define BATTERY_VOLTAGE_EMPTY_V    3.0f
+#define BATTERY_VOLTAGE_FULL_V     4.2f
+#define LCD_SPI_CLOCK_HZ           (40 * 1000 * 1000)
+#define PING_TIMEOUT_MS            5000
+```
+
+**Standard constants to define:**
+- Battery thresholds: `BATTERY_VOLTAGE_EMPTY_V`, `BATTERY_VOLTAGE_FULL_V`
+- Display offsets: `LCD_COL_OFFSET`, `LCD_ROW_OFFSET`
+- Timing values: `*_TIMEOUT_MS`, `*_INTERVAL_MS`
+- Hardware values: `*_CLOCK_HZ`, `*_DUTY_MAX`
+
+#### 10. Comment Requirements
+
+**Document the "why", not the "what".**
+
+```c
+// BAD - states the obvious
+i++;  // Increment i
+
+// GOOD - explains non-obvious reasoning
+// Use 52-pixel offset because ST7789 has 240x320 panel but we use 135x240 window
+#define LCD_COL_OFFSET 52
+```
+
+**Rules:**
+- File header with purpose (not author/date - git tracks that)
+- Function header for non-trivial functions (params, return, side effects)
+- Inline comments only for non-obvious logic
+- TODO comments must include issue/ticket reference
+
+### Medium Priority
+
+#### 11. Global Variable Policy
+
+**Minimize global state; protect shared data.**
+
+```c
+// BAD - unprotected global
+float g_battery_voltage;  // Read by multiple tasks
+
+// GOOD - protected by mutex, grouped in struct
+typedef struct {
+    float battery_voltage;
+    SemaphoreHandle_t mutex;
+} battery_state_t;
+static battery_state_t s_battery = {0};
+```
+
+**Rules:**
+- Prefer static file-scope over global scope
+- Group related variables into structs
+- Document thread-safety requirements
+- Use mutexes for data shared across tasks
+
+#### 12. Assertion Usage
+
+**Use assertions for debug invariants only.**
+
+```c
+// GOOD - debug invariant check
+configASSERT(task_handle != NULL);  // Programming error if NULL
+
+// BAD - asserting on runtime condition
+configASSERT(esp_wifi_connect() == ESP_OK);  // Don't assert on external failure
+```
+
+**Rules:**
+- Use `configASSERT()` for catching programming errors
+- Never assert on recoverable runtime conditions
+- Assertions may be compiled out in release builds
+
+#### 13. Logging Levels Policy
+
+**Use appropriate log levels consistently.**
+
+| Level | Use For | Example |
+|-------|---------|---------|
+| ERROR | Failures affecting functionality | `ESP_LOGE(TAG, "OTA failed: %s", err)` |
+| WARN | Recoverable issues, degraded operation | `ESP_LOGW(TAG, "mDNS init failed, continuing")` |
+| INFO | State changes, startup/shutdown | `ESP_LOGI(TAG, "WiFi connected to %s", ssid)` |
+| DEBUG | Detailed tracing (disabled in release) | `ESP_LOGD(TAG, "Received command: speed=%d", speed)` |
+
+**Rules:**
+- Don't log in tight loops (use rate limiting)
+- Include relevant context in log messages
+- Use `#if CFG_DEBUG_*` for verbose debug logging
+
+#### 14. Task Priority Policy
+
+**Document priority rationale; avoid inversion.**
+
+```c
+// Document why this priority was chosen
+#define MOTOR_TASK_PRIORITY    (tskIDLE_PRIORITY + 3)  // High: safety-critical timing
+#define STATUS_TASK_PRIORITY   (tskIDLE_PRIORITY + 2)  // Medium: telemetry updates
+#define LCD_TASK_PRIORITY      (tskIDLE_PRIORITY + 1)  // Low: display refresh
+```
+
+**Rules:**
+- Higher priority = more time-critical
+- Safety tasks (motor control) get highest priority
+- Use priority inheritance mutexes to prevent inversion
+- Document priority rationale in code
+
+#### 15. Compiler Warning Policy
+
+**Treat all warnings as errors.**
+
+Build with `-Werror` enabled (default in this project). Never suppress warnings without documented justification.
+
+```c
+// BAD - suppressing without reason
+#pragma GCC diagnostic ignored "-Wunused-variable"
+
+// GOOD - if suppression is truly needed, document why
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wcast-align"
+// ESP-IDF's httpd_req_to_sockfd returns int but we need to cast to socklen_t
+// for setsockopt call - alignment is guaranteed by httpd implementation
+socklen_t len = (socklen_t)httpd_req_to_sockfd(req);
+#pragma GCC diagnostic pop
+```
+
+---
+
 ## Technical Deep Dive (AI Assistant Reference)
 
 ### Component Architecture

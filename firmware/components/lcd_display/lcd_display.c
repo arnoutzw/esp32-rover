@@ -15,12 +15,9 @@
 #include <stdint.h>
 #include <limits.h>
 #include "build_info.h"
+#include "config.h"  // For LCD and battery constants
 
 static const char *TAG = "LCD_DISPLAY";
-
-// ST7789 Display dimensions (TTGO T-Display is 135x240)
-#define LCD_WIDTH   135
-#define LCD_HEIGHT  240
 
 // ST7789 Commands
 #define ST7789_NOP       0x00
@@ -202,9 +199,10 @@ static void lcd_data_byte(uint8_t data)
 // Set drawing window
 static void lcd_set_window(uint16_t x0, uint16_t y0, uint16_t x1, uint16_t y1)
 {
-    // Column offset for TTGO T-Display
-    uint16_t col_offset = 52;
-    uint16_t row_offset = 40;
+    // ST7789 has a 240x320 panel, but TTGO T-Display uses a 135x240 window
+    // Offsets position our window within the larger panel
+    uint16_t col_offset = LCD_COL_OFFSET;
+    uint16_t row_offset = LCD_ROW_OFFSET;
 
     lcd_cmd(ST7789_CASET);
     uint8_t col_data[] = {
@@ -350,7 +348,7 @@ esp_err_t lcd_display_init(const lcd_display_config_t *config)
             .speed_mode = LEDC_LOW_SPEED_MODE,
             .duty_resolution = LEDC_TIMER_8_BIT,
             .timer_num = LEDC_TIMER_1,
-            .freq_hz = 5000,
+            .freq_hz = LCD_BACKLIGHT_PWM_FREQ_HZ,
             .clk_cfg = LEDC_AUTO_CLK,
         };
         ledc_timer_config(&ledc_timer);
@@ -378,7 +376,7 @@ esp_err_t lcd_display_init(const lcd_display_config_t *config)
     ESP_ERROR_CHECK(spi_bus_initialize(SPI2_HOST, &buscfg, SPI_DMA_CH_AUTO));
 
     spi_device_interface_config_t devcfg = {
-        .clock_speed_hz = 40 * 1000 * 1000,  // 40 MHz (ST7789 supports up to 80MHz)
+        .clock_speed_hz = LCD_SPI_CLOCK_HZ,  // ST7789 supports up to 80MHz
         .mode = 0,
         .spics_io_num = config->pin_cs,
         .queue_size = 7,
@@ -569,13 +567,14 @@ esp_err_t lcd_display_update(const lcd_rover_status_t *status)
             lcd_draw_string(4, y, "BAT", COLOR_LIGHTGRAY, COLOR_BLACK, 1);
         }
         snprintf(buf, sizeof(buf), "%4.2fV", status->battery_volts);
-        uint16_t bat_color = (status->battery_volts > 3.7f) ? COLOR_GREEN :
-                            (status->battery_volts > 3.4f) ? COLOR_YELLOW : COLOR_RED;
+        uint16_t bat_color = (status->battery_volts > BATTERY_VOLTAGE_MED_V) ? COLOR_GREEN :
+                            (status->battery_volts > BATTERY_VOLTAGE_LOW_V) ? COLOR_YELLOW : COLOR_RED;
         lcd_fill_rect(50, y, 45, 10, COLOR_BLACK);  // Clear old value
         lcd_draw_string(50, y, buf, bat_color, COLOR_BLACK, 1);
 
         // Battery bar (3.0V = 0%, 4.2V = 100%)
-        int bat_pct = (int)((status->battery_volts - 3.0f) / (4.2f - 3.0f) * 100);
+        int bat_pct = (int)((status->battery_volts - BATTERY_VOLTAGE_EMPTY_V) /
+                            (BATTERY_VOLTAGE_FULL_V - BATTERY_VOLTAGE_EMPTY_V) * 100);
         if (bat_pct < 0) bat_pct = 0;
         if (bat_pct > 100) bat_pct = 100;
         lcd_fill_rect(95, y, 36, 10, COLOR_DARKGRAY);
@@ -773,8 +772,8 @@ esp_err_t lcd_display_diagnostics(const lcd_wifi_diag_t *diag)
     // Battery voltage
     lcd_draw_string(4, y, "Bat:", COLOR_LIGHTGRAY, COLOR_BLACK, 1);
     snprintf(buf, sizeof(buf), "%.2fV", diag->battery_volts);
-    uint16_t bat_color = (diag->battery_volts > 3.7f) ? COLOR_GREEN :
-                        (diag->battery_volts > 3.4f) ? COLOR_YELLOW : COLOR_RED;
+    uint16_t bat_color = (diag->battery_volts > BATTERY_VOLTAGE_MED_V) ? COLOR_GREEN :
+                        (diag->battery_volts > BATTERY_VOLTAGE_LOW_V) ? COLOR_YELLOW : COLOR_RED;
     lcd_draw_string(34, y, buf, bat_color, COLOR_BLACK, 1);
     y += 10;
 
