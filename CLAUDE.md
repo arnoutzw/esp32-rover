@@ -92,6 +92,21 @@ git push origin main --tags
 git checkout develop
 ```
 
+### Clean Build Rule
+
+**Never build with a dirty working directory.**
+
+Before running any build command (`./scripts/build.sh`):
+1. Check if there are uncommitted changes (`git status`)
+2. If dirty, commit all changes to `develop` with a descriptive message
+3. Push to origin
+4. Only then proceed with the build
+
+This ensures:
+- Every build is traceable to a specific commit
+- Build fingerprint in firmware matches a known state
+- No accidental "works on my machine" issues from uncommitted changes
+
 ### Bug Documentation
 
 **For every investigated bug with a confirmed fix, add a new entry to `docs/implementation/DEVELOPMENT_LESSONS.md`.**
