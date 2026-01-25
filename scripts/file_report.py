@@ -6,14 +6,14 @@ A GUI application to file bug reports and feature requests with proper structure
 for AI-assisted investigation and implementation.
 
 Usage:
-    python scripts/file_bugreport.py
+    python scripts/file_report.py
 
     Or with the firmware version pre-filled (for bug reports):
-    python scripts/file_bugreport.py --version 2.0.3 --hash abc1234
+    python scripts/file_report.py --version 2.0.3 --hash abc1234
 
     Or directly open a specific form:
-    python scripts/file_bugreport.py --bug
-    python scripts/file_bugreport.py --feature
+    python scripts/file_report.py --bug
+    python scripts/file_report.py --feature
 """
 
 import os
@@ -41,8 +41,8 @@ class MainMenuApp:
     def __init__(self, root, initial_version="", initial_hash=""):
         self.root = root
         self.root.title("ESP32 Rover - Report Tool")
-        self.root.geometry("400x300")
-        self.root.minsize(350, 250)
+        self.root.geometry("400x380")
+        self.root.minsize(350, 350)
         self.initial_version = initial_version
         self.initial_hash = initial_hash
 
@@ -390,7 +390,7 @@ class BugReportApp:
 
 ---
 
-*Filed using file_bugreport.py*
+*Filed using file_report.py*
 """
 
         return content
@@ -580,7 +580,7 @@ class FeatureRequestApp:
 
         content += """---
 
-*Filed using file_bugreport.py*
+*Filed using file_report.py*
 """
 
         return content
