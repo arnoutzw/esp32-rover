@@ -23,6 +23,7 @@ This document defines the behavioral rules and standards that AI assistants MUST
    - [Bug Report Analysis](#bug-report-analysis)
    - [Documentation Updates](#documentation-updates)
    - [Feature Request Processing](#feature-request-processing)
+   - [Requirements-First Development Rule](#requirements-first-development-rule)
 6. [Release Management](#release-management)
    - [Binary Archive Management](#binary-archive-management)
    - [CI/CD Pipeline](#cicd-pipeline)
@@ -484,6 +485,64 @@ Feature requests are written from a user's perspective and may include technical
 4. Present to user: "I've processed your feature request. Here are the proposed requirements:"
 5. Wait for user approval before committing
 6. After approval, commit changes and inform user
+```
+
+### Requirements-First Development Rule
+
+**NEVER implement code before updating the requirements documentation. Requirements MUST be documented and approved BEFORE any implementation begins.**
+
+This is a fundamental principle of proper software engineering. The correct workflow is:
+
+1. **Requirements Phase** (FIRST):
+   - Analyze the feature request or user need
+   - Create/update formal requirements in `docs/requirements/software_requirements.md`
+   - Assign a requirement ID (e.g., REQ-SW-032)
+   - Define acceptance criteria
+   - Add to traceability matrix
+   - Add validation test entry
+   - Commit the requirements documentation
+   - Present to user for approval
+
+2. **Implementation Phase** (SECOND - only after requirements are approved):
+   - Implement the code according to the documented requirements
+   - Reference the requirement ID in code comments (e.g., `// REQ-SW-032: ...`)
+   - Test against the acceptance criteria
+   - Commit the implementation
+
+3. **Update Feature Request** (LAST):
+   - Mark feature request as implemented
+   - Link to the requirement ID
+
+**Why requirements-first matters:**
+- Ensures clear understanding of what needs to be built before building it
+- Provides traceable acceptance criteria for testing
+- Prevents scope creep and gold-plating
+- Creates audit trail for changes
+- Enables proper planning and estimation
+- Separates "what" (requirements) from "how" (implementation)
+
+**This rule is NON-NEGOTIABLE.** If you catch yourself writing code before the requirement is documented, STOP and document the requirement first.
+
+**Example of correct workflow:**
+```
+User: "Add a live velocity chart to the web UI"
+
+Step 1: Update docs/requirements/software_requirements.md
+  - Add REQ-SW-032 with acceptance criteria
+  - Add to traceability matrix
+  - Add validation test VT-F-024
+  - Commit: "docs: add REQ-SW-032 live telemetry chart requirement"
+
+Step 2: Present requirement to user for approval
+
+Step 3: After approval, implement the code
+  - Add Chart.js to web_ui.c
+  - Add steering history to web_server.c
+  - Reference REQ-SW-032 in comments
+  - Commit: "feat(REQ-SW-032): implement live telemetry chart"
+
+Step 4: Update feature request status
+  - Mark as implemented with REQ-SW-032 reference
 ```
 
 ---
