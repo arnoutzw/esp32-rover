@@ -8,6 +8,13 @@
 
 #include "unity.h"
 
+/* For host-based unit tests, define a default target if not already defined */
+#ifndef ROVER_TARGET_ESP32CAM
+#ifndef ROVER_TARGET_TTGO
+#define ROVER_TARGET_ESP32CAM 1
+#endif
+#endif
+
 /* Include the generated config to test its values */
 #include "../main/config_generated.h"
 
