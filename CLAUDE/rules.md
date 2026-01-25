@@ -20,6 +20,7 @@ This document defines the behavioral rules and standards that AI assistants MUST
    - [Bug Documentation](#bug-documentation)
    - [Bug Report Analysis](#bug-report-analysis)
    - [Documentation Updates](#documentation-updates)
+   - [Feature Request Processing](#feature-request-processing)
 6. [Release Management](#release-management)
    - [Binary Archive Management](#binary-archive-management)
    - [CI/CD Pipeline](#cicd-pipeline)
@@ -374,6 +375,34 @@ Required updates for different change types:
 - `CLAUDE/context.md` - Technical reference for AI assistants and developers
 - `docs/implementation/DEVELOPMENT_LESSONS.md` - Bug investigations and lessons learned
 - `config/rover_config.yaml` - Inline comments for configuration options
+
+### Feature Request Processing
+
+**Check `docs/feature_requests/` for user feature requests and process them into formal requirements.**
+
+Feature requests are written from a user's perspective and may include technical details. When you encounter a feature request:
+
+1. **Analyze the request**: Understand what the user wants and why
+2. **Extract requirements**: Identify specific, testable requirements from the request
+3. **Create or update requirements document**: Add requirements to `docs/requirements/` in the appropriate specification (e.g., `firmware_requirements.md`, `electrical_requirements.md`)
+4. **Present proposed changes**: Show the user the extracted requirements before committing
+5. **After approval**: Commit the requirements and optionally archive/delete the feature request
+
+**Requirements format:**
+
+| ID | Priority | Description | Verification |
+|----|----------|-------------|--------------|
+| REQ-XX | High/Medium/Low | Clear, testable requirement | How to verify |
+
+**Processing workflow:**
+```markdown
+1. Read feature request from docs/feature_requests/
+2. Analyze and extract requirements
+3. Draft requirements in appropriate docs/requirements/*.md file
+4. Present to user: "I've processed your feature request. Here are the proposed requirements:"
+5. Wait for user approval before committing
+6. After approval, commit changes and inform user
+```
 
 ---
 
