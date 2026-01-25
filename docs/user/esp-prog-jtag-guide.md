@@ -39,9 +39,9 @@ Connect the ESP-PROG JTAG header to the ESP32-CAM:
 | 10 | NC | - | Not connected |
 
 ### ESP-PROG JTAG Header Pinout
-
+![[Espressif-ESP-Prog-Debug-Probe-Pinout-CIRCUITSTATE-Electronics-1-1-1920x1344.png]]
 ```
-Looking at the ESP-PROG board with USB connector facing away:
+Looking at the ESP-PROG board with the key towards you:
 
 JTAG Header (2x5 pins):
 ┌─────────────────────┐
@@ -50,13 +50,13 @@ JTAG Header (2x5 pins):
 │                     │
 │  1   3   5   7   9  │
 │ VDD GND GND GND GND │
-└─────────────────────┘
+└───────      ────────┘
 ```
 
 ### Minimum Required Connections
 
 For JTAG to work, you need at minimum:
-
+![[Pasted image 20260124235207.png]]
 ```
 ESP-PROG          ESP32-CAM
 ─────────         ─────────

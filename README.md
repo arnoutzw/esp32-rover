@@ -328,7 +328,7 @@ openocd -f interface/ftdi/esp32_devkitj_v1.cfg -f target/esp32.cfg
 xtensa-esp32-elf-gdb -ex "target remote :3333" build/esp32-rover.elf
 ```
 
-See [ESP-PROG JTAG Guide](docs/implementation/esp-prog-jtag-guide.md) for detailed wiring instructions.
+See [ESP-PROG JTAG Guide](esp-prog-jtag-guide.md) for detailed wiring instructions.
 
 ## Architecture
 
@@ -373,7 +373,7 @@ Critical tasks are monitored by ESP-IDF's Task Watchdog Timer (TWDT):
 - [Software Requirements](docs/requirements/software_requirements.md) - Full requirements specification
 - [API Reference](docs/implementation/API_REFERENCE.md) - Component APIs and configuration
 - [Web UI User Manual](docs/user/WEBUI_USER_MANUAL.md) - Control interface guide
-- [ESP-PROG JTAG Guide](docs/implementation/esp-prog-jtag-guide.md) - Hardware debugging setup
+- [ESP-PROG JTAG Guide](esp-prog-jtag-guide.md) - Hardware debugging setup
 - [Development Lessons](docs/implementation/DEVELOPMENT_LESSONS.md) - Lessons learned
 
 ## Unit Tests
@@ -403,94 +403,20 @@ See [test/README.md](test/README.md) for details.
 - **mDNS not working**: Ensure device on same network, try IP address
 - **JTAG won't connect**: Add pull-down resistor to GPIO 12, check wiring
 
-## Changelog
+## Release History
 
-### v2.0 (Latest)
-- **Major repository restructure** for better organization
-  - Moved firmware source to `firmware/` directory
-  - Moved build scripts to `scripts/` directory
-  - Moved configuration to `config/` directory
-  - Reorganized documentation into `docs/requirements/`, `docs/implementation/`, `docs/user/`
-  - Moved test sources to `test/src/`
-- Updated all build scripts and paths for new structure
-- ESP-IDF submodule now at `firmware/esp-idf`
-- Build commands: `./scripts/build.sh ttgo` / `./scripts/build.sh esp32cam`
-- Config generation: `python3 scripts/generate_config.py`
-- TTGO build: 1,007 KB (34% free)
+See [CHANGELOG.md](CHANGELOG.md) for detailed version history, features, and changes.
 
-### v1.7
-- Added Build Fingerprint System (REQ-41)
-  - Auto-generated git commit hash embedded in firmware
-  - Build timestamp, branch, and dirty flag tracking
-  - Exposed via REST API `/status` endpoint
-  - Logged at boot for version verification
-- Simplified diagnostics display
-  - Removed CPU MHz, MAC address, Tasks per core, Internet status
-  - Added Build field showing git commit hash
-  - Cleaner UI focused on essential information
-  - Applied to both web UI and LCD diagnostics
-- TTGO build: 1,007 KB (34% free)
+### Current Version
 
-### v1.6
-- **BREAKING**: Removed motor/servo/encoder components from codebase
-  - Removed `components/bldc_motor/`, `components/servo_control/`, `components/as5600/`
-  - Web control interface preserved for future motor implementation
-  - GPIO pins now available for custom motor integration
-- Fixed IRAM overflow on TTGO T-Display build
-  - Made camera component conditional (ESP32-CAM only)
-  - Added IRAM optimizations to `sdkconfig.defaults`
-  - TTGO build: 1,017 KB (34% free)
-  - ESP32-CAM build: 1,227 KB (21% free)
-- Updated documentation to reflect motor removal
-- Cleaned up configuration files and GPIO assignments
+The current stable version is **v2.0.1** (2026-01-25), featuring:
+- GitHub Actions CI/CD pipeline
+- LCD diagnostics improvements with uptime label
+- OTA pre-flight connectivity checks
+- Memory optimizations (~22KB DRAM savings on TTGO)
+- Optional log buffer feature toggle
 
-### v1.4
-- Added Task Watchdog Timer (REQ-37)
-  - Monitors motor control and status tasks
-  - Auto-reboot on 30-second timeout
-  - Configurable via `rover_config.yaml`
-- Added JTAG Debug Mode (REQ-38)
-  - `JTAG_DEBUG=1` build flag disables motor
-  - Frees GPIO 12-15 for JTAG debugging
-  - Added ESP-PROG wiring guide
-
-### v1.3
-- Added Serial Log Capture (REQ-31)
-  - 32KB ring buffer captures all ESP_LOG output
-  - Live SSE streaming to web UI
-  - Log download and clear buttons
-- Added Camera Stream Toggle (REQ-34)
-  - CAM ON/OFF button in web UI
-  - Pause stream to free resources for OTA
-- Added Resource Guards (REQ-36)
-  - Runtime heap/stack monitoring
-  - Unit tests for memory safety
-
-### v1.2
-- Added deep sleep power save mode (REQ-30)
-  - Hold left button 5 seconds to enter sleep
-  - Press right button to wake up
-  - Displays Snorlax sleep animation
-  - ~10µA power consumption in sleep
-
-### v1.1
-- Added LCD display component for TTGO T-Display (ST7789 135x240)
-- Added hardware button support with WebUI indicators
-- Added diagnostic mode with system info display
-- Added mDNS for easy network discovery
-- Added WiFi STA-first mode with AP fallback
-- Added MQTT telemetry service
-- Added REST API with diagnostics endpoint
-- Added NTP time sync
-- Fixed SPI clock speed for non-IOMUX pins (26MHz max)
-
-### v1.0
-- Initial release with multi-target support
-- SimpleFOC-style BLDC motor control
-- AS5600 magnetic encoder integration
-- Servo steering control
-- Web-based control interface
-- ESP32-CAM live video streaming
+For complete release notes, see [CHANGELOG.md](CHANGELOG.md).
 
 ## License
 

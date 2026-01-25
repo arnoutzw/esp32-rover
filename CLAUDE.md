@@ -50,6 +50,88 @@ source ./firmware/esp-idf/export.sh && ROVER_TARGET=esp32cam python scripts/gene
 ./scripts/ota.sh ttgo 192.168.2.75
 ```
 
+## JTAG Flashing via ESP-PROG
+
+**Flash firmware directly via JTAG using openocd-esp32.**
+
+This method bypasses UART and flashes directly to the ESP32's SPI flash via JTAG, which is useful when:
+- UART is unavailable or unreliable
+- GPIO0 boot mode selection is difficult
+- You need faster, more reliable flashing
+
+### Prerequisites
+
+openocd-esp32 is included as a git submodule in `tools/openocd-esp32`. Build it with:
+
+```bash
+# Install build dependencies (macOS)
+brew install automake autoconf libtool pkg-config libusb libftdi texinfo
+
+# Install build dependencies (Linux)
+sudo apt-get install automake autoconf libtool pkg-config libusb-1.0-0-dev libftdi1-dev texinfo
+
+# Build openocd-esp32
+./scripts/build-openocd.sh
+```
+
+### ESP-PROG JTAG Wiring
+
+Connect ESP-PROG to ESP32-CAM:
+
+| ESP-PROG | ESP32-CAM |
+|----------|-----------|
+| TDI      | GPIO12    |
+| TCK      | GPIO13    |
+| TMS      | GPIO14    |
+| TDO      | GPIO15    |
+| GND      | GND       |
+| 3V3      | 3V3       |
+
+### Flash Command
+
+```bash
+# Flash latest binary for target
+./scripts/jtag-flash.sh esp32cam
+./scripts/jtag-flash.sh ttgo
+
+# Flash specific binary
+./scripts/jtag-flash.sh esp32cam path/to/firmware.bin
+```
+
+Or manually:
+
+```bash
+./tools/openocd-esp32/src/openocd \
+  -s ./tools/openocd-esp32/tcl \
+  -f interface/ftdi/esp_ftdi.cfg \
+  -f target/esp32.cfg \
+  -c "program_esp binaries/esp32cam/latest.bin 0x0 verify reset exit"
+```
+
+### Example Output
+
+```
+** Programming Started **
+Info : Flash mapping 0: 0x10020 -> 0x3f400020, 281 KB
+Info : Flash mapping 1: 0x60020 -> 0x400d0020, 836 KB
+Info : Auto-detected flash bank 'esp32.cpu0.flash' size 4096 KB
+Info : PROF: Erased 1241088 bytes in 4871.83 ms
+Info : PROF: Wrote 1241088 bytes in 4086.12 ms (data transfer time included)
+** Programming Finished in 10149 ms **
+** Verify Started **
+Info : PROF: Flash verified in 642.407 ms
+** Verify OK **
+** Resetting Target **
+```
+
+| Step | Status |
+|------|--------|
+| Flash detected | 4096 KB |
+| Erased | ~1.2 MB in ~4.8s |
+| Programmed | ~1.2 MB in ~4.1s |
+| Verified | OK |
+| Total time | ~10 seconds |
+
 ## Target Configuration
 
 The build target is determined entirely by the build command - there is no `target` field in `rover_config.yaml`:
@@ -77,21 +159,36 @@ The build script automatically regenerates `config_generated.h` with the correct
 - Only merge to `main` and create a version tag when the user explicitly requests it
 - Never commit directly to `main` unless instructed
 
+**CRITICAL: Always Push Immediately After Every Commit**
+
+Every `git commit` MUST be immediately followed by `git push`. This applies to:
+- All code changes (firmware, scripts, tests)
+- All documentation updates (markdown files, comments)
+- All configuration changes
+- Commits on any branch (develop, main, feature branches)
+
 **Workflow:**
 ```bash
-# Normal development
+# Normal development - ALWAYS commit AND push together
 git checkout develop
 # ... make changes ...
-git add -A && git commit -m "Description of changes"
-git push origin develop
+git add -A && git commit -m "Description of changes" && git push
 
 # When user requests a release to main:
 git checkout main
 git merge develop
 git tag -a v1.X.X -m "Release description"
-git push origin main --tags
+git push origin main --tags  # Push commits AND tags immediately
 git checkout develop
 ```
+
+**Why this matters:**
+- Changes are synced to remote immediately
+- CI/CD pipelines are triggered without delay
+- Team members have access to latest code
+- Release workflows execute automatically
+- No risk of losing work if local machine fails
+- Documentation updates are immediately visible to all users
 
 ### Clean Build Rule
 

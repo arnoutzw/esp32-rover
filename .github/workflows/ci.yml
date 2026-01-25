@@ -128,18 +128,18 @@ jobs:
           restore-keys: |
             build-esp32cam-
 
-      - name: Setup ESP-IDF
+      - name: Build firmware for ESP32-CAM
         uses: espressif/esp-idf-ci-action@v1
         with:
           esp_idf_version: ${{ env.IDF_VERSION }}
           target: esp32
-
-      - name: Build firmware for ESP32-CAM
-        run: |
-          export ROVER_TARGET=esp32cam
-          cd firmware
-          cp sdkconfig.defaults.esp32cam sdkconfig.defaults
-          idf.py build
+          path: firmware
+          command: |
+            ../scripts/generate_build_info.sh components/build_info/include/build_info.h
+            cp sdkconfig.defaults.esp32cam sdkconfig.defaults
+            idf.py build
+        env:
+          ROVER_TARGET: esp32cam
 
       - name: Get build info
         id: build_info
@@ -190,18 +190,18 @@ jobs:
           restore-keys: |
             build-ttgo-
 
-      - name: Setup ESP-IDF
+      - name: Build firmware for TTGO
         uses: espressif/esp-idf-ci-action@v1
         with:
           esp_idf_version: ${{ env.IDF_VERSION }}
           target: esp32
-
-      - name: Build firmware for TTGO
-        run: |
-          export ROVER_TARGET=ttgo
-          cd firmware
-          cp sdkconfig.defaults.ttgo sdkconfig.defaults
-          idf.py build
+          path: firmware
+          command: |
+            ../scripts/generate_build_info.sh components/build_info/include/build_info.h
+            cp sdkconfig.defaults.ttgo sdkconfig.defaults
+            idf.py build
+        env:
+          ROVER_TARGET: ttgo
 
       - name: Get build info
         id: build_info
