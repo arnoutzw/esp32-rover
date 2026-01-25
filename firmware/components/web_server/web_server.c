@@ -29,6 +29,44 @@ static rover_status_t current_status = {0};
 static int64_t last_command_time = 0;
 static SemaphoreHandle_t state_mutex = NULL;
 
+// =============================================================================
+// REQ-SW-032/033: Steering & Speed History for Live Telemetry Charts
+// =============================================================================
+// Ring buffers for telemetry history
+// At 10Hz status updates, 600 samples = 60 seconds of history
+#define TELEMETRY_HISTORY_SIZE 600
+
+// Steering history buffer
+static float steering_history[TELEMETRY_HISTORY_SIZE] = {0};
+static uint32_t steering_history_timestamps[TELEMETRY_HISTORY_SIZE] = {0};
+static size_t steering_history_head = 0;  // Next write position
+static size_t steering_history_count = 0; // Number of valid samples
+
+// REQ-SW-033: Speed history buffer (shares timestamps with steering)
+static float speed_history[TELEMETRY_HISTORY_SIZE] = {0};
+static size_t speed_history_head = 0;
+static size_t speed_history_count = 0;
+
+// Add steering sample to history buffer
+static void steering_history_add(float steering, uint32_t timestamp) {
+    steering_history[steering_history_head] = steering;
+    steering_history_timestamps[steering_history_head] = timestamp;
+    steering_history_head = (steering_history_head + 1) % TELEMETRY_HISTORY_SIZE;
+    if (steering_history_count < TELEMETRY_HISTORY_SIZE) {
+        steering_history_count++;
+    }
+}
+
+// REQ-SW-033: Add speed sample to history buffer
+static void speed_history_add(float speed, uint32_t timestamp) {
+    (void)timestamp;  // Speed uses same timestamps as steering for sync
+    speed_history[speed_history_head] = speed;
+    speed_history_head = (speed_history_head + 1) % TELEMETRY_HISTORY_SIZE;
+    if (speed_history_count < TELEMETRY_HISTORY_SIZE) {
+        speed_history_count++;
+    }
+}
+
 #ifdef ROVER_TARGET_ESP32CAM
 // Async stream task handle
 static TaskHandle_t stream_task_handle = NULL;
@@ -320,6 +358,12 @@ static esp_err_t control_handler(httpd_req_t *req)
     if (state_mutex && xSemaphoreTake(state_mutex, pdMS_TO_TICKS(10)) == pdTRUE) {
         last_command = cmd;
         last_command_time = esp_timer_get_time();
+
+        // REQ-SW-032/033: Record steering and speed for live telemetry chart
+        uint32_t uptime_ms = (uint32_t)(esp_timer_get_time() / 1000);
+        steering_history_add(cmd.steering, uptime_ms);
+        speed_history_add(cmd.speed, uptime_ms);
+
         xSemaphoreGive(state_mutex);
     }
 
@@ -370,6 +414,69 @@ static cJSON* build_status_json(const rover_status_t *status)
     cJSON_AddNumberToObject(root, "rssi", status->wifi_rssi);
     cJSON_AddBoolToObject(root, "btnL", status->button_left);
     cJSON_AddBoolToObject(root, "btnR", status->button_right);
+
+    // REQ-SW-032/033: Add steering and speed history for live telemetry chart
+    // Return last 60 samples (6 seconds at 10Hz polling) to keep payload reasonable
+    {
+        const size_t MAX_SAMPLES = 60;
+        size_t steering_samples = steering_history_count < MAX_SAMPLES ? steering_history_count : MAX_SAMPLES;
+        size_t speed_samples = speed_history_count < MAX_SAMPLES ? speed_history_count : MAX_SAMPLES;
+
+        // Steering history
+        cJSON *steering_arr = cJSON_CreateArray();
+        if (steering_arr) {
+            if (steering_samples > 0) {
+                size_t start_idx;
+                if (steering_history_count < TELEMETRY_HISTORY_SIZE) {
+                    start_idx = (steering_history_count >= MAX_SAMPLES) ?
+                                (steering_history_count - MAX_SAMPLES) : 0;
+                } else {
+                    start_idx = (steering_history_head + TELEMETRY_HISTORY_SIZE - MAX_SAMPLES) % TELEMETRY_HISTORY_SIZE;
+                }
+
+                for (size_t i = 0; i < steering_samples; i++) {
+                    size_t idx = (start_idx + i) % TELEMETRY_HISTORY_SIZE;
+                    cJSON *sample = cJSON_CreateObject();
+                    if (sample) {
+                        cJSON_AddNumberToObject(sample, "t", steering_history_timestamps[idx]);
+                        cJSON_AddNumberToObject(sample, "v", steering_history[idx]);
+                        cJSON_AddItemToArray(steering_arr, sample);
+                    }
+                }
+            }
+            cJSON_AddItemToObject(root, "steeringHistory", steering_arr);
+        }
+
+        // REQ-SW-033: Speed history
+        cJSON *speed_arr = cJSON_CreateArray();
+        if (speed_arr) {
+            if (speed_samples > 0) {
+                size_t start_idx;
+                if (speed_history_count < TELEMETRY_HISTORY_SIZE) {
+                    start_idx = (speed_history_count >= MAX_SAMPLES) ?
+                                (speed_history_count - MAX_SAMPLES) : 0;
+                } else {
+                    start_idx = (speed_history_head + TELEMETRY_HISTORY_SIZE - MAX_SAMPLES) % TELEMETRY_HISTORY_SIZE;
+                }
+
+                for (size_t i = 0; i < speed_samples; i++) {
+                    size_t idx = (start_idx + i) % TELEMETRY_HISTORY_SIZE;
+                    cJSON *sample = cJSON_CreateObject();
+                    if (sample) {
+                        // Use steering timestamps (they're synced)
+                        size_t steer_start = (steering_history_count < TELEMETRY_HISTORY_SIZE) ?
+                            ((steering_history_count >= MAX_SAMPLES) ? (steering_history_count - MAX_SAMPLES) : 0) :
+                            ((steering_history_head + TELEMETRY_HISTORY_SIZE - MAX_SAMPLES) % TELEMETRY_HISTORY_SIZE);
+                        size_t ts_idx = (steer_start + i) % TELEMETRY_HISTORY_SIZE;
+                        cJSON_AddNumberToObject(sample, "t", steering_history_timestamps[ts_idx]);
+                        cJSON_AddNumberToObject(sample, "v", speed_history[idx]);
+                        cJSON_AddItemToArray(speed_arr, sample);
+                    }
+                }
+            }
+            cJSON_AddItemToObject(root, "speedHistory", speed_arr);
+        }
+    }
 
     // Diagnostic sub-object
     cJSON *diag = cJSON_CreateObject();

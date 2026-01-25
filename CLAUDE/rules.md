@@ -15,11 +15,16 @@ This document defines the behavioral rules and standards that AI assistants MUST
    - [Push Immediately Rule](#push-immediately-rule)
 4. [Build and Flash](#build-and-flash)
    - [Build Script Usage](#build-script-usage)
+   - [Clean Build Rule](#clean-build-rule)
    - [Flash Verification](#flash-verification)
+   - [Build Hash Verification Rule](#build-hash-verification-rule)
 5. [Documentation Requirements](#documentation-requirements)
    - [Bug Documentation](#bug-documentation)
    - [Bug Report Analysis](#bug-report-analysis)
    - [Documentation Updates](#documentation-updates)
+   - [Feature Request Processing](#feature-request-processing)
+   - [Requirements-First Development Rule](#requirements-first-development-rule)
+   - [Feature Implementation Verification Rule](#feature-implementation-verification-rule)
 6. [Release Management](#release-management)
    - [Binary Archive Management](#binary-archive-management)
    - [CI/CD Pipeline](#cicd-pipeline)
@@ -240,6 +245,32 @@ The build script:
 - Enforces clean git state
 - Generates `config_generated.h` automatically
 
+### Clean Build Rule
+
+**ALWAYS perform a clean build before flashing to prevent stale build artifacts.**
+
+Incremental builds can retain stale `build_info` with old git hashes even when source code has changed. To prevent flashing firmware with incorrect version information:
+
+```bash
+# ALWAYS use this pattern for builds intended for flashing:
+./scripts/build.sh <target> clean && ./scripts/build.sh <target>
+```
+
+**Why clean builds are mandatory:**
+- The `build_info` component caches git hash at compile time
+- Incremental builds may not regenerate `build_info.h` if only non-header files changed
+- This causes the binary to report an old commit hash while containing new code
+- Debugging becomes impossible when reported version doesn't match actual code
+
+**Observed failure mode:**
+1. Commit changes (e.g., `77b4f74`)
+2. Run incremental build: `./scripts/build.sh ttgo`
+3. Binary filename shows `77b4f74` but embedded hash is still `b32a316`
+4. OTA succeeds but device reports old version
+5. User thinks fix didn't work, wastes time debugging
+
+**Clean build adds ~20 seconds but prevents hours of confusion.**
+
 ### Flash Verification
 
 **After every OTA flash, verify the firmware fingerprint matches:**
@@ -257,6 +288,60 @@ curl -s http://<device-ip>/status | jq '.diag.buildFingerprint'
 1. You may have flashed an old archived binary (check `binaries/<target>/latest.bin` symlink)
 2. The device may have rolled back to a previous OTA partition
 3. Rebuild with `./scripts/build.sh <target>` to create a fresh archived binary
+
+### Build Hash Verification Rule
+
+**After every build, verify the binary contains the expected git hash before flashing.**
+
+Before proceeding with OTA flash, always verify the built binary contains the correct commit hash:
+
+```bash
+# Get current git commit hash
+EXPECTED_HASH=$(git rev-parse --short=7 HEAD)
+
+# Verify hash is embedded in the binary
+strings binaries/<target>/latest.bin | grep "$EXPECTED_HASH"
+
+# Should output something like:
+# v2.0.3-6-g77b4f74
+# 77b4f74
+```
+
+**Verification steps (mandatory before OTA):**
+1. Note the current git commit hash after committing
+2. Run clean build: `./scripts/build.sh <target> clean && ./scripts/build.sh <target>`
+3. Verify the binary filename contains the expected hash
+4. Verify the hash is embedded in the binary using `strings` command
+5. Only proceed with OTA if hashes match
+
+**If hashes don't match:**
+- **DO NOT proceed with OTA flash** - flag a warning to user
+- Investigate why clean build didn't produce correct hash
+- Never flash a binary with mismatched hash
+
+**Complete build-flash workflow:**
+```bash
+# 1. Commit and push changes
+git add -A && git commit -m "description" && git push
+
+# 2. Note expected hash
+EXPECTED=$(git rev-parse --short=7 HEAD)
+echo "Expected hash: $EXPECTED"
+
+# 3. Clean build (ALWAYS clean to prevent stale hash)
+./scripts/build.sh ttgo clean && ./scripts/build.sh ttgo
+
+# 4. Verify hash in binary
+strings binaries/ttgo/latest.bin | grep "$EXPECTED"
+# Must see the hash - if not, DO NOT FLASH
+
+# 5. Flash via OTA
+OTA_PASSWORD=<password> ./scripts/ota.sh ttgo
+
+# 6. Verify device is running correct firmware
+sleep 5 && curl -s http://ttgo-rover.local/status | jq '.diag.buildFingerprint'
+# Must match expected hash
+```
 
 ---
 
@@ -374,6 +459,163 @@ Required updates for different change types:
 - `CLAUDE/context.md` - Technical reference for AI assistants and developers
 - `docs/implementation/DEVELOPMENT_LESSONS.md` - Bug investigations and lessons learned
 - `config/rover_config.yaml` - Inline comments for configuration options
+
+### Feature Request Processing
+
+**Check `docs/feature_requests/` for user feature requests and process them into formal requirements.**
+
+Feature requests are written from a user's perspective and may include technical details. When you encounter a feature request:
+
+1. **Analyze the request**: Understand what the user wants and why
+2. **Extract requirements**: Identify specific, testable requirements from the request
+3. **Create or update requirements document**: Add requirements to `docs/requirements/` in the appropriate specification (e.g., `firmware_requirements.md`, `electrical_requirements.md`)
+4. **Present proposed changes**: Show the user the extracted requirements before committing
+5. **After approval**: Commit the requirements and optionally archive/delete the feature request
+
+**Requirements format:**
+
+| ID | Priority | Description | Verification |
+|----|----------|-------------|--------------|
+| REQ-XX | High/Medium/Low | Clear, testable requirement | How to verify |
+
+**Processing workflow:**
+```markdown
+1. Read feature request from docs/feature_requests/
+2. Analyze and extract requirements
+3. Draft requirements in appropriate docs/requirements/*.md file
+4. Present to user: "I've processed your feature request. Here are the proposed requirements:"
+5. Wait for user approval before committing
+6. After approval, commit changes and inform user
+```
+
+### Requirements-First Development Rule
+
+**NEVER implement code before updating the requirements documentation. Requirements MUST be documented and approved BEFORE any implementation begins.**
+
+This is a fundamental principle of proper software engineering. The correct workflow is:
+
+1. **Requirements Phase** (FIRST):
+   - Analyze the feature request or user need
+   - Create/update formal requirements in `docs/requirements/software_requirements.md`
+   - Assign a requirement ID (e.g., REQ-SW-032)
+   - Define acceptance criteria
+   - Add to traceability matrix
+   - Add validation test entry
+   - Commit the requirements documentation
+   - Present to user for approval
+
+2. **Implementation Phase** (SECOND - only after requirements are approved):
+   - Implement the code according to the documented requirements
+   - Reference the requirement ID in code comments (e.g., `// REQ-SW-032: ...`)
+   - Test against the acceptance criteria
+   - Commit the implementation
+
+3. **Update Feature Request** (LAST):
+   - Mark feature request as implemented
+   - Link to the requirement ID
+
+**Why requirements-first matters:**
+- Ensures clear understanding of what needs to be built before building it
+- Provides traceable acceptance criteria for testing
+- Prevents scope creep and gold-plating
+- Creates audit trail for changes
+- Enables proper planning and estimation
+- Separates "what" (requirements) from "how" (implementation)
+
+**This rule is NON-NEGOTIABLE.** If you catch yourself writing code before the requirement is documented, STOP and document the requirement first.
+
+**Example of correct workflow:**
+```
+User: "Add a live velocity chart to the web UI"
+
+Step 1: Update docs/requirements/software_requirements.md
+  - Add REQ-SW-032 with acceptance criteria
+  - Add to traceability matrix
+  - Add validation test VT-F-024
+  - Commit: "docs: add REQ-SW-032 live telemetry chart requirement"
+
+Step 2: Present requirement to user for approval
+
+Step 3: After approval, implement the code
+  - Add Chart.js to web_ui.c
+  - Add steering history to web_server.c
+  - Reference REQ-SW-032 in comments
+  - Commit: "feat(REQ-SW-032): implement live telemetry chart"
+
+Step 4: Update feature request status
+  - Mark as implemented with REQ-SW-032 reference
+```
+
+### Feature Implementation Verification Rule
+
+**After implementing any feature request, ALWAYS verify the implementation by building, flashing via OTA, and confirming the build hash matches.**
+
+This ensures the feature is actually deployed and working on real hardware, not just committed to the repository.
+
+**Mandatory verification steps after feature implementation:**
+
+1. **Clean Build**:
+   ```bash
+   ./scripts/build.sh <target> clean && ./scripts/build.sh <target>
+   ```
+
+2. **Verify Build Hash**:
+   - Note the commit hash from build output (e.g., `958b259`)
+   - Verify it matches the expected commit: `git log --oneline -1`
+
+3. **Flash via OTA**:
+   ```bash
+   ./scripts/ota.sh <target> <device-ip-or-hostname>
+   ```
+   Example: `./scripts/ota.sh ttgo ttgo-rover.local`
+
+4. **Verify Deployment**:
+   - Query the device's `/status` endpoint to confirm the build fingerprint
+   - The `diag.buildFingerprint` field MUST match the commit hash from step 2
+   ```bash
+   curl http://<device>/status | jq '.diag.buildFingerprint'
+   ```
+   Or use the bug report tool to fetch build info:
+   ```bash
+   python scripts/file_report.py --bug
+   # Click "Fetch Build Info" button
+   ```
+
+5. **Functional Verification**:
+   - Test the implemented feature on actual hardware
+   - Verify acceptance criteria from the requirement are met
+   - Document any issues found
+
+**Why this rule exists:**
+- Ensures code actually runs on hardware, not just compiles
+- Catches deployment issues (OTA failures, boot loops, etc.)
+- Verifies the correct version is running (no stale firmware)
+- Confirms feature works in real environment, not just in theory
+- Prevents "it works on my machine" syndrome
+
+**This verification is MANDATORY for all feature implementations.** Do not consider a feature complete until it has been flashed and verified on hardware.
+
+**Example workflow:**
+```bash
+# After committing feature implementation
+git log --oneline -1
+# Output: 958b259 feat(REQ-SW-032): implement live telemetry chart
+
+# Clean build
+./scripts/build.sh ttgo clean && ./scripts/build.sh ttgo
+# Verify output shows: 958b259
+
+# Flash via OTA
+./scripts/ota.sh ttgo ttgo-rover.local
+
+# Verify deployment
+curl -s http://ttgo-rover.local/status | jq '.diag.buildFingerprint'
+# Output: "958b259" ← Must match!
+
+# Test the feature
+# Open http://ttgo-rover.local in browser
+# Verify steering chart is visible and updating
+```
 
 ---
 
