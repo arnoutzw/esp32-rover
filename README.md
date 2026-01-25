@@ -44,37 +44,37 @@ A WiFi-controlled rover platform using ESP32 with camera streaming and web-based
 
 ```bash
 # Install ESP-IDF tools (downloads ~1GB of toolchain)
-./setup.sh
+./scripts/setup.sh
 ```
 
 ### 2. Configure (optional)
 
 ```bash
 # Copy secrets template and edit with your WiFi credentials
-cp secrets.yaml.example secrets.yaml
-nano secrets.yaml
+cp config/secrets.yaml.example config/secrets.yaml
+nano config/secrets.yaml
 
 # Regenerate config header
-python3 generate_config.py
+python3 scripts/generate_config.py
 ```
 
 ### 3. Build and Flash
 
 ```bash
 # Build for TTGO T-Display (with LCD + buttons)
-./build.sh ttgo
+./scripts/build.sh ttgo
 
 # Build for ESP32-CAM (with camera)
-./build.sh esp32cam
+./scripts/build.sh esp32cam
 
 # Build and flash
-./build.sh ttgo flash
+./scripts/build.sh ttgo flash
 
 # Build, flash, and open monitor
-./build.sh esp32cam flash monitor
+./scripts/build.sh esp32cam flash monitor
 
 # Flash to specific port
-./build.sh ttgo flash -p /dev/cu.usbserial-0001
+./scripts/build.sh ttgo flash -p /dev/cu.usbserial-0001
 ```
 
 ### 4. Connect and Control
@@ -85,7 +85,7 @@ python3 generate_config.py
 3. Open http://192.168.4.1 in a web browser
 
 **STA Mode (connects to your network):**
-1. Configure `secrets.yaml` with your WiFi credentials
+1. Configure `config/secrets.yaml` with your WiFi credentials
 2. Power on the rover
 3. Open http://esp32-rover.local (or http://ttgo-rover.local for TTGO)
 
@@ -93,38 +93,50 @@ python3 generate_config.py
 
 ```
 esp32-rover-firmware/
-├── main/
-│   ├── main.c              # Application entry point
-│   ├── config.h            # Hardware configuration
-│   └── config_generated.h  # Generated from YAML config
-├── components/             # Reusable ESP-IDF components
-│   ├── camera/             # Camera module (ESP32-CAM only)
-│   ├── lcd_display/        # ST7789 LCD driver (TTGO only)
-│   ├── web_server/         # HTTP server with control UI
-│   ├── mqtt_service/       # MQTT telemetry publisher
-│   ├── log_buffer/         # Serial log capture ring buffer
-│   └── resource_guard/     # Memory/stack safety guards
-├── esp-idf/                # Embedded ESP-IDF v5.2.2
+├── firmware/                    # Firmware source code
+│   ├── main/                    # Application entry point
+│   │   ├── main.c
+│   │   ├── config.h             # Hardware configuration
+│   │   └── config_generated.h   # Generated from YAML config
+│   ├── components/              # Reusable ESP-IDF components
+│   │   ├── camera/              # Camera module (ESP32-CAM only)
+│   │   ├── lcd_display/         # ST7789 LCD driver (TTGO only)
+│   │   ├── web_server/          # HTTP server with control UI
+│   │   ├── mqtt_service/        # MQTT telemetry publisher
+│   │   ├── log_buffer/          # Serial log capture ring buffer
+│   │   └── resource_guard/      # Memory/stack safety guards
+│   ├── esp-idf/                 # Embedded ESP-IDF v5.2.2 (submodule)
+│   └── sdkconfig.defaults.*     # Target-specific SDK configs
+├── scripts/                     # Build and utility scripts
+│   ├── build.sh                 # Build script
+│   ├── setup.sh                 # First-time setup script
+│   ├── generate_config.py       # Config header generator
+│   └── generate_build_info.sh   # Git version info generator
+├── config/                      # Configuration files
+│   ├── rover_config.yaml        # Main configuration
+│   ├── secrets.yaml.example     # Template for credentials
+│   └── secrets.yaml             # WiFi/MQTT credentials (gitignored)
 ├── docs/
-│   ├── software_requirements.md  # Full requirements spec
-│   ├── API_REFERENCE.md          # Component API documentation
-│   ├── WEBUI_USER_MANUAL.md      # Web UI user guide
-│   ├── esp-prog-jtag-guide.md    # JTAG debugging guide
-│   └── DEVELOPMENT_LESSONS.md    # Lessons learned
-├── test/                   # Unit tests
-├── rover_config.yaml       # Main configuration
-├── secrets.yaml            # WiFi/MQTT credentials (gitignored)
-├── generate_config.py      # Config header generator
-├── build.sh                # Build script
-├── setup.sh                # First-time setup script
-└── sdkconfig.defaults.*    # Target-specific SDK configs
+│   ├── requirements/            # Requirements specifications
+│   │   ├── software_requirements.md
+│   │   └── mechanical_requirements.md
+│   ├── implementation/          # Developer documentation
+│   │   ├── API_REFERENCE.md
+│   │   ├── DEVELOPMENT_LESSONS.md
+│   │   └── esp-prog-jtag-guide.md
+│   └── user/                    # User guides
+│       └── WEBUI_USER_MANUAL.md
+├── test/                        # Unit tests
+│   └── src/                     # Test source files
+├── README.md
+└── CLAUDE.md                    # AI assistant notes
 ```
 
 ## Configuration
 
 ### YAML Configuration
 
-The firmware uses `rover_config.yaml` for compile-time configuration:
+The firmware uses `config/rover_config.yaml` for compile-time configuration:
 
 ```yaml
 # WiFi mode: ap_only, sta_only, or sta_first
@@ -154,12 +166,12 @@ task_watchdog:
 
 After editing, regenerate the header:
 ```bash
-python3 generate_config.py
+python3 scripts/generate_config.py
 ```
 
 ### Secrets
 
-WiFi and MQTT credentials are stored in `secrets.yaml` (not committed to git):
+WiFi and MQTT credentials are stored in `config/secrets.yaml` (not committed to git):
 
 ```yaml
 wifi_sta_ssid: "YourNetwork"
@@ -287,11 +299,11 @@ Update firmware over WiFi:
 
 ```bash
 # Build new firmware
-./build.sh esp32cam
+./scripts/build.sh esp32cam
 
 # Upload via curl
 curl -X POST -H "X-OTA-Password: rover1234" \
-     --data-binary @build/esp32-rover.bin \
+     --data-binary @firmware/build/esp32-rover.bin \
      http://esp32-rover.local/ota
 ```
 
@@ -313,7 +325,7 @@ openocd -f interface/ftdi/esp32_devkitj_v1.cfg -f target/esp32.cfg
 xtensa-esp32-elf-gdb -ex "target remote :3333" build/esp32-rover.elf
 ```
 
-See [ESP-PROG JTAG Guide](docs/esp-prog-jtag-guide.md) for detailed wiring instructions.
+See [ESP-PROG JTAG Guide](docs/implementation/esp-prog-jtag-guide.md) for detailed wiring instructions.
 
 ## Architecture
 
@@ -336,7 +348,7 @@ Core 1: Available for future motor control implementation
 Critical tasks are monitored by ESP-IDF's Task Watchdog Timer (TWDT):
 - Status task feeds watchdog every 50ms
 - 30-second timeout triggers automatic reboot
-- Configurable via `rover_config.yaml`
+- Configurable via `config/rover_config.yaml`
 
 ## Hardware Buttons (TTGO only)
 
@@ -355,11 +367,11 @@ Critical tasks are monitored by ESP-IDF's Task Watchdog Timer (TWDT):
 
 ## Documentation
 
-- [Software Requirements](docs/software_requirements.md) - Full requirements specification
-- [API Reference](docs/API_REFERENCE.md) - Component APIs and configuration
-- [Web UI User Manual](docs/WEBUI_USER_MANUAL.md) - Control interface guide
-- [ESP-PROG JTAG Guide](docs/esp-prog-jtag-guide.md) - Hardware debugging setup
-- [Development Lessons](docs/DEVELOPMENT_LESSONS.md) - Lessons learned
+- [Software Requirements](docs/requirements/software_requirements.md) - Full requirements specification
+- [API Reference](docs/implementation/API_REFERENCE.md) - Component APIs and configuration
+- [Web UI User Manual](docs/user/WEBUI_USER_MANUAL.md) - Control interface guide
+- [ESP-PROG JTAG Guide](docs/implementation/esp-prog-jtag-guide.md) - Hardware debugging setup
+- [Development Lessons](docs/implementation/DEVELOPMENT_LESSONS.md) - Lessons learned
 
 ## Unit Tests
 
@@ -383,14 +395,27 @@ See [test/README.md](test/README.md) for details.
 - **LCD not displaying**: Check SPI connections, verify `ENABLE_LCD_DISPLAY=1`
 - **Buttons not responding**: Check GPIO 0/35, verify `ENABLE_BUTTONS=1`
 - **WiFi connection issues**: Move closer to rover, check for interference
-- **Build fails**: Run `./setup.sh` first to install tools
+- **Build fails**: Run `./scripts/setup.sh` first to install tools
 - **IRAM overflow on TTGO**: Additional IRAM optimizations applied in `sdkconfig.defaults`
 - **mDNS not working**: Ensure device on same network, try IP address
 - **JTAG won't connect**: Add pull-down resistor to GPIO 12, check wiring
 
 ## Changelog
 
-### v1.7 (Latest)
+### v2.0 (Latest)
+- **Major repository restructure** for better organization
+  - Moved firmware source to `firmware/` directory
+  - Moved build scripts to `scripts/` directory
+  - Moved configuration to `config/` directory
+  - Reorganized documentation into `docs/requirements/`, `docs/implementation/`, `docs/user/`
+  - Moved test sources to `test/src/`
+- Updated all build scripts and paths for new structure
+- ESP-IDF submodule now at `firmware/esp-idf`
+- Build commands: `./scripts/build.sh ttgo` / `./scripts/build.sh esp32cam`
+- Config generation: `python3 scripts/generate_config.py`
+- TTGO build: 1,007 KB (34% free)
+
+### v1.7
 - Added Build Fingerprint System (REQ-41)
   - Auto-generated git commit hash embedded in firmware
   - Build timestamp, branch, and dirty flag tracking
