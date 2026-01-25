@@ -148,16 +148,7 @@ brew install automake autoconf libtool pkg-config libusb libftdi texinfo
 ./scripts/build-openocd.sh
 ```
 
-**ESP-PROG JTAG Wiring:**
-
-| ESP-PROG | ESP32-CAM |
-|----------|-----------|
-| TDI      | GPIO12    |
-| TCK      | GPIO13    |
-| TMS      | GPIO14    |
-| TDO      | GPIO15    |
-| GND      | GND       |
-| 3V3      | 3V3       |
+**ESP-PROG JTAG Wiring:** TDI→GPIO12, TCK→GPIO13, TMS→GPIO14, TDO→GPIO15, GND→GND, 3V3→3V3
 
 **Flash Commands:**
 ```bash
@@ -188,24 +179,11 @@ The firmware uses ESP-IDF's component model with custom components in `firmware/
 
 ### Main Application Tasks
 
-Tasks created in `main.c` (running on Core 0):
-
-| Task Name | Stack Size | Priority | Purpose |
-|-----------|------------|----------|---------|
-| `status_task` | 4096* | 2 | Collects metrics at 20Hz |
-| `lcd_update_task` | 4096* | 1 | LCD refresh (TTGO only) |
-| `web_server_task` | auto | default | HTTP request handling |
-| `mqtt_publish_task` | 4096* | 2 | MQTT telemetry at 5s interval |
-
-*TTGO uses reduced stacks: status=2560, lcd=3072, mqtt=3072
+Tasks in `main.c` (Core 0): `status_task` (metrics 20Hz), `lcd_update_task` (TTGO only), `web_server_task` (HTTP), `mqtt_publish_task` (5s telemetry). TTGO uses reduced stack sizes due to memory constraints.
 
 ### Configuration Generation Pipeline
 
-```
-rover_config.yaml  ─┐
-                    ├─► generate_config.py ─► config_generated.h ─► Compilation
-secrets.yaml       ─┘
-```
+`rover_config.yaml` + `secrets.yaml` → `generate_config.py` → `config_generated.h`
 
 Key defines generated:
 - `WIFI_MODE_*` - WiFi mode flags
@@ -267,10 +245,8 @@ Battery ADC: GPIO 34
 | GET | `/stream` | MJPEG video (ESP32-CAM) |
 | POST | `/control` | `{"speed":-100..100, "steering":-100..100, "estop":bool}` |
 | GET | `/status` | JSON system status |
-| GET | `/camera` | Camera state |
-| POST | `/camera` | `{"enabled":true/false}` |
-| POST | `/led` | `{"on":true/false}` (ESP32-CAM) |
-| POST | `/ota` | Firmware binary + password |
+| GET/POST | `/camera` | GET: state, POST: `{"enabled":true/false}` |
+| GET/POST | `/led` | GET: state, POST: `{"on":true/false}` (ESP32-CAM) |
 
 ### Status JSON Structure
 
