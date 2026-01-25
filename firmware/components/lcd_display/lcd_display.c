@@ -558,13 +558,15 @@ esp_err_t lcd_display_update(const lcd_rover_status_t *status)
     y += 32;
 
     // =========================================================================
-    // BATTERY SECTION - Only redraw on value change (0.01V precision)
+    // BATTERY SECTION - Only redraw on value change (0.05V precision to reduce flicker)
+    // Using x20 instead of x100 gives 0.05V hysteresis, reducing oscillation
     // =========================================================================
-    int16_t bat_x100 = (int16_t)(status->battery_volts * 100);
-    if (bat_x100 != s_prev_battery_x100) {
-        // Label (draw once)
+    int16_t bat_x20 = (int16_t)(status->battery_volts * 20);  // 0.05V precision
+    if (bat_x20 != s_prev_battery_x100) {  // Reusing variable name for compatibility
+        // Label and bar outline (draw once on first update)
         if (s_prev_battery_x100 == INT16_MIN) {
             lcd_draw_string(4, y, "BAT", COLOR_LIGHTGRAY, COLOR_BLACK, 1);
+            lcd_fill_rect(95, y, 36, 10, COLOR_DARKGRAY);  // Bar outline/background
         }
         snprintf(buf, sizeof(buf), "%4.2fV", status->battery_volts);
         uint16_t bat_color = (status->battery_volts > BATTERY_VOLTAGE_MED_V) ? COLOR_GREEN :
@@ -573,14 +575,20 @@ esp_err_t lcd_display_update(const lcd_rover_status_t *status)
         lcd_draw_string(50, y, buf, bat_color, COLOR_BLACK, 1);
 
         // Battery bar (3.0V = 0%, 4.2V = 100%)
+        // Calculate new bar width
         int bat_pct = (int)((status->battery_volts - BATTERY_VOLTAGE_EMPTY_V) /
                             (BATTERY_VOLTAGE_FULL_V - BATTERY_VOLTAGE_EMPTY_V) * 100);
         if (bat_pct < 0) bat_pct = 0;
         if (bat_pct > 100) bat_pct = 100;
-        lcd_fill_rect(95, y, 36, 10, COLOR_DARKGRAY);
-        lcd_fill_rect(96, y + 1, (bat_pct * 34) / 100, 8, bat_color);
+        int new_bar_width = (bat_pct * 34) / 100;
 
-        s_prev_battery_x100 = bat_x100;
+        // Draw bar without full clear to avoid flicker:
+        // 1. Draw the filled portion
+        // 2. Draw the empty portion (instead of clearing entire bar first)
+        lcd_fill_rect(96, y + 1, new_bar_width, 8, bat_color);           // Filled part
+        lcd_fill_rect(96 + new_bar_width, y + 1, 34 - new_bar_width, 8, COLOR_DARKGRAY);  // Empty part
+
+        s_prev_battery_x100 = bat_x20;
     }
 
     // =========================================================================

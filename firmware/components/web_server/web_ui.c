@@ -1055,6 +1055,8 @@ static const char web_ui_html[] = R"rawliteral(
         // =============================================================================
         let telemetryChart = null;
         let chartWindowSeconds = 6;  // Default window size
+        let currentSteeringHistory = null;  // Store for time window changes
+        let currentSpeedHistory = null;     // Store for time window changes
 
         function initTelemetryChart() {
             const ctx = document.getElementById('steering-chart');
@@ -1198,6 +1200,10 @@ static const char web_ui_html[] = R"rawliteral(
         function updateTelemetryChart(steeringHistory, speedHistory) {
             if (!telemetryChart) return;
 
+            // Store history for time window changes
+            if (steeringHistory) currentSteeringHistory = steeringHistory;
+            if (speedHistory) currentSpeedHistory = speedHistory;
+
             // Handle empty or missing data
             const hasSteeringData = steeringHistory && steeringHistory.length > 0;
             const hasSpeedData = speedHistory && speedHistory.length > 0;
@@ -1248,6 +1254,11 @@ static const char web_ui_html[] = R"rawliteral(
                 btn.classList.remove('active');
             });
             document.getElementById('chart-' + seconds + 's').classList.add('active');
+
+            // Redraw chart with new time window using stored history
+            if (currentSteeringHistory || currentSpeedHistory) {
+                updateTelemetryChart(currentSteeringHistory, currentSpeedHistory);
+            }
         }
 
         // Initialize chart when page loads
