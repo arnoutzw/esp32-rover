@@ -16,6 +16,7 @@ This document defines the behavioral rules and standards that AI assistants MUST
 4. [Build and Flash](#build-and-flash)
    - [Build Script Usage](#build-script-usage)
    - [Flash Verification](#flash-verification)
+   - [Build Hash Verification Rule](#build-hash-verification-rule)
 5. [Documentation Requirements](#documentation-requirements)
    - [Bug Documentation](#bug-documentation)
    - [Bug Report Analysis](#bug-report-analysis)
@@ -258,6 +259,63 @@ curl -s http://<device-ip>/status | jq '.diag.buildFingerprint'
 1. You may have flashed an old archived binary (check `binaries/<target>/latest.bin` symlink)
 2. The device may have rolled back to a previous OTA partition
 3. Rebuild with `./scripts/build.sh <target>` to create a fresh archived binary
+
+### Build Hash Verification Rule
+
+**After every build, verify the binary contains the expected git hash before flashing.**
+
+Before proceeding with OTA flash, always verify the built binary contains the correct commit hash:
+
+```bash
+# Get current git commit hash
+EXPECTED_HASH=$(git rev-parse --short=7 HEAD)
+
+# Verify hash is embedded in the binary
+strings binaries/<target>/latest.bin | grep "$EXPECTED_HASH"
+
+# Should output something like:
+# v2.0.3-3-gb32a316
+# b32a316
+```
+
+**Verification steps (mandatory before OTA):**
+1. Note the current git commit hash after committing
+2. Run the build: `./scripts/build.sh <target>`
+3. Verify the binary filename contains the expected hash (e.g., `esp32-rover_ttgo_20260125_214954_b32a316.bin`)
+4. Verify the hash is embedded in the binary using `strings` command
+5. Only proceed with OTA if hashes match
+
+**If hashes don't match or old hash is present:**
+- **DO NOT proceed with OTA flash** - flag a warning
+- Perform a clean rebuild: `./scripts/build.sh <target> clean && ./scripts/build.sh <target>`
+- Re-verify the hash in the new binary
+- Investigate if stale build artifacts may be causing the mismatch
+
+**Why this matters:**
+- Prevents flashing binaries with embedded hashes from previous builds
+- Catches incremental build issues where build_info isn't regenerated
+- Ensures the firmware running on device can be traced to exact source code
+- Avoids confusion when debugging issues on "wrong" firmware version
+
+**Example verification workflow:**
+```bash
+# After committing changes
+git rev-parse --short=7 HEAD
+# Output: b32a316
+
+# Build
+./scripts/build.sh ttgo
+
+# Verify (must see the same hash)
+strings binaries/ttgo/latest.bin | grep "b32a316"
+# Expected output:
+# v2.0.3-3-gb32a316
+# b32a316
+
+# If you see a DIFFERENT hash (e.g., 97b1285), DO NOT FLASH
+# Instead, clean rebuild:
+./scripts/build.sh ttgo clean && ./scripts/build.sh ttgo
+```
 
 ---
 
