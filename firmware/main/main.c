@@ -109,6 +109,18 @@ static bool read_button_right(void)
 {
     return s_buttons_initialized && s_button_right_pressed;
 }
+
+// Direct GPIO reading for display purposes - avoids ISR race condition
+// when both buttons are pressed simultaneously
+static bool read_button_left_direct(void)
+{
+    return s_buttons_initialized && (gpio_get_level(BUTTON_LEFT_PIN) == 0);
+}
+
+static bool read_button_right_direct(void)
+{
+    return s_buttons_initialized && (gpio_get_level(BUTTON_RIGHT_PIN) == 0);
+}
 #endif
 
 // =============================================================================
@@ -837,9 +849,9 @@ static void status_update_task(void *pvParameters)
         }
 
 #if defined(ENABLE_BUTTONS) && ENABLE_BUTTONS
-        // Button states
-        status.button_left = read_button_left();
-        status.button_right = read_button_right();
+        // Button states - use direct GPIO reading for accurate simultaneous press detection
+        status.button_left = read_button_left_direct();
+        status.button_right = read_button_right_direct();
 #endif
 
         // =================================================================
@@ -1341,8 +1353,10 @@ static void lcd_update_task(void *pvParameters)
             lcd_status.battery_volts = 0.0f;
 #endif
 
-            lcd_status.button_left = btn_left;
-            lcd_status.button_right = btn_right;
+            // Use direct GPIO reading for display to show both buttons when pressed simultaneously
+            // (ISR-cached btn_left/btn_right used above for state machine edge detection)
+            lcd_status.button_left = read_button_left_direct();
+            lcd_status.button_right = read_button_right_direct();
             lcd_status.uptime_secs = uptime_secs;
 
             // Update display
