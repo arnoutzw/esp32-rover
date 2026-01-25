@@ -337,16 +337,23 @@ static esp_err_t control_handler(httpd_req_t *req)
 }
 
 #if ENABLE_REST_API
-// Status handler - return current status with full diagnostics
-static esp_err_t status_handler(httpd_req_t *req)
+// Helper: Get WiFi mode string from numeric mode
+static const char* get_wifi_mode_str(uint8_t wifi_mode)
 {
-    char response[1024];
-
-    rover_status_t status = {0};
-    if (state_mutex && xSemaphoreTake(state_mutex, pdMS_TO_TICKS(10)) == pdTRUE) {
-        status = current_status;
-        xSemaphoreGive(state_mutex);
+    switch (wifi_mode) {
+        case 1:  return "sta";
+        case 2:  return "ap";
+        case 3:  return "apsta";
+        default: return "unknown";
     }
+}
+
+// Helper: Build status JSON response
+// Uses cJSON for cleaner, safer JSON construction
+static cJSON* build_status_json(const rover_status_t *status)
+{
+    cJSON *root = cJSON_CreateObject();
+    if (!root) return NULL;
 
     // Determine target string
 #ifdef ROVER_TARGET_ESP32CAM
@@ -355,148 +362,85 @@ static esp_err_t status_handler(httpd_req_t *req)
     const char *target_str = "ttgo";
 #endif
 
-    // Determine WiFi mode string: 1=STA, 2=AP, 3=APSTA
-    const char *wifi_mode_str;
-    switch (status.wifi_mode) {
-        case 1:  wifi_mode_str = "sta"; break;
-        case 2:  wifi_mode_str = "ap"; break;
-        case 3:  wifi_mode_str = "apsta"; break;
-        default: wifi_mode_str = "unknown"; break;
+    // Root level fields
+    cJSON_AddStringToObject(root, "target", target_str);
+    cJSON_AddNumberToObject(root, "velocity", 0.0);  // Placeholder for UI compatibility
+    cJSON_AddNumberToObject(root, "battery", status->battery_voltage);
+    cJSON_AddBoolToObject(root, "camera", status->camera_active);
+    cJSON_AddNumberToObject(root, "rssi", status->wifi_rssi);
+    cJSON_AddBoolToObject(root, "btnL", status->button_left);
+    cJSON_AddBoolToObject(root, "btnR", status->button_right);
+
+    // Diagnostic sub-object
+    cJSON *diag = cJSON_CreateObject();
+    if (!diag) {
+        cJSON_Delete(root);
+        return NULL;
     }
 
-    // Build JSON with all diagnostic data
-    // Include "clients" only in AP or APSTA mode (wifi_mode >= 2)
-    if (status.wifi_mode >= 2) {
-        // AP or APSTA mode - show clients count
-        snprintf(response, sizeof(response),
-            "{"
-            "\"target\":\"%s\","
-            "\"velocity\":%.1f,"
-            "\"battery\":%.2f,"
-            "\"camera\":%s,"
-            "\"rssi\":%d,"
-            "\"btnL\":%s,"
-            "\"btnR\":%s,"
-            "\"diag\":{"
-                "\"ssid\":\"%s\","
-                "\"ip\":\"%s\","
-                "\"wifiMode\":\"%s\","
-                "\"channel\":%d,"
-                "\"clients\":%d,"
-                "\"txPower\":%d,"
-                "\"freeHeap\":%lu,"
-                "\"minHeap\":%lu,"
-                "\"totalHeap\":%lu,"
-                "\"freeInternal\":%lu,"
-                "\"uptime\":%lu,"
-                "\"restApi\":%s,"
-                "\"mqttEnabled\":%s,"
-                "\"mqttConnected\":%s,"
-                "\"localTime\":\"%s\","
-                "\"ntpSynced\":%s,"
-                "\"buildVersion\":\"%s\","
-                "\"buildFingerprint\":\"%s\","
-                "\"buildTime\":\"%s\","
-                "\"buildBranch\":\"%s\","
-                "\"buildDirty\":%s"
-            "}"
-            "}",
-            target_str,
-            0.0f,  // velocity - currently not measured, placeholder for UI compatibility
-            status.battery_voltage,
-            status.camera_active ? "true" : "false",
-            status.wifi_rssi,
-            status.button_left ? "true" : "false",
-            status.button_right ? "true" : "false",
-            status.wifi_ssid ? status.wifi_ssid : "",
-            status.wifi_ip ? status.wifi_ip : "",
-            wifi_mode_str,
-            status.wifi_channel,
-            status.connected_clients,
-            status.wifi_tx_power,
-            (unsigned long)status.free_heap,
-            (unsigned long)status.min_free_heap,
-            (unsigned long)status.total_heap,
-            (unsigned long)status.free_internal,
-            (unsigned long)status.uptime_secs,
-            status.rest_api_enabled ? "true" : "false",
-            status.mqtt_enabled ? "true" : "false",
-            status.mqtt_connected ? "true" : "false",
-            status.local_time ? status.local_time : "--:--:--",
-            status.ntp_synced ? "true" : "false",
-            status.build_version ? status.build_version : "dev",
-            status.build_fingerprint ? status.build_fingerprint : "unknown",
-            status.build_time ? status.build_time : "unknown",
-            status.build_branch ? status.build_branch : "unknown",
-            status.build_dirty ? "true" : "false"
-        );
-    } else {
-        // STA mode - no clients field (not relevant)
-        snprintf(response, sizeof(response),
-            "{"
-            "\"target\":\"%s\","
-            "\"velocity\":%.1f,"
-            "\"battery\":%.2f,"
-            "\"camera\":%s,"
-            "\"rssi\":%d,"
-            "\"btnL\":%s,"
-            "\"btnR\":%s,"
-            "\"diag\":{"
-                "\"ssid\":\"%s\","
-                "\"ip\":\"%s\","
-                "\"wifiMode\":\"%s\","
-                "\"channel\":%d,"
-                "\"txPower\":%d,"
-                "\"freeHeap\":%lu,"
-                "\"minHeap\":%lu,"
-                "\"totalHeap\":%lu,"
-                "\"freeInternal\":%lu,"
-                "\"uptime\":%lu,"
-                "\"restApi\":%s,"
-                "\"mqttEnabled\":%s,"
-                "\"mqttConnected\":%s,"
-                "\"localTime\":\"%s\","
-                "\"ntpSynced\":%s,"
-                "\"buildVersion\":\"%s\","
-                "\"buildFingerprint\":\"%s\","
-                "\"buildTime\":\"%s\","
-                "\"buildBranch\":\"%s\","
-                "\"buildDirty\":%s"
-            "}"
-            "}",
-            target_str,
-            0.0f,  // velocity - currently not measured, placeholder for UI compatibility
-            status.battery_voltage,
-            status.camera_active ? "true" : "false",
-            status.wifi_rssi,
-            status.button_left ? "true" : "false",
-            status.button_right ? "true" : "false",
-            status.wifi_ssid ? status.wifi_ssid : "",
-            status.wifi_ip ? status.wifi_ip : "",
-            wifi_mode_str,
-            status.wifi_channel,
-            status.wifi_tx_power,
-            (unsigned long)status.free_heap,
-            (unsigned long)status.min_free_heap,
-            (unsigned long)status.total_heap,
-            (unsigned long)status.free_internal,
-            (unsigned long)status.uptime_secs,
-            status.rest_api_enabled ? "true" : "false",
-            status.mqtt_enabled ? "true" : "false",
-            status.mqtt_connected ? "true" : "false",
-            status.local_time ? status.local_time : "--:--:--",
-            status.ntp_synced ? "true" : "false",
-            status.build_version ? status.build_version : "dev",
-            status.build_fingerprint ? status.build_fingerprint : "unknown",
-            status.build_time ? status.build_time : "unknown",
-            status.build_branch ? status.build_branch : "unknown",
-            status.build_dirty ? "true" : "false"
-        );
+    cJSON_AddStringToObject(diag, "ssid", status->wifi_ssid ? status->wifi_ssid : "");
+    cJSON_AddStringToObject(diag, "ip", status->wifi_ip ? status->wifi_ip : "");
+    cJSON_AddStringToObject(diag, "wifiMode", get_wifi_mode_str(status->wifi_mode));
+    cJSON_AddNumberToObject(diag, "channel", status->wifi_channel);
+
+    // Only include clients count in AP or APSTA mode
+    if (status->wifi_mode >= 2) {
+        cJSON_AddNumberToObject(diag, "clients", status->connected_clients);
+    }
+
+    cJSON_AddNumberToObject(diag, "txPower", status->wifi_tx_power);
+    cJSON_AddNumberToObject(diag, "freeHeap", status->free_heap);
+    cJSON_AddNumberToObject(diag, "minHeap", status->min_free_heap);
+    cJSON_AddNumberToObject(diag, "totalHeap", status->total_heap);
+    cJSON_AddNumberToObject(diag, "freeInternal", status->free_internal);
+    cJSON_AddNumberToObject(diag, "uptime", status->uptime_secs);
+    cJSON_AddBoolToObject(diag, "restApi", status->rest_api_enabled);
+    cJSON_AddBoolToObject(diag, "mqttEnabled", status->mqtt_enabled);
+    cJSON_AddBoolToObject(diag, "mqttConnected", status->mqtt_connected);
+    cJSON_AddStringToObject(diag, "localTime", status->local_time ? status->local_time : "--:--:--");
+    cJSON_AddBoolToObject(diag, "ntpSynced", status->ntp_synced);
+    cJSON_AddStringToObject(diag, "buildVersion", status->build_version ? status->build_version : "dev");
+    cJSON_AddStringToObject(diag, "buildFingerprint", status->build_fingerprint ? status->build_fingerprint : "unknown");
+    cJSON_AddStringToObject(diag, "buildTime", status->build_time ? status->build_time : "unknown");
+    cJSON_AddStringToObject(diag, "buildBranch", status->build_branch ? status->build_branch : "unknown");
+    cJSON_AddBoolToObject(diag, "buildDirty", status->build_dirty);
+
+    cJSON_AddItemToObject(root, "diag", diag);
+
+    return root;
+}
+
+// Status handler - return current status with full diagnostics
+static esp_err_t status_handler(httpd_req_t *req)
+{
+    rover_status_t status = {0};
+    if (state_mutex && xSemaphoreTake(state_mutex, pdMS_TO_TICKS(10)) == pdTRUE) {
+        status = current_status;
+        xSemaphoreGive(state_mutex);
+    }
+
+    // Build JSON response using cJSON helper
+    cJSON *json = build_status_json(&status);
+    if (!json) {
+        httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "Failed to build response");
+        return ESP_FAIL;
+    }
+
+    // Print JSON to string (cJSON handles allocation)
+    char *response = cJSON_PrintUnformatted(json);
+    cJSON_Delete(json);
+
+    if (!response) {
+        httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "Failed to serialize JSON");
+        return ESP_FAIL;
     }
 
     httpd_resp_set_type(req, "application/json");
     httpd_resp_set_hdr(req, "Access-Control-Allow-Origin", "*");
-    return httpd_resp_sendstr(req, response);
+    esp_err_t ret = httpd_resp_sendstr(req, response);
+
+    free(response);  // Free cJSON allocated string
+    return ret;
 }
 #endif // ENABLE_REST_API
 

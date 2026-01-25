@@ -1045,6 +1045,72 @@ typedef enum {
     DIAG_MODE_EXITING        // Confirmed exit, returning to normal
 } diag_mode_t;
 
+// Diagnostic mode state machine context
+typedef struct {
+    diag_mode_t mode;
+    TickType_t both_buttons_start;
+    bool prev_btn_left;
+    bool prev_btn_right;
+} diag_state_t;
+
+#define DIAG_ENTRY_HOLD_TIME_MS  3000  // 3 seconds to enter diagnostic mode
+
+// Update diagnostic mode state machine
+// Returns the new mode after processing button inputs
+static diag_mode_t update_diag_mode_state(diag_state_t *state, bool btn_left, bool btn_right)
+{
+    bool both_pressed = btn_left && btn_right;
+    bool any_pressed = btn_left || btn_right;
+    bool btn_left_pressed = btn_left && !state->prev_btn_left;   // Rising edge
+    bool btn_right_pressed = btn_right && !state->prev_btn_right; // Rising edge
+
+    switch (state->mode) {
+        case DIAG_MODE_OFF:
+            if (both_pressed) {
+                state->both_buttons_start = xTaskGetTickCount();
+                state->mode = DIAG_MODE_ENTERING;
+                ESP_LOGI(TAG, "Diagnostic mode: hold buttons for 3 seconds...");
+            }
+            break;
+
+        case DIAG_MODE_ENTERING:
+            if (!both_pressed) {
+                state->mode = DIAG_MODE_OFF;
+            } else if ((xTaskGetTickCount() - state->both_buttons_start) >= pdMS_TO_TICKS(DIAG_ENTRY_HOLD_TIME_MS)) {
+                state->mode = DIAG_MODE_WAIT_RELEASE;
+                lcd_display_clear();
+                ESP_LOGI(TAG, "Diagnostic mode entered - release buttons to view");
+            }
+            break;
+
+        case DIAG_MODE_WAIT_RELEASE:
+            if (!any_pressed) {
+                state->mode = DIAG_MODE_ON;
+                ESP_LOGI(TAG, "Diagnostic mode active - press any button to exit");
+            }
+            break;
+
+        case DIAG_MODE_ON:
+            if (btn_left_pressed || btn_right_pressed) {
+                state->mode = DIAG_MODE_EXITING;
+            }
+            break;
+
+        case DIAG_MODE_EXITING:
+            state->mode = DIAG_MODE_OFF;
+            lcd_display_reset_state();
+            lcd_display_clear();
+            ESP_LOGI(TAG, "Exiting diagnostic mode");
+            break;
+    }
+
+    // Update previous button states for edge detection
+    state->prev_btn_left = btn_left;
+    state->prev_btn_right = btn_right;
+
+    return state->mode;
+}
+
 static uint8_t get_connected_station_count(void)
 {
     wifi_sta_list_t sta_list;
@@ -1072,6 +1138,45 @@ typedef enum {
     SLEEP_MODE_ENTERING,
     SLEEP_MODE_CONFIRMED
 } sleep_mode_t;
+
+// Sleep mode state machine context
+typedef struct {
+    sleep_mode_t mode;
+    TickType_t left_button_hold_start;
+} sleep_state_t;
+
+// Update sleep mode state machine
+// Returns the new mode after processing button input
+static sleep_mode_t update_sleep_mode_state(sleep_state_t *state, bool btn_left, bool btn_right,
+                                            diag_mode_t diag_mode)
+{
+    bool left_only = btn_left && !btn_right;
+
+    switch (state->mode) {
+        case SLEEP_MODE_OFF:
+            if (left_only && diag_mode == DIAG_MODE_OFF) {
+                state->left_button_hold_start = xTaskGetTickCount();
+                state->mode = SLEEP_MODE_ENTERING;
+                ESP_LOGI(TAG, "Sleep mode: hold left button for 5 seconds...");
+            }
+            break;
+
+        case SLEEP_MODE_ENTERING:
+            if (!left_only) {
+                state->mode = SLEEP_MODE_OFF;
+            } else if ((xTaskGetTickCount() - state->left_button_hold_start) >= pdMS_TO_TICKS(SLEEP_BUTTON_HOLD_TIME_MS)) {
+                state->mode = SLEEP_MODE_CONFIRMED;
+                ESP_LOGI(TAG, "Sleep mode confirmed - entering deep sleep");
+            }
+            break;
+
+        case SLEEP_MODE_CONFIRMED:
+            // Will be handled by caller to enter deep sleep
+            break;
+    }
+
+    return state->mode;
+}
 
 static void enter_deep_sleep(void)
 {
@@ -1131,18 +1236,10 @@ static void lcd_update_task(void *pvParameters)
     // Record start time for uptime calculation
     TickType_t start_ticks = xTaskGetTickCount();
 
-    // Diagnostic mode tracking
-    diag_mode_t diag_mode = DIAG_MODE_OFF;
-    TickType_t both_buttons_start = 0;
-    const TickType_t DIAG_ENTRY_HOLD_TIME = pdMS_TO_TICKS(3000);  // 3 seconds to enter
-    bool prev_btn_left = false;
-    bool prev_btn_right = false;
-
+    // Initialize state machine contexts
+    diag_state_t diag_state = {0};
 #if defined(ROVER_TARGET_TTGO) && defined(ENABLE_DEEP_SLEEP) && ENABLE_DEEP_SLEEP
-    // Deep sleep mode tracking (REQ-30)
-    sleep_mode_t sleep_mode = SLEEP_MODE_OFF;
-    TickType_t left_button_hold_start = 0;
-    const TickType_t SLEEP_ENTRY_HOLD_TIME = pdMS_TO_TICKS(SLEEP_BUTTON_HOLD_TIME_MS);
+    sleep_state_t sleep_state = {0};
 #endif
 
     lcd_rover_status_t lcd_status = {
@@ -1165,94 +1262,14 @@ static void lcd_update_task(void *pvParameters)
         // Calculate uptime
         uint32_t uptime_secs = (xTaskGetTickCount() - start_ticks) / configTICK_RATE_HZ;
 
-        // Diagnostic mode state machine
-        // REQ-06: Long press both buttons 3s to enter, short press any button to exit
-        bool both_pressed = btn_left && btn_right;
-        bool any_pressed = btn_left || btn_right;
-        bool btn_left_pressed = btn_left && !prev_btn_left;   // Rising edge
-        bool btn_right_pressed = btn_right && !prev_btn_right; // Rising edge
-
-        switch (diag_mode) {
-            case DIAG_MODE_OFF:
-                if (both_pressed) {
-                    // Start counting for diagnostic mode entry
-                    both_buttons_start = xTaskGetTickCount();
-                    diag_mode = DIAG_MODE_ENTERING;
-                    ESP_LOGI(TAG, "Diagnostic mode: hold buttons for 3 seconds...");
-                }
-                break;
-
-            case DIAG_MODE_ENTERING:
-                if (!both_pressed) {
-                    // Released too early
-                    diag_mode = DIAG_MODE_OFF;
-                } else if ((xTaskGetTickCount() - both_buttons_start) >= DIAG_ENTRY_HOLD_TIME) {
-                    // Held long enough, enter diagnostic mode but wait for release first
-                    diag_mode = DIAG_MODE_WAIT_RELEASE;
-                    lcd_display_clear();
-                    ESP_LOGI(TAG, "Diagnostic mode entered - release buttons to view");
-                }
-                break;
-
-            case DIAG_MODE_WAIT_RELEASE:
-                // Wait for user to release buttons after entering diagnostic mode
-                if (!any_pressed) {
-                    diag_mode = DIAG_MODE_ON;
-                    ESP_LOGI(TAG, "Diagnostic mode active - press any button to exit");
-                }
-                break;
-
-            case DIAG_MODE_ON:
-                // Exit on any button press (short press)
-                if (btn_left_pressed || btn_right_pressed) {
-                    diag_mode = DIAG_MODE_EXITING;
-                }
-                break;
-
-            case DIAG_MODE_EXITING:
-                // Return to normal mode
-                diag_mode = DIAG_MODE_OFF;
-                lcd_display_reset_state();
-                lcd_display_clear();
-                ESP_LOGI(TAG, "Exiting diagnostic mode");
-                break;
-        }
-
-        // Update previous button states for edge detection
-        prev_btn_left = btn_left;
-        prev_btn_right = btn_right;
+        // REQ-06: Update diagnostic mode state machine
+        diag_mode_t diag_mode = update_diag_mode_state(&diag_state, btn_left, btn_right);
 
 #if defined(ROVER_TARGET_TTGO) && defined(ENABLE_DEEP_SLEEP) && ENABLE_DEEP_SLEEP
-        // Deep sleep mode state machine (REQ-30)
-        // Trigger: Hold LEFT button only (not both) for 5 seconds
-        // This is separate from diagnostic mode (both buttons for 3s)
-        bool left_only = btn_left && !btn_right;
-
-        switch (sleep_mode) {
-            case SLEEP_MODE_OFF:
-                if (left_only && diag_mode == DIAG_MODE_OFF) {
-                    // Start counting for sleep mode entry
-                    left_button_hold_start = xTaskGetTickCount();
-                    sleep_mode = SLEEP_MODE_ENTERING;
-                    ESP_LOGI(TAG, "Sleep mode: hold left button for 5 seconds...");
-                }
-                break;
-
-            case SLEEP_MODE_ENTERING:
-                if (!left_only) {
-                    // Released too early or right button pressed
-                    sleep_mode = SLEEP_MODE_OFF;
-                } else if ((xTaskGetTickCount() - left_button_hold_start) >= SLEEP_ENTRY_HOLD_TIME) {
-                    // Held long enough - confirm sleep
-                    sleep_mode = SLEEP_MODE_CONFIRMED;
-                    ESP_LOGI(TAG, "Sleep mode confirmed - entering deep sleep");
-                }
-                break;
-
-            case SLEEP_MODE_CONFIRMED:
-                // Enter deep sleep (this function never returns)
-                enter_deep_sleep();
-                break;
+        // REQ-30: Update sleep mode state machine (only when not in diagnostic mode)
+        sleep_mode_t sleep_mode = update_sleep_mode_state(&sleep_state, btn_left, btn_right, diag_mode);
+        if (sleep_mode == SLEEP_MODE_CONFIRMED) {
+            enter_deep_sleep();  // This function never returns
         }
 #endif
 
