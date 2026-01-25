@@ -127,10 +127,38 @@ run_command() {
     esac
 }
 
+# Check for dirty working directory
+check_clean_workdir() {
+    cd "$PROJECT_ROOT"
+    if [ -n "$(git status --porcelain)" ]; then
+        echo -e "${RED}Error: Working directory is dirty!${NC}"
+        echo ""
+        echo "Uncommitted changes detected:"
+        git status --short
+        echo ""
+        echo -e "${YELLOW}Please commit and push your changes before building:${NC}"
+        echo "  git add -A && git commit -m 'Description of changes'"
+        echo "  git push origin develop"
+        echo ""
+        echo "This ensures every build is traceable to a specific commit."
+        echo ""
+        echo -e "To bypass this check (not recommended), use: ${YELLOW}ALLOW_DIRTY=1 $0 $@${NC}"
+        exit 1
+    fi
+    cd "$FIRMWARE_DIR"
+}
+
 # Main script
 if [ $# -lt 1 ]; then
     print_usage
     exit 1
+fi
+
+# Check for clean working directory (unless ALLOW_DIRTY is set)
+if [ -z "$ALLOW_DIRTY" ]; then
+    check_clean_workdir
+else
+    echo -e "${YELLOW}Warning: Building with dirty working directory (ALLOW_DIRTY set)${NC}"
 fi
 
 # Always use the embedded ESP-IDF
