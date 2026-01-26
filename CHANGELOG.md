@@ -7,6 +7,55 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.0.7] - 2026-01-26
+
+### Fixed
+- **Battery Indicator Flickering** (5074ad7):
+  - Reduced voltage comparison precision from 0.01V to 0.05V to prevent oscillation
+  - Changed bar redraw to update filled/empty portions separately (no full clear)
+  - Draw bar outline once on initialization instead of every update
+- **Telemetry Chart Time Window Buttons** (09ebfdd):
+  - Time range buttons (6s/30s/60s) now immediately redraw chart
+  - Added storage for steering/speed history data for instant redraws
+
+## [2.0.6] - 2026-01-26
+
+### Added
+- **Web-based Report Filing Tool** (`scripts/file_report_web.py`):
+  - Flask web app replicating file_report.py functionality
+  - File bug reports and feature requests remotely via browser/VPN
+  - Dark theme matching ESP32 Rover web UI
+  - Auto-fetch build info from rover devices
+- **CPU Usage Monitoring** (REQ-SW-035):
+  - CPU usage percentage in web UI diagnostics panel
+  - Uses FreeRTOS runtime stats for accurate measurement
+- **Automated Report Processing Rule**:
+  - Added to `CLAUDE/rules.md` for AI-assisted development workflow
+  - Defines end-to-end workflow for processing bug reports and feature requests
+
+### Documentation
+- Added Development Tools section to API_REFERENCE.md
+- Added CPU usage implementation details to DEVELOPMENT_LESSONS.md
+
+## [2.0.5] - 2026-01-25
+
+### Added
+- **WiFi AP Mode Switch** (REQ-SW-034):
+  - Hold right button for 5 seconds to switch from STA to AP mode
+  - LCD overlay shows countdown during button hold
+  - Confirmation message when AP mode activates
+  - Useful for recovering WiFi access when router is unavailable
+
+## [2.0.4] - 2026-01-25
+
+### Added
+- **Dual-Axis Telemetry Chart** (REQ-SW-032, REQ-SW-033):
+  - Live Chart.js chart in web UI showing speed and steering
+  - Speed on left Y-axis (-100% to +100%)
+  - Steering on right Y-axis (-45° to +45°)
+  - Configurable time windows (6s, 30s, 60s)
+  - Real-time updates via WebSocket
+
 ## [2.0.3] - 2026-01-25
 
 ### Changed
