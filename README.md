@@ -377,7 +377,7 @@ When connected to STA mode and can't reach the router:
 
 ## Documentation
 
-- [Software Requirements](docs/requirements/software_requirements.md) - Full requirements specification
+- [Software Requirements](projects/ESP32_Rover/esp32-rover-firmware/docs/requirements/software_requirements.md) - Full requirements specification
 - [API Reference](docs/implementation/API_REFERENCE.md) - Component APIs and configuration
 - [Web UI User Manual](docs/user/WEBUI_USER_MANUAL.md) - Control interface guide
 - [ESP-PROG JTAG Guide](esp-prog-jtag-guide.md) - Hardware debugging setup

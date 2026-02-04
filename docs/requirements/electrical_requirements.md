@@ -411,13 +411,13 @@ GPIO4 ─── R1 (330Ω) ─── LED ─── GND
 
 ### 8.1 SPI Interface (LCD)
 
-| Parameter | Specification | Notes |
-|-----------|---------------|-------|
-| Clock frequency | 40 MHz | Maximum for ST7789 |
-| Mode | SPI Mode 0 | CPOL=0, CPHA=0 |
-| Bit order | MSB first | Standard |
-| Data width | 8-bit | Byte transfers |
-| CS polarity | Active LOW | Standard |
+| Parameter       | Specification | Notes              |
+| --------------- | ------------- | ------------------ |
+| Clock frequency | 40 MHz        | Maximum for ST7789 |
+| Mode            | SPI Mode 0    | CPOL=0, CPHA=0     |
+| Bit order       | MSB first     | Standard           |
+| Data width      | 8-bit         | Byte transfers     |
+| CS polarity     | Active LOW    | Standard           |
 
 | Req ID | Requirement | Priority | Status | Verification |
 |--------|-------------|----------|--------|--------------|
