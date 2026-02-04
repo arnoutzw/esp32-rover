@@ -832,7 +832,13 @@ static const char web_ui_html[] = R"rawliteral(
             // Update title based on target
             const titleEl = document.querySelector('.header h1');
             if (titleEl) {
-                titleEl.textContent = target === 'ttgo' ? 'TTGO Rover' : 'ESP32-CAM Rover';
+                if (target === 'ttgo') {
+                    titleEl.textContent = 'TTGO Rover';
+                } else if (target === 'xiao_esp32s3') {
+                    titleEl.textContent = 'XIAO Rover';
+                } else {
+                    titleEl.textContent = 'ESP32-CAM Rover';
+                }
             }
 
             if (target === 'ttgo') {
@@ -842,8 +848,8 @@ static const char web_ui_html[] = R"rawliteral(
                 if (camToggleBox) camToggleBox.style.display = 'none';
                 if (camResetBox) camResetBox.style.display = 'none';
                 // Hardware buttons remain visible (default)
-            } else {
-                // ESP32-CAM: Show camera, flash LED, camera toggle, and reset button, hide hardware buttons
+            } else if (target === 'xiao_esp32s3' || target === 'esp32cam') {
+                // XIAO and ESP32-CAM: Show camera, flash LED, camera toggle, and reset button, hide hardware buttons
                 // Camera and flash LED remain visible (default)
                 if (hwButtonsRow) hwButtonsRow.style.display = 'none';
                 if (camResetBox) camResetBox.style.display = 'block';  // Show reset button

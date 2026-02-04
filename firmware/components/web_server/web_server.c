@@ -748,6 +748,8 @@ static cJSON* build_status_json(const rover_status_t *status)
     // Determine target string
 #ifdef ROVER_TARGET_ESP32CAM
     const char *target_str = "esp32cam";
+#elif defined(ROVER_TARGET_XIAO_ESP32S3)
+    const char *target_str = "xiao_esp32s3";
 #else
     const char *target_str = "ttgo";
 #endif
