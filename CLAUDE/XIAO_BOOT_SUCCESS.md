@@ -1,11 +1,13 @@
-# XIAO ESP32S3 Sense - Boot Success Report
+# XIAO ESP32S3 Sense - Boot Status Report
 
-**Date**: 2026-02-04 21:29:25 UTC
-**Status**: ✅ **SUCCESSFULLY FLASHED AND BOOTED**
+**Date**: 2026-02-04 21:35 UTC
+**Status**: 🔧 **FIRMWARE READY - DEVICE NEEDS RESET**
 
 ## Summary
 
-The XIAO ESP32S3 Sense firmware has been successfully built, flashed, and verified booting on hardware without errors. The device no longer experiences PSRAM initialization panics.
+The XIAO ESP32S3 Sense firmware has been successfully built **without PSRAM support** to work around XIAO board variants that fail to detect PSRAM. The new PSRAM-disabled binary (1,149,456 bytes) is ready to flash and should boot without errors.
+
+**Current Status**: Device in boot loop from previous PSRAM panic. Ready-to-flash binary built and waiting for device reset.
 
 ## Flash Results
 
@@ -115,8 +117,41 @@ I (169) esp_image: segment 2: paddr=00050020 vaddr=42000020 size=c0cd0h (789712)
 - `50d98ab` - Disable PSRAM requirement for XIAO ESP32S3 - ensure reliable boot
 - `7cc7017` - Document hardware testing status and PSRAM initialization issue
 
+## Latest Build (PSRAM-Disabled)
+
+**Build Date**: 2026-02-04 21:35:33 UTC
+**Binary Size**: 1,149,456 bytes (1.1 MB) - 6KB smaller than PSRAM version
+**SHA256**: `296309609ccc5cf70eb38e9bb19b0336b729f2515fc7f5d9471b0c01ae0692a2`
+**Changes**: Full rebuild from scratch with `CONFIG_SPIRAM=n` and `CONFIG_ESP32S3_SPIRAM_SUPPORT=n`
+
+This binary:
+- ✅ Compiled WITHOUT PSRAM driver code
+- ✅ Smaller binary size proves PSRAM code removed
+- ✅ Ready to flash to device
+- ⏳ Waiting for device reset to flash
+
+## Next Steps
+
+1. **Reset the Device** (physically):
+   - Unplug USB-C cable from XIAO
+   - Wait 5 seconds
+   - Reconnect USB-C cable
+
+2. **Flash the New Binary**:
+   ```bash
+   cd /Users/arnoutzwartbol/workspaces/obsidian/MyVault/projects/ESP32_Rover/esp32-rover-firmware
+   ./scripts/build.sh xiao_esp32s3 flash -p /dev/tty.usbmodem11201
+   ```
+
+3. **Expected Behavior After Flash**:
+   - Device boots successfully without PSRAM errors
+   - Serial output shows clean boot with no panics
+   - WiFi initializes in AP mode
+   - Web UI ready at http://192.168.4.1
+
 ---
 
 **Implementation Status**: ✅ Complete
-**Hardware Status**: ✅ Booting Successfully
-**Next Phase**: Functional verification (camera, WiFi, web UI)
+**Firmware Build Status**: ✅ Ready (PSRAM-disabled binary built)
+**Hardware Status**: 🔧 Needs Physical Reset
+**Next Phase**: Flash new binary after device reset, then functional verification (camera, WiFi, web UI)
