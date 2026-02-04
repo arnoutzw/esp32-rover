@@ -622,9 +622,10 @@ static const char web_ui_html[] = R"rawliteral(
     </div>
 
     <script>
-        // Configuration
-        const SEND_INTERVAL = 50;  // ms between control updates
-        const STATUS_INTERVAL = 100;  // ms between status requests (10Hz for responsive buttons)
+        // Configuration (fetched dynamically from /config endpoint)
+        const SEND_INTERVAL = 50;  // ms between control updates (fixed)
+        let STATUS_INTERVAL = 100;  // ms between status requests (dynamically updated)
+        let statusIntervalHandle = null;  // Handle for dynamic polling interval
 
         // State
         let speed = 0;
@@ -826,6 +827,30 @@ static const char web_ui_html[] = R"rawliteral(
             }
         }
 
+        // Fetch and apply dynamic configuration
+        async function fetchDynamicConfig() {
+            try {
+                const response = await fetch('/config');
+                if (response.ok) {
+                    const config = await response.json();
+                    // Update polling interval if it changed
+                    if (config.statusPollingIntervalMs && config.statusPollingIntervalMs !== STATUS_INTERVAL) {
+                        const oldInterval = STATUS_INTERVAL;
+                        STATUS_INTERVAL = config.statusPollingIntervalMs;
+                        console.log(`Polling interval updated: ${oldInterval}ms -> ${STATUS_INTERVAL}ms`);
+
+                        // Restart polling with new interval
+                        if (statusIntervalHandle) {
+                            clearInterval(statusIntervalHandle);
+                        }
+                        statusIntervalHandle = setInterval(fetchStatus, STATUS_INTERVAL);
+                    }
+                }
+            } catch (e) {
+                // Silently fail if config endpoint unavailable
+            }
+        }
+
         // Fetch status
         async function fetchStatus() {
             try {
@@ -942,11 +967,15 @@ static const char web_ui_html[] = R"rawliteral(
 
         // Start intervals
         setInterval(sendCommand, SEND_INTERVAL);
-        setInterval(fetchStatus, STATUS_INTERVAL);
+        statusIntervalHandle = setInterval(fetchStatus, STATUS_INTERVAL);
 
         // Initialize
         window.addEventListener('resize', updateJoystickRect);
         updateJoystickRect();
+
+        // Fetch dynamic configuration (polling interval, feature flags, etc.)
+        fetchDynamicConfig();
+
         // Camera initialization is deferred until target is known (REQ-33)
         // See configureUIForTarget() - camera only initialized for ESP32-CAM
 

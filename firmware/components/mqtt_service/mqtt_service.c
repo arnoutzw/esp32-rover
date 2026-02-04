@@ -263,6 +263,19 @@ bool mqtt_service_is_connected(void)
     return s_mqtt_connected;
 }
 
+esp_err_t mqtt_service_set_publish_interval(uint32_t interval_ms)
+{
+    // Validate range: 1000-60000 ms (1 second to 1 minute)
+    if (interval_ms < 1000 || interval_ms > 60000) {
+        ESP_LOGW(TAG, "Invalid publish interval: %" PRIu32 " ms (valid: 1000-60000)", interval_ms);
+        return ESP_ERR_INVALID_ARG;
+    }
+
+    s_publish_interval_ms = interval_ms;
+    ESP_LOGI(TAG, "MQTT publish interval updated to %" PRIu32 " ms", interval_ms);
+    return ESP_OK;
+}
+
 #else // ENABLE_MQTT == 0
 
 // Stub implementations when MQTT is disabled
@@ -285,6 +298,12 @@ esp_err_t mqtt_service_update_status(const rover_status_t *status)
 bool mqtt_service_is_connected(void)
 {
     return false;
+}
+
+esp_err_t mqtt_service_set_publish_interval(uint32_t interval_ms)
+{
+    (void)interval_ms;  // Unused
+    return ESP_OK;
 }
 
 #endif // ENABLE_MQTT

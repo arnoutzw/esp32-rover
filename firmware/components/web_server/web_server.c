@@ -4,6 +4,11 @@
 #ifdef ROVER_TARGET_ESP32CAM
 #include "camera.h"
 #endif
+
+#ifdef ENABLE_MQTT
+#include "mqtt_service.h"
+#endif
+
 #include <string.h>
 #include <stdlib.h>
 #include <inttypes.h>
@@ -34,8 +39,9 @@ static SemaphoreHandle_t state_mutex = NULL;
 // REQ-SW-032/033: Steering & Speed History for Live Telemetry Charts
 // =============================================================================
 // Ring buffers for telemetry history
-// At 10Hz status updates, 600 samples = 60 seconds of history
-#define TELEMETRY_HISTORY_SIZE 600
+// At 10Hz status updates, 300 samples = 30 seconds of history
+// Reduced from 600 to save ~3.6KB RAM (2x: 600 floats + 600 uint32 timestamps)
+#define TELEMETRY_HISTORY_SIZE 300
 
 // Steering history buffer
 static float steering_history[TELEMETRY_HISTORY_SIZE] = {0};
@@ -96,9 +102,30 @@ static volatile bool stream_should_stop = false;
 #define RESET_COOLDOWN_MS 5000
 #endif
 
+// =============================================================================
+// Dynamic Resource Configuration
+// =============================================================================
+typedef struct {
+    uint32_t status_polling_interval_ms;   // Status polling interval (100-10000 ms)
+    uint32_t mqtt_publish_interval_ms;     // MQTT publish interval (1000-60000 ms)
+    bool telemetry_enabled;                // Enable/disable telemetry buffering
+    bool diagnostics_enabled;              // Enable/disable diagnostics in status
+    uint32_t max_telemetry_samples;        // Max telemetry history samples
+} resource_config_t;
+
+static resource_config_t resource_config = {
+    .status_polling_interval_ms = 100,     // Default: 100ms (10Hz)
+    .mqtt_publish_interval_ms = 5000,      // Default: 5000ms (0.2Hz)
+    .telemetry_enabled = true,
+    .diagnostics_enabled = true,
+    .max_telemetry_samples = 300            // Matches TELEMETRY_HISTORY_SIZE
+};
+
 // Forward declarations
 static esp_err_t root_handler(httpd_req_t *req);
 static esp_err_t control_handler(httpd_req_t *req);
+static esp_err_t config_get_handler(httpd_req_t *req);
+static esp_err_t config_post_handler(httpd_req_t *req);
 #if ENABLE_REST_API
 static esp_err_t status_handler(httpd_req_t *req);
 #endif
@@ -133,6 +160,21 @@ static const httpd_uri_t uri_control = {
     .uri = "/control",
     .method = HTTP_POST,
     .handler = control_handler,
+    .user_ctx = NULL
+};
+
+// Dynamic resource configuration endpoints
+static const httpd_uri_t uri_config_get = {
+    .uri = "/config",
+    .method = HTTP_GET,
+    .handler = config_get_handler,
+    .user_ctx = NULL
+};
+
+static const httpd_uri_t uri_config_post = {
+    .uri = "/config",
+    .method = HTTP_POST,
+    .handler = config_post_handler,
     .user_ctx = NULL
 };
 
@@ -571,6 +613,119 @@ static esp_err_t control_handler(httpd_req_t *req)
     return ESP_OK;
 }
 
+// Config GET handler - retrieve current resource configuration
+static esp_err_t config_get_handler(httpd_req_t *req)
+{
+    cJSON *root = cJSON_CreateObject();
+    if (!root) {
+        httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "JSON creation failed");
+        return ESP_FAIL;
+    }
+
+    if (state_mutex && xSemaphoreTake(state_mutex, pdMS_TO_TICKS(10)) == pdTRUE) {
+        cJSON_AddNumberToObject(root, "statusPollingIntervalMs", resource_config.status_polling_interval_ms);
+        cJSON_AddNumberToObject(root, "mqttPublishIntervalMs", resource_config.mqtt_publish_interval_ms);
+        cJSON_AddBoolToObject(root, "telemetryEnabled", resource_config.telemetry_enabled);
+        cJSON_AddBoolToObject(root, "diagnosticsEnabled", resource_config.diagnostics_enabled);
+        cJSON_AddNumberToObject(root, "maxTelemetrySamples", resource_config.max_telemetry_samples);
+        xSemaphoreGive(state_mutex);
+    }
+
+    char *json_str = cJSON_Print(root);
+    if (json_str) {
+        httpd_resp_set_type(req, "application/json");
+        httpd_resp_set_hdr(req, "Access-Control-Allow-Origin", "*");
+        httpd_resp_sendstr(req, json_str);
+        free(json_str);
+    } else {
+        httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "JSON print failed");
+        cJSON_Delete(root);
+        return ESP_FAIL;
+    }
+
+    cJSON_Delete(root);
+    return ESP_OK;
+}
+
+// Config POST handler - update resource configuration
+static esp_err_t config_post_handler(httpd_req_t *req)
+{
+    char buf[512];
+    int ret, remaining = req->content_len;
+
+    if (remaining > sizeof(buf) - 1) {
+        httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "Content too large");
+        return ESP_FAIL;
+    }
+
+    ret = httpd_req_recv(req, buf, remaining);
+    if (ret <= 0) {
+        if (ret == HTTPD_SOCK_ERR_TIMEOUT) {
+            httpd_resp_send_408(req);
+        }
+        return ESP_FAIL;
+    }
+    buf[ret] = '\0';
+
+    // Parse JSON
+    cJSON *root = cJSON_Parse(buf);
+    if (!root) {
+        httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "Invalid JSON");
+        return ESP_FAIL;
+    }
+
+    if (state_mutex && xSemaphoreTake(state_mutex, pdMS_TO_TICKS(10)) == pdTRUE) {
+        // Update status polling interval (100-10000 ms)
+        cJSON *polling = cJSON_GetObjectItem(root, "statusPollingIntervalMs");
+        if (polling && cJSON_IsNumber(polling)) {
+            uint32_t interval = (uint32_t)polling->valuedouble;
+            if (interval >= 100 && interval <= 10000) {
+                resource_config.status_polling_interval_ms = interval;
+                ESP_LOGI(TAG, "Updated status polling interval to %" PRIu32 " ms", interval);
+            }
+        }
+
+        // Update MQTT publish interval (1000-60000 ms)
+        cJSON *mqtt = cJSON_GetObjectItem(root, "mqttPublishIntervalMs");
+        if (mqtt && cJSON_IsNumber(mqtt)) {
+            uint32_t interval = (uint32_t)mqtt->valuedouble;
+            if (interval >= 1000 && interval <= 60000) {
+                resource_config.mqtt_publish_interval_ms = interval;
+#ifdef ENABLE_MQTT
+                // Apply to MQTT service if enabled
+                mqtt_service_set_publish_interval(interval);
+#endif
+                ESP_LOGI(TAG, "Updated MQTT publish interval to %" PRIu32 " ms", interval);
+            }
+        }
+
+        // Update telemetry enable
+        cJSON *telemetry = cJSON_GetObjectItem(root, "telemetryEnabled");
+        if (telemetry && cJSON_IsBool(telemetry)) {
+            resource_config.telemetry_enabled = cJSON_IsTrue(telemetry);
+            ESP_LOGI(TAG, "Telemetry %s", resource_config.telemetry_enabled ? "enabled" : "disabled");
+        }
+
+        // Update diagnostics enable
+        cJSON *diag = cJSON_GetObjectItem(root, "diagnosticsEnabled");
+        if (diag && cJSON_IsBool(diag)) {
+            resource_config.diagnostics_enabled = cJSON_IsTrue(diag);
+            ESP_LOGI(TAG, "Diagnostics %s", resource_config.diagnostics_enabled ? "enabled" : "disabled");
+        }
+
+        xSemaphoreGive(state_mutex);
+    }
+
+    cJSON_Delete(root);
+
+    // Send response
+    httpd_resp_set_type(req, "application/json");
+    httpd_resp_set_hdr(req, "Access-Control-Allow-Origin", "*");
+    httpd_resp_sendstr(req, "{\"status\":\"ok\"}");
+
+    return ESP_OK;
+}
+
 #if ENABLE_REST_API
 // Helper: Get WiFi mode string from numeric mode
 static const char* get_wifi_mode_str(uint8_t wifi_mode)
@@ -608,8 +763,9 @@ static cJSON* build_status_json(const rover_status_t *status)
 
     // REQ-SW-032/033: Add steering and speed history for live telemetry chart
     // Return last 60 samples (6 seconds at 10Hz polling) to keep payload reasonable
+    // Note: TELEMETRY_HISTORY_SIZE reduced from 600 to 300 for RAM efficiency
     {
-        const size_t MAX_SAMPLES = 60;
+        const size_t MAX_SAMPLES = 60;  // Only send last 60 samples to client (~6KB JSON per update)
         size_t steering_samples = steering_history_count < MAX_SAMPLES ? steering_history_count : MAX_SAMPLES;
         size_t speed_samples = speed_history_count < MAX_SAMPLES ? speed_history_count : MAX_SAMPLES;
 
@@ -936,6 +1092,12 @@ esp_err_t web_server_init(const web_server_config_t *config)
     httpd_register_uri_handler(server, &uri_stream);
 #endif
     httpd_register_uri_handler(server, &uri_control);
+
+    // Register config endpoints for dynamic resource management
+    httpd_register_uri_handler(server, &uri_config_get);
+    httpd_register_uri_handler(server, &uri_config_post);
+    ESP_LOGI(TAG, "Config endpoint enabled (/config)");
+
 #if ENABLE_REST_API
     httpd_register_uri_handler(server, &uri_status);
     ESP_LOGI(TAG, "REST API enabled (/status endpoint)");
