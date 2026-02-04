@@ -229,12 +229,12 @@ def main():
     if not target:
         print("Error: ROVER_TARGET environment variable not set.")
         print("This script should be called from the build system, or you can set it manually:")
-        print("  export ROVER_TARGET=esp32cam  # or ttgo")
+        print("  export ROVER_TARGET=esp32cam  # or ttgo or xiao_esp32s3")
         print("  python generate_config.py")
         sys.exit(1)
 
-    if target not in ("esp32cam", "ttgo"):
-        print(f"Error: Invalid ROVER_TARGET '{target}'. Must be 'esp32cam' or 'ttgo'.")
+    if target not in ("esp32cam", "ttgo", "xiao_esp32s3"):
+        print(f"Error: Invalid ROVER_TARGET '{target}'. Must be 'esp32cam', 'ttgo', or 'xiao_esp32s3'.")
         sys.exit(1)
 
     # Generate header
