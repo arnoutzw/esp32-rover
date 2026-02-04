@@ -6,6 +6,7 @@
 #endif
 #include <string.h>
 #include <stdlib.h>
+#include <inttypes.h>
 #include "esp_log.h"
 #include "esp_timer.h"
 #include "cJSON.h"
@@ -238,7 +239,7 @@ static void stream_task(void *pvParameters)
             if (camera_health.consecutive_failures == 1) {
                 ESP_LOGW(TAG, "Camera frame capture failed (attempt 1)");
             } else if (camera_health.consecutive_failures % 10 == 0) {
-                ESP_LOGW(TAG, "Camera frame capture failed (%u consecutive failures)",
+                ESP_LOGW(TAG, "Camera frame capture failed (%" PRIu32 " consecutive failures)",
                          camera_health.consecutive_failures);
             }
 
@@ -289,7 +290,7 @@ static void stream_task(void *pvParameters)
 
         // Frame captured successfully - reset failure counter
         if (camera_health.consecutive_failures > 0) {
-            ESP_LOGI(TAG, "Camera recovered after %u failures", camera_health.consecutive_failures);
+            ESP_LOGI(TAG, "Camera recovered after %" PRIu32 " failures", camera_health.consecutive_failures);
             camera_health.consecutive_failures = 0;
         }
 
