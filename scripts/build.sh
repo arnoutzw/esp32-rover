@@ -30,8 +30,9 @@ print_usage() {
     echo "Usage: $0 <target> [command]"
     echo ""
     echo "Targets:"
-    echo "  esp32cam    Build for ESP32-CAM AI-Thinker (with camera)"
-    echo "  ttgo        Build for TTGO T-Display (no camera)"
+    echo "  esp32cam      Build for ESP32-CAM AI-Thinker (with camera)"
+    echo "  ttgo          Build for TTGO T-Display (no camera)"
+    echo "  xiao_esp32s3  Build for XIAO ESP32S3 Sense (with camera)"
     echo ""
     echo "Commands (optional):"
     echo "  build       Build the project (default)"
@@ -66,6 +67,11 @@ setup_target() {
             echo -e "${BLUE}Setting up for TTGO T-Display (no camera)${NC}"
             SDKCONFIG_DEFAULTS="sdkconfig.defaults.ttgo"
             TARGET_DEFINE="ROVER_TARGET_TTGO"
+            ;;
+        xiao_esp32s3)
+            echo -e "${BLUE}Setting up for XIAO ESP32S3 Sense (with camera)${NC}"
+            SDKCONFIG_DEFAULTS="sdkconfig.defaults.xiao_esp32s3"
+            TARGET_DEFINE="ROVER_TARGET_XIAO_ESP32S3"
             ;;
         *)
             echo -e "${RED}Error: Unknown target '$target'${NC}"

@@ -8,6 +8,7 @@
 // Build Target Selection:
 //   - Define ROVER_TARGET_ESP32CAM for ESP32-CAM AI-Thinker (with camera)
 //   - Define ROVER_TARGET_TTGO for TTGO T-Display (no camera)
+//   - Define ROVER_TARGET_XIAO_ESP32S3 for Seeed XIAO ESP32S3 Sense (with camera)
 //
 // Set the target here or via compiler flag: -DROVER_TARGET_ESP32CAM=1
 // =============================================================================
@@ -17,18 +18,22 @@
 #include "config_generated.h"
 
 // Default to TTGO T-Display if no target specified (override from config_generated.h)
-#if !defined(ROVER_TARGET_ESP32CAM) && !defined(ROVER_TARGET_TTGO)
+#if !defined(ROVER_TARGET_ESP32CAM) && !defined(ROVER_TARGET_TTGO) && !defined(ROVER_TARGET_XIAO_ESP32S3)
     #define ROVER_TARGET_TTGO       1
 #endif
 
 // Validate only one target is selected
-#if defined(ROVER_TARGET_ESP32CAM) && defined(ROVER_TARGET_TTGO)
-    #error "Only one target can be defined: ROVER_TARGET_ESP32CAM or ROVER_TARGET_TTGO"
+#if (defined(ROVER_TARGET_ESP32CAM) && defined(ROVER_TARGET_TTGO)) || \
+    (defined(ROVER_TARGET_ESP32CAM) && defined(ROVER_TARGET_XIAO_ESP32S3)) || \
+    (defined(ROVER_TARGET_TTGO) && defined(ROVER_TARGET_XIAO_ESP32S3))
+    #error "Only one target can be defined: ROVER_TARGET_ESP32CAM, ROVER_TARGET_TTGO, or ROVER_TARGET_XIAO_ESP32S3"
 #endif
 
 // Set camera enable/disable based on target
 #ifdef ROVER_TARGET_ESP32CAM
     #define DISABLE_CAMERA      0   // Camera enabled for ESP32-CAM
+#elif defined(ROVER_TARGET_XIAO_ESP32S3)
+    #define DISABLE_CAMERA      0   // Camera enabled for XIAO ESP32S3 Sense
 #else
     #define DISABLE_CAMERA      1   // Camera disabled for TTGO T-Display
 #endif
@@ -160,6 +165,52 @@
 #define ENABLE_DEEP_SLEEP           1
 #define SLEEP_BUTTON_PIN            GPIO_NUM_0      // Left button triggers sleep
 #define SLEEP_BUTTON_HOLD_TIME_MS   5000            // 5 second hold to enter sleep
+
+#elif defined(ROVER_TARGET_XIAO_ESP32S3)
+// -----------------------------------------------------------------------------
+// Seeed XIAO ESP32S3 Sense Pin Configuration
+// Built-in OV2640 camera with fixed pinout, 3x programmable buttons
+// More GPIO available since no LCD or battery ADC
+// Avoid: GPIO 0,2,5,12,15 (boot sensitive), 34-39 (input only)
+// Available for expansion: GPIO 3,4,5,14,19,20,21
+// -----------------------------------------------------------------------------
+
+// Camera Configuration (OV2640 built-in - fixed pinout)
+#define CAM_PIN_PWDN        -1              // Not controllable (always on)
+#define CAM_PIN_RESET       -1              // Not controllable (fixed hardware)
+#define CAM_PIN_XCLK        GPIO_NUM_7      // XCLK clock
+#define CAM_PIN_SIOD        GPIO_NUM_40     // SDA (I2C data)
+#define CAM_PIN_SIOC        GPIO_NUM_41     // SCL (I2C clock)
+#define CAM_PIN_D7          GPIO_NUM_11     // Data pin 7
+#define CAM_PIN_D6          GPIO_NUM_9      // Data pin 6
+#define CAM_PIN_D5          GPIO_NUM_8      // Data pin 5
+#define CAM_PIN_D4          GPIO_NUM_10     // Data pin 4
+#define CAM_PIN_D3          GPIO_NUM_12     // Data pin 3
+#define CAM_PIN_D2          GPIO_NUM_18     // Data pin 2
+#define CAM_PIN_D1          GPIO_NUM_17     // Data pin 1
+#define CAM_PIN_D0          GPIO_NUM_16     // Data pin 0
+#define CAM_PIN_VSYNC       GPIO_NUM_6      // Vertical sync
+#define CAM_PIN_HREF        GPIO_NUM_15     // Horizontal reference
+#define CAM_PIN_PCLK        GPIO_NUM_13     // Pixel clock
+
+#define CAM_XCLK_FREQ       20000000        // 20MHz XCLK
+#define CAM_FRAME_SIZE      FRAMESIZE_QVGA  // 320x240 (lower resolution, less noise)
+#define CAM_JPEG_QUALITY    12              // 0-63, lower is better quality
+
+// Button Configuration (XIAO ESP32S3 has 3 programmable buttons)
+#define BUTTON_A_PIN        GPIO_NUM_0      // Button A (boot sensitive but usable)
+#define BUTTON_B_PIN        GPIO_NUM_1      // Button B
+#define BUTTON_C_PIN        GPIO_NUM_2      // Button C (boot sensitive but usable)
+#define ENABLE_BUTTONS      1               // Enable button support (for future use)
+
+// No LCD display on XIAO ESP32S3
+#define ENABLE_LCD_DISPLAY  0
+
+// No battery ADC on XIAO ESP32S3 (no built-in battery)
+#define ENABLE_BATTERY_ADC  0
+
+// No deep sleep mechanism on XIAO ESP32S3 (no accessible sleep button)
+#define ENABLE_DEEP_SLEEP   0
 
 #endif // Target selection
 
