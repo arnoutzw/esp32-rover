@@ -117,7 +117,7 @@
 #define CAM_FRAME_SIZE      FRAMESIZE_QVGA // 320x240 (lower resolution, less noise)
 #define CAM_JPEG_QUALITY    12           // 0-63, lower is better quality
 
-#else // ROVER_TARGET_TTGO
+#elif defined(ROVER_TARGET_TTGO)
 // -----------------------------------------------------------------------------
 // TTGO T-Display Pin Configuration
 // More GPIO available since no camera
@@ -166,7 +166,7 @@
 #define SLEEP_BUTTON_PIN            GPIO_NUM_0      // Left button triggers sleep
 #define SLEEP_BUTTON_HOLD_TIME_MS   5000            // 5 second hold to enter sleep
 
-#elif defined(ROVER_TARGET_XIAO_ESP32S3)
+#else // ROVER_TARGET_XIAO_ESP32S3
 // -----------------------------------------------------------------------------
 // Seeed XIAO ESP32S3 Sense Pin Configuration
 // Built-in OV2640 camera with fixed pinout, 3x programmable buttons
