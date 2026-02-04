@@ -638,6 +638,27 @@ static const char web_ui_html[] = R"rawliteral(
                                 </div>
                             </div>
                         </div>
+                        <div class="diag-section" id="diag-camera-section" style="display:none;">
+                            <div class="diag-section-title">Camera (ESP32-CAM/XIAO)</div>
+                            <div class="diag-grid">
+                                <div class="diag-item">
+                                    <span class="diag-label">Camera Status</span>
+                                    <span class="diag-value" id="diag-cam-status">--</span>
+                                </div>
+                                <div class="diag-item">
+                                    <span class="diag-label">Frame Failures</span>
+                                    <span class="diag-value" id="diag-cam-failures">0</span>
+                                </div>
+                                <div class="diag-item">
+                                    <span class="diag-label">Soft Resets</span>
+                                    <span class="diag-value" id="diag-cam-soft-resets">0</span>
+                                </div>
+                                <div class="diag-item">
+                                    <span class="diag-label">Hard Resets</span>
+                                    <span class="diag-value" id="diag-cam-hard-resets">0</span>
+                                </div>
+                            </div>
+                        </div>
                     </div>
                 </div>
             </div>
@@ -962,6 +983,38 @@ static const char web_ui_html[] = R"rawliteral(
                         const timeEl = document.getElementById('diag-localtime');
                         timeEl.textContent = d.localTime || '--:--:--';
                         timeEl.className = 'diag-value' + (d.ntpSynced ? '' : ' warn');
+
+                        // Camera diagnostics (ESP32-CAM and XIAO only)
+                        if (d.cameraStatus !== undefined) {
+                            const camSection = document.getElementById('diag-camera-section');
+                            if (camSection) {
+                                camSection.style.display = 'block';
+
+                                const camStatusEl = document.getElementById('diag-cam-status');
+                                if (camStatusEl) {
+                                    camStatusEl.textContent = d.cameraStatus;
+                                    camStatusEl.className = 'diag-value' +
+                                        (d.cameraStatus === 'ok' ? '' :
+                                         d.cameraStatus === 'loading' || d.cameraStatus === 'retrying' ? ' warn' : ' error');
+                                }
+
+                                const camFailuresEl = document.getElementById('diag-cam-failures');
+                                if (camFailuresEl) {
+                                    camFailuresEl.textContent = d.cameraFailures || 0;
+                                    camFailuresEl.className = 'diag-value' + ((d.cameraFailures || 0) > 0 ? ' warn' : '');
+                                }
+
+                                const softResetsEl = document.getElementById('diag-cam-soft-resets');
+                                if (softResetsEl) {
+                                    softResetsEl.textContent = d.cameraSoftResets || 0;
+                                }
+
+                                const hardResetsEl = document.getElementById('diag-cam-hard-resets');
+                                if (hardResetsEl) {
+                                    hardResetsEl.textContent = d.cameraHardResets || 0;
+                                }
+                            }
+                        }
                     }
 
                     // REQ-SW-032/033: Update telemetry chart with speed and steering

@@ -862,6 +862,29 @@ static cJSON* build_status_json(const rover_status_t *status)
     cJSON_AddStringToObject(diag, "buildBranch", status->build_branch ? status->build_branch : "unknown");
     cJSON_AddBoolToObject(diag, "buildDirty", status->build_dirty);
 
+#ifdef ROVER_TARGET_ESP32CAM
+    // Add camera health diagnostics
+    const char *cam_status;
+    if (!camera_is_initialized()) {
+        cam_status = "not_init";
+    } else if (camera_health.consecutive_failures == 0) {
+        cam_status = "ok";
+    } else if (camera_health.consecutive_failures < MAX_CONSECUTIVE_FAILURES_SOFT) {
+        cam_status = "loading";
+    } else if (camera_health.consecutive_failures < MAX_CONSECUTIVE_FAILURES_HARD) {
+        cam_status = "retrying";
+    } else if (camera_health.auto_recovery_enabled) {
+        cam_status = "error";
+    } else {
+        cam_status = "failed";
+    }
+
+    cJSON_AddStringToObject(diag, "cameraStatus", cam_status);
+    cJSON_AddNumberToObject(diag, "cameraFailures", camera_health.consecutive_failures);
+    cJSON_AddNumberToObject(diag, "cameraSoftResets", camera_health.soft_resets);
+    cJSON_AddNumberToObject(diag, "cameraHardResets", camera_health.hard_resets);
+#endif
+
     cJSON_AddItemToObject(root, "diag", diag);
 
     return root;
