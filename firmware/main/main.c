@@ -61,14 +61,13 @@ static TaskHandle_t lcd_task_handle = NULL;
 // Button Support
 // =============================================================================
 
-#if defined(ENABLE_BUTTONS) && ENABLE_BUTTONS
+// Button support - TTGO has LEFT/RIGHT buttons with physical logic
+// XIAO has programmable buttons but they're not integrated into main.c yet
+#if defined(ENABLE_BUTTONS) && ENABLE_BUTTONS && defined(ROVER_TARGET_TTGO)
 static bool s_buttons_initialized = false;
 
 // ISR-latched button states: ISR sets to true on press, cleared by polling
 // This ensures quick presses are captured even between display updates
-// Button support - TTGO has LEFT/RIGHT buttons with physical logic
-// XIAO has programmable buttons but they're not integrated into main.c yet
-#ifdef ROVER_TARGET_TTGO
 static volatile bool s_button_left_latched = false;
 static volatile bool s_button_right_latched = false;
 
@@ -124,7 +123,7 @@ static bool read_button_right(void)
 {
     return s_buttons_initialized && s_button_right_latched;
 }
-#endif // ROVER_TARGET_TTGO
+#endif // ENABLE_BUTTONS && ROVER_TARGET_TTGO
 
 // Read button state for display - combines ISR latch with current GPIO state
 // Returns true if: button is latched (was pressed since last poll) OR currently pressed
