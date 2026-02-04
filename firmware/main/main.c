@@ -1083,7 +1083,12 @@ static esp_err_t init_camera(void)
         .fb_count = 2,
     };
 
-    return camera_module_init(&config);
+    esp_err_t ret = camera_module_init(&config);
+    if (ret == ESP_OK) {
+        // Store config for reset operations
+        camera_store_config(&config);
+    }
+    return ret;
 }
 #endif
 

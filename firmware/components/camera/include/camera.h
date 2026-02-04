@@ -51,6 +51,20 @@ esp_err_t camera_module_init(const camera_config_params_t *config);
 esp_err_t camera_module_deinit(void);
 
 /**
+ * @brief Store camera configuration for reset operations
+ * @param config Camera configuration to store
+ * @return ESP_OK on success
+ */
+esp_err_t camera_store_config(const camera_config_params_t *config);
+
+/**
+ * @brief Get stored camera configuration for reset operations
+ * @param config Pointer to store camera configuration
+ * @return ESP_OK if config was previously stored, ESP_ERR_NOT_FOUND otherwise
+ */
+esp_err_t camera_get_stored_config(camera_config_params_t *config);
+
+/**
  * @brief Capture a single frame
  * @return Pointer to camera frame buffer, NULL on error
  */
