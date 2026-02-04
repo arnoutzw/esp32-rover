@@ -158,13 +158,10 @@ def generate_header(config: dict, secrets: dict, target: str) -> str:
     lines.append(f'#define CFG_ENABLE_ESTOP {1 if safety.get("estop_enabled", True) else 0}')
     lines.append("")
 
-    # mDNS configuration (target-specific hostname)
+    # mDNS configuration (use esp32-rover consistently for all targets)
     mdns = config.get("mdns", {})
     lines.append("// mDNS Configuration")
-    if target == "esp32cam":
-        mdns_hostname = mdns.get("hostname_esp32cam", "esp32-rover")
-    else:
-        mdns_hostname = mdns.get("hostname_ttgo", "ttgo-rover")
+    mdns_hostname = mdns.get("hostname", "esp32-rover")
     lines.append(f'#define MDNS_HOSTNAME "{mdns_hostname}"')
     lines.append(f'#define MDNS_INSTANCE_NAME "{mdns.get("instance_name", "ESP32 Rover Control")}"')
     lines.append("")
