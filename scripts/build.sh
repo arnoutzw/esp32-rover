@@ -62,16 +62,19 @@ setup_target() {
             echo -e "${BLUE}Setting up for ESP32-CAM (with camera)${NC}"
             SDKCONFIG_DEFAULTS="sdkconfig.defaults.esp32cam"
             TARGET_DEFINE="ROVER_TARGET_ESP32CAM"
+            IDF_TARGET_NAME="esp32"
             ;;
         ttgo)
             echo -e "${BLUE}Setting up for TTGO T-Display (no camera)${NC}"
             SDKCONFIG_DEFAULTS="sdkconfig.defaults.ttgo"
             TARGET_DEFINE="ROVER_TARGET_TTGO"
+            IDF_TARGET_NAME="esp32"
             ;;
         xiao_esp32s3)
             echo -e "${BLUE}Setting up for XIAO ESP32S3 Sense (with camera)${NC}"
             SDKCONFIG_DEFAULTS="sdkconfig.defaults.xiao_esp32s3"
             TARGET_DEFINE="ROVER_TARGET_XIAO_ESP32S3"
+            IDF_TARGET_NAME="esp32s3"
             ;;
         *)
             echo -e "${RED}Error: Unknown target '$target'${NC}"
@@ -90,8 +93,9 @@ setup_target() {
     cp "$SDKCONFIG_DEFAULTS" sdkconfig.defaults
     echo -e "${GREEN}Using $SDKCONFIG_DEFAULTS${NC}"
 
-    # Export the target define for CMake
+    # Export the target define for CMake and IDF_TARGET for ESP-IDF
     export ROVER_TARGET="$target"
+    export IDF_TARGET="$IDF_TARGET_NAME"
 
     # Regenerate config_generated.h with target-specific settings
     echo -e "${BLUE}Regenerating config for target: $target${NC}"
