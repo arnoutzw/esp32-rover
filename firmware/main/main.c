@@ -66,6 +66,9 @@ static bool s_buttons_initialized = false;
 
 // ISR-latched button states: ISR sets to true on press, cleared by polling
 // This ensures quick presses are captured even between display updates
+// Button support - TTGO has LEFT/RIGHT buttons with physical logic
+// XIAO has programmable buttons but they're not integrated into main.c yet
+#ifdef ROVER_TARGET_TTGO
 static volatile bool s_button_left_latched = false;
 static volatile bool s_button_right_latched = false;
 
@@ -121,11 +124,13 @@ static bool read_button_right(void)
 {
     return s_buttons_initialized && s_button_right_latched;
 }
+#endif // ROVER_TARGET_TTGO
 
 // Read button state for display - combines ISR latch with current GPIO state
 // Returns true if: button is latched (was pressed since last poll) OR currently pressed
 // Then clears the latch and re-reads GPIO to update for next poll cycle
 // This ensures: (1) quick presses are seen, (2) concurrent presses both show
+#ifdef ROVER_TARGET_TTGO
 static bool read_button_left_for_display(void)
 {
     if (!s_buttons_initialized) return false;
@@ -155,6 +160,10 @@ static bool read_button_right_for_display(void)
     // Return true if was latched OR is currently pressed
     return was_latched || is_pressed;
 }
+#else
+// Stub implementations for non-TTGO targets (no buttons)
+static bool read_button_left_for_display(void) { return false; }
+static bool read_button_right_for_display(void) { return false; }
 #endif
 
 // =============================================================================
