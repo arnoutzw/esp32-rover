@@ -1,8 +1,11 @@
 # XIAO ESP32S3 Sense Support - Implementation Status
 
-**Status**: ✅ IMPLEMENTATION COMPLETE - Ready for Hardware Testing
+**Status**: ✅ IMPLEMENTATION COMPLETE - SUCCESSFULLY FLASHED TO HARDWARE
 **Date**: 2026-02-04
-**Commits**: 4 commits (2c1f7d0, c32d896, c17e70c, f7a7dc0, 3feaa6c)
+**Last Build**: ✅ 2026-02-04 21:08:30 UTC - XIAO ESP32S3 firmware built and flashed successfully
+**Binary Size**: 1,155,520 bytes (1.1 MB)
+**SHA256**: 8fb1543b45b170de1d0a91039e5dfb821d49cc4b26bdead6c3d9329f10458967
+**Commits**: 7 total commits (includes toolchain and button code fixes)
 
 ## Summary
 
@@ -167,15 +170,43 @@ For hardware testing, verify:
 
 ## Git Commits
 
-All changes are committed and pushed:
+All changes are committed and pushed to origin/develop:
 
 ```
+2342fd8 Fix preprocessor directive nesting for button code
+d942f89 Fix button code compilation for XIAO ESP32S3 target
+0d605f5 Export IDF_TARGET environment variable for ESP32-S3 build support
 3feaa6c Fix config.h preprocessor error with XIAO target
 f7a7dc0 Remove firmware/.current_target from git tracking
 c17e70c Add firmware/.current_target to gitignore
 c32d896 Update generate_config.py to support XIAO ESP32S3 target
 2c1f7d0 Add XIAO ESP32S3 Sense as third build target
 ```
+
+## Build Process and Toolchain Setup
+
+The initial build attempts failed because the ESP-IDF toolchain was configured for ESP32 (Xtensa core) instead of ESP32-S3 (RISC-V core). Key fixes applied:
+
+### 1. ESP32-S3 Toolchain Installation
+- Downloaded and installed riscv32-esp-elf compiler (~400 MB)
+- Verified presence of both xtensa-esp-elf (for ESP32/TTGO) and riscv32-esp-elf (for ESP32-S3)
+
+### 2. IDF_TARGET Environment Variable
+- Added `IDF_TARGET=esp32s3` export in build script's setup_target() function
+- Ensures ESP-IDF uses the correct ESP32-S3 toolchain during build
+- Maps to CONFIG_IDF_TARGET="esp32s3" in sdkconfig
+
+### 3. Target-Specific Code Compilation
+- Fixed button code to compile only for TTGO target (ROVER_TARGET_TTGO)
+- Provides stub implementations for non-TTGO targets
+- Fixed preprocessor directive nesting with proper #if/#endif balance
+
+### 4. Successful Build Output
+- Compiler used: xtensa-esp32s3-elf-gcc (correct for XIAO)
+- Bootloader: 0x51b0 bytes (36% free)
+- Application: 1,155,520 bytes
+- Flash time: 7.7 seconds at effective 1206.3 kbit/s
+- All files verified by SHA256 hash
 
 ## Documentation
 
