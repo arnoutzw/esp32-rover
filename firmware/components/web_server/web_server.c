@@ -598,8 +598,10 @@ static esp_err_t led_post_handler(httpd_req_t *req)
 
     cJSON *on = cJSON_GetObjectItem(root, "on");
     if (on && cJSON_IsBool(on)) {
-        flash_led_set(cJSON_IsTrue(on));
-        ESP_LOGI(TAG, "Flash LED set to %s", cJSON_IsTrue(on) ? "ON" : "OFF");
+        bool led_on = cJSON_IsTrue(on);
+        flash_led_set(led_on);
+        // Removed logging here to prevent HTTP handler latency
+        // ESP_LOGI(TAG, "Flash LED set to %s", led_on ? "ON" : "OFF");
     }
 
     cJSON_Delete(root);
@@ -661,8 +663,10 @@ static esp_err_t camera_post_handler(httpd_req_t *req)
 
     cJSON *enabled = cJSON_GetObjectItem(root, "enabled");
     if (enabled && cJSON_IsBool(enabled)) {
-        camera_stream_set_enabled(cJSON_IsTrue(enabled));
-        ESP_LOGI(TAG, "Camera stream set to %s", cJSON_IsTrue(enabled) ? "enabled" : "disabled");
+        bool stream_enabled = cJSON_IsTrue(enabled);
+        camera_stream_set_enabled(stream_enabled);
+        // Removed logging here to prevent HTTP handler latency
+        // ESP_LOGI(TAG, "Camera stream set to %s", stream_enabled ? "enabled" : "disabled");
     }
 
     cJSON_Delete(root);
