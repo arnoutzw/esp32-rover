@@ -1,0 +1,6 @@
+Target: xiao_esp32s3
+Built: 20260204_214153
+Git Commit: 5e0e69d
+Git Branch: develop
+Binary Size: 1149456 bytes
+SHA256: bd1a2b966b475d9ef3bb5581dfb46412b0fb9d8c154aa0a4b98d6f086ec5ae89
