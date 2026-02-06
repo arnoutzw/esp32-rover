@@ -110,6 +110,32 @@ esp_err_t camera_module_deinit(void)
     return ret;
 }
 
+// Store camera configuration for reset operations
+static camera_config_params_t stored_config = {0};
+static bool config_stored = false;
+
+esp_err_t camera_store_config(const camera_config_params_t *config)
+{
+    if (!config) {
+        return ESP_ERR_INVALID_ARG;
+    }
+    memcpy(&stored_config, config, sizeof(camera_config_params_t));
+    config_stored = true;
+    return ESP_OK;
+}
+
+esp_err_t camera_get_stored_config(camera_config_params_t *config)
+{
+    if (!config) {
+        return ESP_ERR_INVALID_ARG;
+    }
+    if (!config_stored) {
+        return ESP_ERR_NOT_FOUND;
+    }
+    memcpy(config, &stored_config, sizeof(camera_config_params_t));
+    return ESP_OK;
+}
+
 camera_fb_t* camera_capture_frame(void)
 {
     if (!camera_initialized) {

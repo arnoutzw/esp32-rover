@@ -223,6 +223,26 @@ static const char web_ui_html[] = R"rawliteral(
         .btn-cam.off:hover {
             background: #444;
         }
+        /* Camera reset button */
+        .btn-cam-reset {
+            background: #3498db;
+            color: white;
+            padding: 10px 20px;
+            border: 2px solid #3498db;
+            font-size: 0.9em;
+            font-weight: bold;
+        }
+        .btn-cam-reset:hover {
+            background: #2980b9;
+            border-color: #2980b9;
+        }
+        .btn-cam-reset:active {
+            transform: scale(0.98);
+        }
+        .btn-cam-reset.loading {
+            opacity: 0.6;
+            pointer-events: none;
+        }
         .telemetry {
             display: grid;
             grid-template-columns: repeat(2, 1fr);
@@ -468,6 +488,9 @@ static const char web_ui_html[] = R"rawliteral(
                     <div class="control-box" id="led-box">
                         <button class="btn btn-led" id="btn-led">FLASH LED</button>
                     </div>
+                    <div class="control-box" id="cam-reset-box" style="display:none;">
+                        <button class="btn btn-cam-reset" id="btn-cam-reset">RESET CAM</button>
+                    </div>
                     <div class="control-box">
                         <button class="btn btn-stop" id="btn-estop">EMERGENCY STOP</button>
                     </div>
@@ -615,6 +638,27 @@ static const char web_ui_html[] = R"rawliteral(
                                 </div>
                             </div>
                         </div>
+                        <div class="diag-section" id="diag-camera-section" style="display:none;">
+                            <div class="diag-section-title">Camera (ESP32-CAM/XIAO)</div>
+                            <div class="diag-grid">
+                                <div class="diag-item">
+                                    <span class="diag-label">Camera Status</span>
+                                    <span class="diag-value" id="diag-cam-status">--</span>
+                                </div>
+                                <div class="diag-item">
+                                    <span class="diag-label">Frame Failures</span>
+                                    <span class="diag-value" id="diag-cam-failures">0</span>
+                                </div>
+                                <div class="diag-item">
+                                    <span class="diag-label">Soft Resets</span>
+                                    <span class="diag-value" id="diag-cam-soft-resets">0</span>
+                                </div>
+                                <div class="diag-item">
+                                    <span class="diag-label">Hard Resets</span>
+                                    <span class="diag-value" id="diag-cam-hard-resets">0</span>
+                                </div>
+                            </div>
+                        </div>
                     </div>
                 </div>
             </div>
@@ -622,9 +666,10 @@ static const char web_ui_html[] = R"rawliteral(
     </div>
 
     <script>
-        // Configuration
-        const SEND_INTERVAL = 50;  // ms between control updates
-        const STATUS_INTERVAL = 100;  // ms between status requests (10Hz for responsive buttons)
+        // Configuration (fetched dynamically from /config endpoint)
+        const SEND_INTERVAL = 50;  // ms between control updates (fixed)
+        let STATUS_INTERVAL = 100;  // ms between status requests (dynamically updated)
+        let statusIntervalHandle = null;  // Handle for dynamic polling interval
 
         // State
         let speed = 0;
@@ -802,27 +847,61 @@ static const char web_ui_html[] = R"rawliteral(
             const cameraPanel = document.querySelector('.camera-panel');
             const flashLedBox = document.getElementById('led-box');
             const camToggleBox = document.getElementById('cam-toggle-box');
+            const camResetBox = document.getElementById('cam-reset-box');
             const hwButtonsRow = document.querySelector('.telemetry-item:has(.button-indicators)');
 
             // Update title based on target
             const titleEl = document.querySelector('.header h1');
             if (titleEl) {
-                titleEl.textContent = target === 'ttgo' ? 'TTGO Rover' : 'ESP32-CAM Rover';
+                if (target === 'ttgo') {
+                    titleEl.textContent = 'TTGO Rover';
+                } else if (target === 'xiao_esp32s3') {
+                    titleEl.textContent = 'XIAO Rover';
+                } else {
+                    titleEl.textContent = 'ESP32-CAM Rover';
+                }
             }
 
             if (target === 'ttgo') {
-                // TTGO: Hide camera panel, flash LED, and camera toggle, show hardware buttons
+                // TTGO: Hide camera panel, flash LED, camera toggle, and reset button, show hardware buttons
                 if (cameraPanel) cameraPanel.style.display = 'none';
                 if (flashLedBox) flashLedBox.style.display = 'none';
                 if (camToggleBox) camToggleBox.style.display = 'none';
+                if (camResetBox) camResetBox.style.display = 'none';
                 // Hardware buttons remain visible (default)
-            } else {
-                // ESP32-CAM: Show camera, flash LED, and camera toggle, hide hardware buttons
+            } else if (target === 'xiao_esp32s3' || target === 'esp32cam') {
+                // XIAO and ESP32-CAM: Show camera, flash LED, camera toggle, and reset button, hide hardware buttons
                 // Camera and flash LED remain visible (default)
                 if (hwButtonsRow) hwButtonsRow.style.display = 'none';
+                if (camResetBox) camResetBox.style.display = 'block';  // Show reset button
                 // Initialize camera controls
                 initCameraState();
+                initCameraReset();  // Initialize reset button
                 initCamera();
+            }
+        }
+
+        // Fetch and apply dynamic configuration
+        async function fetchDynamicConfig() {
+            try {
+                const response = await fetch('/config');
+                if (response.ok) {
+                    const config = await response.json();
+                    // Update polling interval if it changed
+                    if (config.statusPollingIntervalMs && config.statusPollingIntervalMs !== STATUS_INTERVAL) {
+                        const oldInterval = STATUS_INTERVAL;
+                        STATUS_INTERVAL = config.statusPollingIntervalMs;
+                        console.log(`Polling interval updated: ${oldInterval}ms -> ${STATUS_INTERVAL}ms`);
+
+                        // Restart polling with new interval
+                        if (statusIntervalHandle) {
+                            clearInterval(statusIntervalHandle);
+                        }
+                        statusIntervalHandle = setInterval(fetchStatus, STATUS_INTERVAL);
+                    }
+                }
+            } catch (e) {
+                // Silently fail if config endpoint unavailable
             }
         }
 
@@ -904,6 +983,38 @@ static const char web_ui_html[] = R"rawliteral(
                         const timeEl = document.getElementById('diag-localtime');
                         timeEl.textContent = d.localTime || '--:--:--';
                         timeEl.className = 'diag-value' + (d.ntpSynced ? '' : ' warn');
+
+                        // Camera diagnostics (ESP32-CAM and XIAO only)
+                        if (d.cameraStatus !== undefined) {
+                            const camSection = document.getElementById('diag-camera-section');
+                            if (camSection) {
+                                camSection.style.display = 'block';
+
+                                const camStatusEl = document.getElementById('diag-cam-status');
+                                if (camStatusEl) {
+                                    camStatusEl.textContent = d.cameraStatus;
+                                    camStatusEl.className = 'diag-value' +
+                                        (d.cameraStatus === 'ok' ? '' :
+                                         d.cameraStatus === 'loading' || d.cameraStatus === 'retrying' ? ' warn' : ' error');
+                                }
+
+                                const camFailuresEl = document.getElementById('diag-cam-failures');
+                                if (camFailuresEl) {
+                                    camFailuresEl.textContent = d.cameraFailures || 0;
+                                    camFailuresEl.className = 'diag-value' + ((d.cameraFailures || 0) > 0 ? ' warn' : '');
+                                }
+
+                                const softResetsEl = document.getElementById('diag-cam-soft-resets');
+                                if (softResetsEl) {
+                                    softResetsEl.textContent = d.cameraSoftResets || 0;
+                                }
+
+                                const hardResetsEl = document.getElementById('diag-cam-hard-resets');
+                                if (hardResetsEl) {
+                                    hardResetsEl.textContent = d.cameraHardResets || 0;
+                                }
+                            }
+                        }
                     }
 
                     // REQ-SW-032/033: Update telemetry chart with speed and steering
@@ -942,11 +1053,15 @@ static const char web_ui_html[] = R"rawliteral(
 
         // Start intervals
         setInterval(sendCommand, SEND_INTERVAL);
-        setInterval(fetchStatus, STATUS_INTERVAL);
+        statusIntervalHandle = setInterval(fetchStatus, STATUS_INTERVAL);
 
         // Initialize
         window.addEventListener('resize', updateJoystickRect);
         updateJoystickRect();
+
+        // Fetch dynamic configuration (polling interval, feature flags, etc.)
+        fetchDynamicConfig();
+
         // Camera initialization is deferred until target is known (REQ-33)
         // See configureUIForTarget() - camera only initialized for ESP32-CAM
 
@@ -1048,6 +1163,64 @@ static const char web_ui_html[] = R"rawliteral(
         function initCameraState() {
             document.getElementById('btn-cam').addEventListener('click', toggleCamera);
             fetchCameraState();
+        }
+
+        // =============================================================================
+        // Camera Reset Functionality
+        // =============================================================================
+        async function resetCamera() {
+            const btn = document.getElementById('btn-cam-reset');
+            const originalText = btn.textContent;
+
+            try {
+                btn.classList.add('loading');
+                btn.textContent = 'RESETTING...';
+
+                const response = await fetch('/camera/reset', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' }
+                });
+
+                if (response.ok) {
+                    const data = await response.json();
+                    console.log('Camera reset successful');
+                    btn.textContent = 'RESET OK';
+                    setTimeout(() => {
+                        btn.textContent = originalText;
+                        btn.classList.remove('loading');
+                    }, 1500);
+
+                    // Force camera stream to restart
+                    setTimeout(() => {
+                        if (cameraEnabled) {
+                            initCamera();
+                        }
+                    }, 2000);
+                } else {
+                    const error = await response.json();
+                    console.error('Camera reset failed:', error);
+                    btn.textContent = 'RESET FAILED';
+                    setTimeout(() => {
+                        btn.textContent = originalText;
+                        btn.classList.remove('loading');
+                    }, 2000);
+                }
+            } catch (e) {
+                console.error('Camera reset error:', e);
+                btn.textContent = 'ERROR';
+                setTimeout(() => {
+                    btn.textContent = originalText;
+                    btn.classList.remove('loading');
+                }, 2000);
+            }
+        }
+
+        // Show camera reset button only on ESP32-CAM (will be hidden for TTGO in configureUIForTarget)
+        function initCameraReset() {
+            const resetBtn = document.getElementById('btn-cam-reset');
+            if (resetBtn) {
+                resetBtn.addEventListener('click', resetCamera);
+            }
         }
 
         // =============================================================================

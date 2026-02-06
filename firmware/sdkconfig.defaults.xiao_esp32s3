@@ -1,0 +1,57 @@
+# XIAO ESP32S3 Sense Rover SDK Configuration
+# Use this configuration for Seeed Studio XIAO ESP32S3 Sense with built-in camera
+
+# Target ESP32S3 (newer variant with more memory and faster performance)
+CONFIG_IDF_TARGET="esp32s3"
+
+# Flash size (8MB for XIAO ESP32S3 Sense - double the ESP32-CAM)
+CONFIG_ESPTOOLPY_FLASHSIZE_8MB=y
+CONFIG_PARTITION_TABLE_CUSTOM=y
+CONFIG_PARTITION_TABLE_CUSTOM_FILENAME="partitions.csv"
+
+# PSRAM support - XIAO ESP32S3 has 8MB PSRAM but detection can be unreliable
+# Disabled by default to ensure reliable boot on all XIAO variants
+# If PSRAM is detected and working, enable with CONFIG_SPIRAM=y
+CONFIG_ESP32S3_SPIRAM_SUPPORT=n
+CONFIG_SPIRAM=n
+
+# Camera support - XIAO has built-in OV2640 camera
+CONFIG_CAMERA_CORE0=y
+
+# WiFi
+CONFIG_ESP_WIFI_SOFTAP_SUPPORT=y
+
+# HTTP Server
+CONFIG_HTTPD_MAX_REQ_HDR_LEN=1024
+CONFIG_HTTPD_MAX_URI_LEN=512
+
+# FreeRTOS
+CONFIG_FREERTOS_HZ=1000
+CONFIG_FREERTOS_USE_TRACE_FACILITY=y
+CONFIG_FREERTOS_GENERATE_RUN_TIME_STATS=y
+
+# LWIP
+CONFIG_LWIP_MAX_SOCKETS=16
+
+# Log level
+CONFIG_LOG_DEFAULT_LEVEL_INFO=y
+
+# Disable WiFi NVS to prevent mode override issues
+CONFIG_ESP_WIFI_NVS_ENABLED=n
+
+# Task Watchdog - disable auto init (we init manually in app)
+CONFIG_ESP_TASK_WDT_INIT=n
+
+# OTA Rollback Support - automatically rollback on boot failure
+CONFIG_BOOTLOADER_APP_ROLLBACK_ENABLE=y
+
+# USB Serial to JTAG - XIAO ESP32S3 has built-in USB serial
+CONFIG_ESP_CONSOLE_USB_SERIAL_JTAG=y
+CONFIG_ESP_CONSOLE_UART_NUM=-1
+
+# MQTT - same as ESP32-CAM
+CONFIG_MQTT_USE_CUSTOM_CONFIG=y
+CONFIG_MQTT_BUFFER_SIZE=1024
+CONFIG_MQTT_TASK_STACK_SIZE=4096
+CONFIG_MQTT_TRANSPORT_SSL=n
+CONFIG_MQTT_TRANSPORT_WEBSOCKET=n

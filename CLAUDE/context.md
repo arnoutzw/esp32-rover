@@ -2,7 +2,7 @@
 
 This document provides the technical context and reference information that AI assistants need to understand and work with this codebase.
 
-For behavioral rules and standards, see [rules.md](rules.md).
+For behavioral rules and standards, see [rules.md](projects/ESP32_Rover/esp32-rover-firmware/CLAUDE/rules.md).
 
 ---
 

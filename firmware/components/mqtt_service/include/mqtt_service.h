@@ -46,3 +46,11 @@ esp_err_t mqtt_service_update_status(const rover_status_t *status);
  * @return true if connected, false otherwise
  */
 bool mqtt_service_is_connected(void);
+
+/**
+ * @brief Set MQTT publish interval at runtime
+ *
+ * @param interval_ms New publish interval in milliseconds (1000-60000 ms)
+ * @return ESP_OK on success, ESP_ERR_INVALID_ARG if interval out of range
+ */
+esp_err_t mqtt_service_set_publish_interval(uint32_t interval_ms);

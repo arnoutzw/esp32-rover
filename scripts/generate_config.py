@@ -158,13 +158,10 @@ def generate_header(config: dict, secrets: dict, target: str) -> str:
     lines.append(f'#define CFG_ENABLE_ESTOP {1 if safety.get("estop_enabled", True) else 0}')
     lines.append("")
 
-    # mDNS configuration (target-specific hostname)
+    # mDNS configuration (use esp32-rover consistently for all targets)
     mdns = config.get("mdns", {})
     lines.append("// mDNS Configuration")
-    if target == "esp32cam":
-        mdns_hostname = mdns.get("hostname_esp32cam", "esp32-rover")
-    else:
-        mdns_hostname = mdns.get("hostname_ttgo", "ttgo-rover")
+    mdns_hostname = mdns.get("hostname", "esp32-rover")
     lines.append(f'#define MDNS_HOSTNAME "{mdns_hostname}"')
     lines.append(f'#define MDNS_INSTANCE_NAME "{mdns.get("instance_name", "ESP32 Rover Control")}"')
     lines.append("")
@@ -229,12 +226,12 @@ def main():
     if not target:
         print("Error: ROVER_TARGET environment variable not set.")
         print("This script should be called from the build system, or you can set it manually:")
-        print("  export ROVER_TARGET=esp32cam  # or ttgo")
+        print("  export ROVER_TARGET=esp32cam  # or ttgo or xiao_esp32s3")
         print("  python generate_config.py")
         sys.exit(1)
 
-    if target not in ("esp32cam", "ttgo"):
-        print(f"Error: Invalid ROVER_TARGET '{target}'. Must be 'esp32cam' or 'ttgo'.")
+    if target not in ("esp32cam", "ttgo", "xiao_esp32s3"):
+        print(f"Error: Invalid ROVER_TARGET '{target}'. Must be 'esp32cam', 'ttgo', or 'xiao_esp32s3'.")
         sys.exit(1)
 
     # Generate header

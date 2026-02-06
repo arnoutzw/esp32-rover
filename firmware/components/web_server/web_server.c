@@ -4,8 +4,14 @@
 #ifdef ROVER_TARGET_ESP32CAM
 #include "camera.h"
 #endif
+
+#ifdef ENABLE_MQTT
+#include "mqtt_service.h"
+#endif
+
 #include <string.h>
 #include <stdlib.h>
+#include <inttypes.h>
 #include "esp_log.h"
 #include "esp_timer.h"
 #include "cJSON.h"
@@ -33,8 +39,9 @@ static SemaphoreHandle_t state_mutex = NULL;
 // REQ-SW-032/033: Steering & Speed History for Live Telemetry Charts
 // =============================================================================
 // Ring buffers for telemetry history
-// At 10Hz status updates, 600 samples = 60 seconds of history
-#define TELEMETRY_HISTORY_SIZE 600
+// At 10Hz status updates, 300 samples = 30 seconds of history
+// Reduced from 600 to save ~3.6KB RAM (2x: 600 floats + 600 uint32 timestamps)
+#define TELEMETRY_HISTORY_SIZE 300
 
 // Steering history buffer
 static float steering_history[TELEMETRY_HISTORY_SIZE] = {0};
@@ -70,20 +77,66 @@ static void speed_history_add(float speed, uint32_t timestamp) {
 #ifdef ROVER_TARGET_ESP32CAM
 // Async stream task handle
 static TaskHandle_t stream_task_handle = NULL;
+
+// ============================================================================
+// Camera reset and health monitoring
+// ============================================================================
+static SemaphoreHandle_t camera_reset_mutex = NULL;
+
+// Camera health tracking
+typedef struct {
+    uint32_t consecutive_failures;
+    uint32_t total_failures;
+    uint32_t soft_resets;
+    uint32_t hard_resets;
+    uint32_t last_reset_time;
+    bool auto_recovery_enabled;
+} camera_health_t;
+
+static camera_health_t camera_health = {0};
+static volatile bool stream_should_stop = false;
+
+#define MAX_CONSECUTIVE_FAILURES_SOFT 5
+#define MAX_CONSECUTIVE_FAILURES_HARD 10
+#define MAX_HARD_RESETS_PER_SESSION 3
+#define RESET_COOLDOWN_MS 5000
 #endif
+
+// =============================================================================
+// Dynamic Resource Configuration
+// =============================================================================
+typedef struct {
+    uint32_t status_polling_interval_ms;   // Status polling interval (100-10000 ms)
+    uint32_t mqtt_publish_interval_ms;     // MQTT publish interval (1000-60000 ms)
+    bool telemetry_enabled;                // Enable/disable telemetry buffering
+    bool diagnostics_enabled;              // Enable/disable diagnostics in status
+    uint32_t max_telemetry_samples;        // Max telemetry history samples
+} resource_config_t;
+
+static resource_config_t resource_config = {
+    .status_polling_interval_ms = 100,     // Default: 100ms (10Hz)
+    .mqtt_publish_interval_ms = 5000,      // Default: 5000ms (0.2Hz)
+    .telemetry_enabled = true,
+    .diagnostics_enabled = true,
+    .max_telemetry_samples = 300            // Matches TELEMETRY_HISTORY_SIZE
+};
 
 // Forward declarations
 static esp_err_t root_handler(httpd_req_t *req);
 static esp_err_t control_handler(httpd_req_t *req);
+static esp_err_t config_get_handler(httpd_req_t *req);
+static esp_err_t config_post_handler(httpd_req_t *req);
 #if ENABLE_REST_API
 static esp_err_t status_handler(httpd_req_t *req);
 #endif
 #ifdef ROVER_TARGET_ESP32CAM
+static esp_err_t camera_perform_reset(bool is_auto_recovery);
 static esp_err_t stream_handler(httpd_req_t *req);
 static esp_err_t led_get_handler(httpd_req_t *req);
 static esp_err_t led_post_handler(httpd_req_t *req);
 static esp_err_t camera_get_handler(httpd_req_t *req);
 static esp_err_t camera_post_handler(httpd_req_t *req);
+static esp_err_t camera_reset_handler(httpd_req_t *req);
 #endif
 
 // URI handlers
@@ -107,6 +160,21 @@ static const httpd_uri_t uri_control = {
     .uri = "/control",
     .method = HTTP_POST,
     .handler = control_handler,
+    .user_ctx = NULL
+};
+
+// Dynamic resource configuration endpoints
+static const httpd_uri_t uri_config_get = {
+    .uri = "/config",
+    .method = HTTP_GET,
+    .handler = config_get_handler,
+    .user_ctx = NULL
+};
+
+static const httpd_uri_t uri_config_post = {
+    .uri = "/config",
+    .method = HTTP_POST,
+    .handler = config_post_handler,
     .user_ctx = NULL
 };
 
@@ -180,6 +248,12 @@ static void stream_task(void *pvParameters)
     ESP_LOGI(TAG, "Stream task started on socket %d", data->socket_fd);
 
     while (true) {
+        // Check for stop signal (for camera reset)
+        if (stream_should_stop) {
+            ESP_LOGI(TAG, "Stream task stopping on request");
+            break;
+        }
+
         // REQ-34: Check if streaming is enabled
         if (!camera_stream_is_enabled()) {
             // Wait while disabled, checking periodically
@@ -199,11 +273,70 @@ static void stream_task(void *pvParameters)
 
         camera_fb_t *fb = camera_capture_frame();
         if (!fb) {
-            // Stream is disabled or capture failed, wait and retry
+            // Increment failure counter
+            camera_health.consecutive_failures++;
+            camera_health.total_failures++;
+
+            // Log based on failure count
+            if (camera_health.consecutive_failures == 1) {
+                ESP_LOGW(TAG, "Camera frame capture failed (attempt 1)");
+            } else if (camera_health.consecutive_failures % 10 == 0) {
+                ESP_LOGW(TAG, "Camera frame capture failed (%" PRIu32 " consecutive failures)",
+                         camera_health.consecutive_failures);
+            }
+
+            // Auto-recovery logic
+            if (camera_health.auto_recovery_enabled) {
+                // Soft reset at 5 failures: restart stream
+                if (camera_health.consecutive_failures == MAX_CONSECUTIVE_FAILURES_SOFT) {
+                    ESP_LOGW(TAG, "Attempting soft camera recovery (restart stream)");
+                    camera_health.soft_resets++;
+                    // Break and restart - stream will reconnect
+                    vTaskDelay(pdMS_TO_TICKS(1000));
+                }
+
+                // Hard reset at 10 failures: full reinit
+                else if (camera_health.consecutive_failures >= MAX_CONSECUTIVE_FAILURES_HARD) {
+                    uint32_t now = (uint32_t)(esp_timer_get_time() / 1000);
+                    uint32_t time_since_reset = now - camera_health.last_reset_time;
+
+                    // Check cooldown and max reset limit
+                    if (camera_health.hard_resets < MAX_HARD_RESETS_PER_SESSION &&
+                        time_since_reset > RESET_COOLDOWN_MS) {
+
+                        ESP_LOGW(TAG, "Attempting hard camera recovery (full reset)");
+
+                        // Perform reset (will stop this task)
+                        esp_err_t ret = camera_perform_reset(true);
+                        if (ret == ESP_OK) {
+                            ESP_LOGI(TAG, "Auto-recovery reset successful");
+                            // Task will be stopped by reset, break here
+                            break;
+                        } else {
+                            ESP_LOGE(TAG, "Auto-recovery reset failed: 0x%x", ret);
+                        }
+                    } else {
+                        if (camera_health.hard_resets >= MAX_HARD_RESETS_PER_SESSION) {
+                            if (camera_health.consecutive_failures == MAX_CONSECUTIVE_FAILURES_HARD) {
+                                ESP_LOGE(TAG, "Max hard resets reached, disabling auto-recovery");
+                                camera_health.auto_recovery_enabled = false;
+                            }
+                        }
+                    }
+                }
+            }
+
             vTaskDelay(pdMS_TO_TICKS(100));
             continue;
         }
 
+        // Frame captured successfully - reset failure counter
+        if (camera_health.consecutive_failures > 0) {
+            ESP_LOGI(TAG, "Camera recovered after %" PRIu32 " failures", camera_health.consecutive_failures);
+            camera_health.consecutive_failures = 0;
+        }
+
+        // Send frame (existing code)
         size_t hlen = snprintf(part_buf, sizeof(part_buf), STREAM_PART, fb->len);
 
         res = httpd_resp_send_chunk(req, part_buf, hlen);
@@ -240,6 +373,106 @@ static void stream_task(void *pvParameters)
     ESP_LOGI(TAG, "Stream task ended");
     vTaskDelete(NULL);
 }
+
+// ============================================================================
+// Camera reset functionality
+// ============================================================================
+static esp_err_t camera_perform_reset(bool is_auto_recovery)
+{
+    // Get stored camera config
+    camera_config_params_t config = {0};
+    esp_err_t ret = camera_get_stored_config(&config);
+    if (ret != ESP_OK) {
+        ESP_LOGE(TAG, "Cannot reset: camera config not stored");
+        return ESP_ERR_INVALID_STATE;
+    }
+
+    // Take mutex to prevent concurrent resets
+    if (!camera_reset_mutex || xSemaphoreTake(camera_reset_mutex, pdMS_TO_TICKS(2000)) != pdTRUE) {
+        ESP_LOGE(TAG, "Camera reset already in progress");
+        return ESP_ERR_TIMEOUT;
+    }
+
+    // Step 1: Stop stream task if running
+    if (stream_task_handle != NULL) {
+        ESP_LOGI(TAG, "Stopping stream task for camera reset");
+        stream_should_stop = true;
+
+        // Wait up to 2 seconds for task to stop
+        int wait_count = 0;
+        while (stream_task_handle != NULL && wait_count < 40) {
+            vTaskDelay(pdMS_TO_TICKS(50));
+            wait_count++;
+        }
+
+        if (stream_task_handle != NULL) {
+            ESP_LOGW(TAG, "Stream task did not stop gracefully, forcing");
+        }
+
+        stream_should_stop = false;
+    }
+
+    // Step 2: Deinitialize camera
+    ESP_LOGI(TAG, "Deinitializing camera for reset");
+    ret = camera_module_deinit();
+    if (ret != ESP_OK) {
+        ESP_LOGE(TAG, "Camera deinit failed: 0x%x", ret);
+        xSemaphoreGive(camera_reset_mutex);
+        return ret;
+    }
+
+    // Small delay for hardware to stabilize
+    vTaskDelay(pdMS_TO_TICKS(100));
+
+    // Step 3: Reinitialize camera
+    ESP_LOGI(TAG, "Reinitializing camera");
+    ret = camera_module_init(&config);
+    if (ret != ESP_OK) {
+        ESP_LOGE(TAG, "Camera reinit failed: 0x%x", ret);
+        xSemaphoreGive(camera_reset_mutex);
+        return ret;
+    }
+
+    // Step 4: Reset health counters on successful reset
+    if (is_auto_recovery) {
+        camera_health.hard_resets++;
+    }
+    camera_health.consecutive_failures = 0;
+    camera_health.last_reset_time = (uint32_t)(esp_timer_get_time() / 1000);
+
+    xSemaphoreGive(camera_reset_mutex);
+
+    ESP_LOGI(TAG, "Camera reset successful");
+    return ESP_OK;
+}
+
+static esp_err_t camera_reset_handler(httpd_req_t *req)
+{
+    esp_err_t ret = camera_perform_reset(false);
+
+    char response[128];
+    if (ret == ESP_OK) {
+        snprintf(response, sizeof(response),
+                 "{\"status\":\"success\",\"message\":\"Camera reset successful\"}");
+        httpd_resp_set_type(req, "application/json");
+        httpd_resp_set_hdr(req, "Access-Control-Allow-Origin", "*");
+        return httpd_resp_sendstr(req, response);
+    } else {
+        snprintf(response, sizeof(response),
+                 "{\"status\":\"error\",\"code\":\"0x%x\",\"message\":\"Camera reset failed\"}", ret);
+        httpd_resp_set_type(req, "application/json");
+        httpd_resp_set_hdr(req, "Access-Control-Allow-Origin", "*");
+        httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, response);
+        return ESP_FAIL;
+    }
+}
+
+static const httpd_uri_t uri_camera_reset = {
+    .uri = "/camera/reset",
+    .method = HTTP_POST,
+    .handler = camera_reset_handler,
+    .user_ctx = NULL
+};
 
 // Stream handler - MJPEG stream (async version)
 static esp_err_t stream_handler(httpd_req_t *req)
@@ -380,6 +613,119 @@ static esp_err_t control_handler(httpd_req_t *req)
     return ESP_OK;
 }
 
+// Config GET handler - retrieve current resource configuration
+static esp_err_t config_get_handler(httpd_req_t *req)
+{
+    cJSON *root = cJSON_CreateObject();
+    if (!root) {
+        httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "JSON creation failed");
+        return ESP_FAIL;
+    }
+
+    if (state_mutex && xSemaphoreTake(state_mutex, pdMS_TO_TICKS(10)) == pdTRUE) {
+        cJSON_AddNumberToObject(root, "statusPollingIntervalMs", resource_config.status_polling_interval_ms);
+        cJSON_AddNumberToObject(root, "mqttPublishIntervalMs", resource_config.mqtt_publish_interval_ms);
+        cJSON_AddBoolToObject(root, "telemetryEnabled", resource_config.telemetry_enabled);
+        cJSON_AddBoolToObject(root, "diagnosticsEnabled", resource_config.diagnostics_enabled);
+        cJSON_AddNumberToObject(root, "maxTelemetrySamples", resource_config.max_telemetry_samples);
+        xSemaphoreGive(state_mutex);
+    }
+
+    char *json_str = cJSON_Print(root);
+    if (json_str) {
+        httpd_resp_set_type(req, "application/json");
+        httpd_resp_set_hdr(req, "Access-Control-Allow-Origin", "*");
+        httpd_resp_sendstr(req, json_str);
+        free(json_str);
+    } else {
+        httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "JSON print failed");
+        cJSON_Delete(root);
+        return ESP_FAIL;
+    }
+
+    cJSON_Delete(root);
+    return ESP_OK;
+}
+
+// Config POST handler - update resource configuration
+static esp_err_t config_post_handler(httpd_req_t *req)
+{
+    char buf[512];
+    int ret, remaining = req->content_len;
+
+    if (remaining > sizeof(buf) - 1) {
+        httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "Content too large");
+        return ESP_FAIL;
+    }
+
+    ret = httpd_req_recv(req, buf, remaining);
+    if (ret <= 0) {
+        if (ret == HTTPD_SOCK_ERR_TIMEOUT) {
+            httpd_resp_send_408(req);
+        }
+        return ESP_FAIL;
+    }
+    buf[ret] = '\0';
+
+    // Parse JSON
+    cJSON *root = cJSON_Parse(buf);
+    if (!root) {
+        httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "Invalid JSON");
+        return ESP_FAIL;
+    }
+
+    if (state_mutex && xSemaphoreTake(state_mutex, pdMS_TO_TICKS(10)) == pdTRUE) {
+        // Update status polling interval (100-10000 ms)
+        cJSON *polling = cJSON_GetObjectItem(root, "statusPollingIntervalMs");
+        if (polling && cJSON_IsNumber(polling)) {
+            uint32_t interval = (uint32_t)polling->valuedouble;
+            if (interval >= 100 && interval <= 10000) {
+                resource_config.status_polling_interval_ms = interval;
+                ESP_LOGI(TAG, "Updated status polling interval to %" PRIu32 " ms", interval);
+            }
+        }
+
+        // Update MQTT publish interval (1000-60000 ms)
+        cJSON *mqtt = cJSON_GetObjectItem(root, "mqttPublishIntervalMs");
+        if (mqtt && cJSON_IsNumber(mqtt)) {
+            uint32_t interval = (uint32_t)mqtt->valuedouble;
+            if (interval >= 1000 && interval <= 60000) {
+                resource_config.mqtt_publish_interval_ms = interval;
+#ifdef ENABLE_MQTT
+                // Apply to MQTT service if enabled
+                mqtt_service_set_publish_interval(interval);
+#endif
+                ESP_LOGI(TAG, "Updated MQTT publish interval to %" PRIu32 " ms", interval);
+            }
+        }
+
+        // Update telemetry enable
+        cJSON *telemetry = cJSON_GetObjectItem(root, "telemetryEnabled");
+        if (telemetry && cJSON_IsBool(telemetry)) {
+            resource_config.telemetry_enabled = cJSON_IsTrue(telemetry);
+            ESP_LOGI(TAG, "Telemetry %s", resource_config.telemetry_enabled ? "enabled" : "disabled");
+        }
+
+        // Update diagnostics enable
+        cJSON *diag = cJSON_GetObjectItem(root, "diagnosticsEnabled");
+        if (diag && cJSON_IsBool(diag)) {
+            resource_config.diagnostics_enabled = cJSON_IsTrue(diag);
+            ESP_LOGI(TAG, "Diagnostics %s", resource_config.diagnostics_enabled ? "enabled" : "disabled");
+        }
+
+        xSemaphoreGive(state_mutex);
+    }
+
+    cJSON_Delete(root);
+
+    // Send response
+    httpd_resp_set_type(req, "application/json");
+    httpd_resp_set_hdr(req, "Access-Control-Allow-Origin", "*");
+    httpd_resp_sendstr(req, "{\"status\":\"ok\"}");
+
+    return ESP_OK;
+}
+
 #if ENABLE_REST_API
 // Helper: Get WiFi mode string from numeric mode
 static const char* get_wifi_mode_str(uint8_t wifi_mode)
@@ -402,6 +748,8 @@ static cJSON* build_status_json(const rover_status_t *status)
     // Determine target string
 #ifdef ROVER_TARGET_ESP32CAM
     const char *target_str = "esp32cam";
+#elif defined(ROVER_TARGET_XIAO_ESP32S3)
+    const char *target_str = "xiao_esp32s3";
 #else
     const char *target_str = "ttgo";
 #endif
@@ -417,8 +765,9 @@ static cJSON* build_status_json(const rover_status_t *status)
 
     // REQ-SW-032/033: Add steering and speed history for live telemetry chart
     // Return last 60 samples (6 seconds at 10Hz polling) to keep payload reasonable
+    // Note: TELEMETRY_HISTORY_SIZE reduced from 600 to 300 for RAM efficiency
     {
-        const size_t MAX_SAMPLES = 60;
+        const size_t MAX_SAMPLES = 60;  // Only send last 60 samples to client (~6KB JSON per update)
         size_t steering_samples = steering_history_count < MAX_SAMPLES ? steering_history_count : MAX_SAMPLES;
         size_t speed_samples = speed_history_count < MAX_SAMPLES ? speed_history_count : MAX_SAMPLES;
 
@@ -513,6 +862,29 @@ static cJSON* build_status_json(const rover_status_t *status)
     cJSON_AddStringToObject(diag, "buildBranch", status->build_branch ? status->build_branch : "unknown");
     cJSON_AddBoolToObject(diag, "buildDirty", status->build_dirty);
 
+#ifdef ROVER_TARGET_ESP32CAM
+    // Add camera health diagnostics
+    const char *cam_status;
+    if (!camera_is_initialized()) {
+        cam_status = "not_init";
+    } else if (camera_health.consecutive_failures == 0) {
+        cam_status = "ok";
+    } else if (camera_health.consecutive_failures < MAX_CONSECUTIVE_FAILURES_SOFT) {
+        cam_status = "loading";
+    } else if (camera_health.consecutive_failures < MAX_CONSECUTIVE_FAILURES_HARD) {
+        cam_status = "retrying";
+    } else if (camera_health.auto_recovery_enabled) {
+        cam_status = "error";
+    } else {
+        cam_status = "failed";
+    }
+
+    cJSON_AddStringToObject(diag, "cameraStatus", cam_status);
+    cJSON_AddNumberToObject(diag, "cameraFailures", camera_health.consecutive_failures);
+    cJSON_AddNumberToObject(diag, "cameraSoftResets", camera_health.soft_resets);
+    cJSON_AddNumberToObject(diag, "cameraHardResets", camera_health.hard_resets);
+#endif
+
     cJSON_AddItemToObject(root, "diag", diag);
 
     return root;
@@ -598,8 +970,10 @@ static esp_err_t led_post_handler(httpd_req_t *req)
 
     cJSON *on = cJSON_GetObjectItem(root, "on");
     if (on && cJSON_IsBool(on)) {
-        flash_led_set(cJSON_IsTrue(on));
-        ESP_LOGI(TAG, "Flash LED set to %s", cJSON_IsTrue(on) ? "ON" : "OFF");
+        bool led_on = cJSON_IsTrue(on);
+        flash_led_set(led_on);
+        // Removed logging here to prevent HTTP handler latency
+        // ESP_LOGI(TAG, "Flash LED set to %s", led_on ? "ON" : "OFF");
     }
 
     cJSON_Delete(root);
@@ -661,8 +1035,10 @@ static esp_err_t camera_post_handler(httpd_req_t *req)
 
     cJSON *enabled = cJSON_GetObjectItem(root, "enabled");
     if (enabled && cJSON_IsBool(enabled)) {
-        camera_stream_set_enabled(cJSON_IsTrue(enabled));
-        ESP_LOGI(TAG, "Camera stream set to %s", cJSON_IsTrue(enabled) ? "enabled" : "disabled");
+        bool stream_enabled = cJSON_IsTrue(enabled);
+        camera_stream_set_enabled(stream_enabled);
+        // Removed logging here to prevent HTTP handler latency
+        // ESP_LOGI(TAG, "Camera stream set to %s", stream_enabled ? "enabled" : "disabled");
     }
 
     cJSON_Delete(root);
@@ -723,12 +1099,30 @@ esp_err_t web_server_init(const web_server_config_t *config)
         return ret;
     }
 
+#ifdef ROVER_TARGET_ESP32CAM
+    // Create reset mutex
+    camera_reset_mutex = xSemaphoreCreateMutex();
+    if (!camera_reset_mutex) {
+        ESP_LOGE(TAG, "Failed to create camera reset mutex");
+    }
+
+    // Initialize health tracking
+    camera_health.auto_recovery_enabled = true;
+    ESP_LOGI(TAG, "Camera reset functionality enabled");
+#endif
+
     // Register URI handlers
     httpd_register_uri_handler(server, &uri_root);
 #ifdef ROVER_TARGET_ESP32CAM
     httpd_register_uri_handler(server, &uri_stream);
 #endif
     httpd_register_uri_handler(server, &uri_control);
+
+    // Register config endpoints for dynamic resource management
+    httpd_register_uri_handler(server, &uri_config_get);
+    httpd_register_uri_handler(server, &uri_config_post);
+    ESP_LOGI(TAG, "Config endpoint enabled (/config)");
+
 #if ENABLE_REST_API
     httpd_register_uri_handler(server, &uri_status);
     ESP_LOGI(TAG, "REST API enabled (/status endpoint)");
@@ -746,6 +1140,10 @@ esp_err_t web_server_init(const web_server_config_t *config)
     httpd_register_uri_handler(server, &uri_camera_get);
     httpd_register_uri_handler(server, &uri_camera_post);
     ESP_LOGI(TAG, "Camera control endpoint enabled (/camera)");
+
+    // Register camera reset endpoint
+    httpd_register_uri_handler(server, &uri_camera_reset);
+    ESP_LOGI(TAG, "Camera reset endpoint enabled (/camera/reset)");
 #endif
 
     ESP_LOGI(TAG, "Web server started");

@@ -61,7 +61,9 @@ static TaskHandle_t lcd_task_handle = NULL;
 // Button Support
 // =============================================================================
 
-#if defined(ENABLE_BUTTONS) && ENABLE_BUTTONS
+// Button support - TTGO has LEFT/RIGHT buttons with physical logic
+// XIAO has programmable buttons but they're not integrated into main.c yet
+#if defined(ENABLE_BUTTONS) && ENABLE_BUTTONS && defined(ROVER_TARGET_TTGO)
 static bool s_buttons_initialized = false;
 
 // ISR-latched button states: ISR sets to true on press, cleared by polling
@@ -121,11 +123,13 @@ static bool read_button_right(void)
 {
     return s_buttons_initialized && s_button_right_latched;
 }
+#endif // ENABLE_BUTTONS && ROVER_TARGET_TTGO
 
 // Read button state for display - combines ISR latch with current GPIO state
 // Returns true if: button is latched (was pressed since last poll) OR currently pressed
 // Then clears the latch and re-reads GPIO to update for next poll cycle
 // This ensures: (1) quick presses are seen, (2) concurrent presses both show
+#ifdef ROVER_TARGET_TTGO
 static bool read_button_left_for_display(void)
 {
     if (!s_buttons_initialized) return false;
@@ -155,6 +159,10 @@ static bool read_button_right_for_display(void)
     // Return true if was latched OR is currently pressed
     return was_latched || is_pressed;
 }
+#else
+// Stub implementations for non-TTGO targets (no buttons)
+static bool read_button_left_for_display(void) { return false; }
+static bool read_button_right_for_display(void) { return false; }
 #endif
 
 // =============================================================================
@@ -282,6 +290,10 @@ static uint8_t s_cpu_usage_percent = 0;
 static uint32_t s_last_idle_runtime_core0 = 0;
 static uint32_t s_last_idle_runtime_core1 = 0;
 static uint32_t s_last_total_runtime = 0;
+// Throttle CPU calculation: only calculate every 5th status update (5 * 50ms = 250ms)
+// This reduces CPU calculation overhead from ~1-2ms to ~0.2-0.4ms every 250ms
+static uint8_t s_cpu_calc_throttle = 0;
+#define CPU_CALC_THROTTLE_INTERVAL 5
 
 static void wifi_event_handler(void *arg, esp_event_base_t event_base,
                                int32_t event_id, void *event_data)
@@ -992,8 +1004,15 @@ static void status_update_task(void *pvParameters)
         status.total_heap = heap_caps_get_total_size(MALLOC_CAP_DEFAULT);
         status.free_internal = heap_caps_get_free_size(MALLOC_CAP_INTERNAL);
 
-        // REQ-SW-035: CPU usage
-        status.cpu_usage_percent = calculate_cpu_usage();
+        // REQ-SW-035: CPU usage (throttled to every 5 updates = ~250ms)
+        // This reduces CPU overhead for calculations that don't need 20Hz updates
+        if (s_cpu_calc_throttle++ >= CPU_CALC_THROTTLE_INTERVAL) {
+            status.cpu_usage_percent = calculate_cpu_usage();
+            s_cpu_calc_throttle = 0;
+        } else {
+            // Use previous value on throttled updates
+            status.cpu_usage_percent = s_cpu_usage_percent;
+        }
 
         // System stats
         status.uptime_secs = (xTaskGetTickCount() - start_ticks) / configTICK_RATE_HZ;
@@ -1083,7 +1102,12 @@ static esp_err_t init_camera(void)
         .fb_count = 2,
     };
 
-    return camera_module_init(&config);
+    esp_err_t ret = camera_module_init(&config);
+    if (ret == ESP_OK) {
+        // Store config for reset operations
+        camera_store_config(&config);
+    }
+    return ret;
 }
 #endif
 

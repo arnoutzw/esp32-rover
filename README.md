@@ -29,6 +29,7 @@ A WiFi-controlled rover platform using ESP32 with camera streaming and web-based
 |--------|-------|--------|-----|---------|-------------|
 | `esp32cam` | AI-Thinker ESP32-CAM | Yes | No | No | Full features with live video |
 | `ttgo` | LilyGO TTGO T-Display | No | Yes | Yes | LCD status display + buttons |
+| `xiao_esp32s3` | Seeed XIAO ESP32S3 Sense | Yes | No | Yes | Compact with camera + programmable buttons |
 
 ### Optional Hardware
 
@@ -64,6 +65,9 @@ python3 scripts/generate_config.py
 
 # Build for ESP32-CAM (with camera)
 ./scripts/build.sh esp32cam
+
+# Build for XIAO ESP32S3 Sense (with camera + buttons)
+./scripts/build.sh xiao_esp32s3
 
 # Build and flash
 ./scripts/build.sh ttgo flash
@@ -218,6 +222,31 @@ mqtt_password: ""
 **Notes**:
 - JTAG mode (`JTAG_DEBUG=1`) uses GPIO 12-15
 - GPIO 12 is boot-sensitive (must be LOW/floating during boot)
+
+### XIAO ESP32S3 Sense
+
+| GPIO | Function | Notes |
+|------|----------|-------|
+| 7 | Camera XCLK | Camera clock |
+| 6 | Camera VSYNC | Vertical sync |
+| 13 | Camera PCLK | Pixel clock |
+| 15 | Camera HREF | Horizontal reference |
+| 16-18 | Camera D0-D2 | Camera data pins |
+| 8-12 | Camera D3-D7 | Camera data pins |
+| 40 | Camera SDA | I2C data (also GPIO 40) |
+| 41 | Camera SCL | I2C clock (also GPIO 41) |
+| 0 | Button A | Programmable button (boot sensitive but usable) |
+| 1 | Button B | Programmable button |
+| 2 | Button C | Programmable button (boot sensitive but usable) |
+
+**Available GPIO for future expansion**: 3, 4, 5, 14, 19, 20, 21
+
+**Notes**:
+- **Camera always powered**: No power-down control (fixed hardware)
+- **USB-C connection**: Use USB-C cable for flashing and serial monitoring
+- **Compact form factor**: Minimal overhead for motor control expansion (vs ESP32-CAM)
+- **8MB Flash & PSRAM**: Double the memory of TTGO, enables larger buffers
+- **OTA flashing**: Uses same rate limiting as ESP32-CAM (50KB/s for stability)
 
 ## Web Interface
 
@@ -377,7 +406,7 @@ When connected to STA mode and can't reach the router:
 
 ## Documentation
 
-- [Software Requirements](docs/requirements/software_requirements.md) - Full requirements specification
+- [Software Requirements](projects/ESP32_Rover/esp32-rover-firmware/docs/requirements/software_requirements.md) - Full requirements specification
 - [API Reference](docs/implementation/API_REFERENCE.md) - Component APIs and configuration
 - [Web UI User Manual](docs/user/WEBUI_USER_MANUAL.md) - Control interface guide
 - [ESP-PROG JTAG Guide](esp-prog-jtag-guide.md) - Hardware debugging setup

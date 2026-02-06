@@ -29,14 +29,17 @@ set(COMPONENT_REQUIRES
     build_info
 )
 
-# Add camera component only for ESP32-CAM builds
+# Add camera component only for camera-enabled targets
 if(ROVER_TARGET STREQUAL "esp32cam")
     list(APPEND COMPONENT_REQUIRES camera)
     message(STATUS "Building for ESP32-CAM (camera enabled)")
 elseif(ROVER_TARGET STREQUAL "ttgo")
     message(STATUS "Building for TTGO T-Display (no camera)")
+elseif(ROVER_TARGET STREQUAL "xiao_esp32s3")
+    list(APPEND COMPONENT_REQUIRES camera)
+    message(STATUS "Building for XIAO ESP32S3 Sense (camera enabled)")
 else()
-    message(FATAL_ERROR "Invalid ROVER_TARGET: ${ROVER_TARGET}. Must be 'esp32cam' or 'ttgo'")
+    message(FATAL_ERROR "Invalid ROVER_TARGET: ${ROVER_TARGET}. Must be 'esp32cam', 'ttgo', or 'xiao_esp32s3'")
 endif()
 
 idf_component_register(
@@ -52,6 +55,8 @@ if(ROVER_TARGET STREQUAL "esp32cam")
     target_compile_definitions(${COMPONENT_LIB} PUBLIC ROVER_TARGET_ESP32CAM=1)
 elseif(ROVER_TARGET STREQUAL "ttgo")
     target_compile_definitions(${COMPONENT_LIB} PUBLIC ROVER_TARGET_TTGO=1)
+elseif(ROVER_TARGET STREQUAL "xiao_esp32s3")
+    target_compile_definitions(${COMPONENT_LIB} PUBLIC ROVER_TARGET_XIAO_ESP32S3=1)
 endif()
 
 # REQ-38: JTAG Debug Mode - frees GPIO 12-15 for JTAG debugging
